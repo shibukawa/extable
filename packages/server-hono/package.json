@@ -1,0 +1,21 @@
+{
+  "name": "@extable/server-hono",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "vite build",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "lint": "biome lint .",
+    "format": "biome format --write ."
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.8",
+    "hono": "^4.6.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

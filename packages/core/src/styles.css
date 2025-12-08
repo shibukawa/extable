@@ -1,0 +1,18 @@
+:root {
+  --extable-border: 1px solid #dadce0;
+  --extable-accent: #3b82f6;
+  --extable-invalid: #ef4444;
+}
+
+.extable-cell {
+  border: var(--extable-border);
+  padding: 4px 8px;
+}
+
+.extable-cell.invalid {
+  outline: 1px solid var(--extable-invalid);
+}
+
+.pending {
+  color: #b91c1c;
+}

@@ -1,0 +1,44 @@
+{
+  "name": "extable",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build:core && npm run build:wrappers && npm run build:demos && npm run build:server",
+    "build:core": "npm run build --workspace @extable/core",
+    "build:wrappers": "npm run build --workspace @extable/react && npm run build --workspace @extable/vue",
+    "build:demos": "npm run build --workspace @extable/demo && npm run build --workspace @extable/demo-react && npm run build --workspace @extable/demo-vue",
+    "build:server": "npm run build --workspace @extable/server-hono",
+    "test": "npm run test --ws --if-present",
+    "lint": "biome lint . && npm run lint --ws --if-present",
+    "format": "biome format --write . && npm run format --ws --if-present",
+    "dev": "npm run dev --ws --if-present",
+    "dev:demo": "npm run dev --workspace @extable/demo",
+    "dev:demo-react": "npm run dev --workspace @extable/demo-react",
+    "dev:demo-vue": "npm run dev --workspace @extable/demo-vue",
+    "dev:server": "npm run dev --workspace @extable/server-hono",
+    "e2e": "npm run e2e --ws --if-present",
+    "postinstall": "playwright install chromium firefox webkit"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@playwright/test": "^1.46.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.1",
+    "jsdom": "^24.1.0",
+    "playwright": "^1.46.0",
+    "typescript": "^5.6.3",
+    "vite": "^7.2.4",
+    "vitest": "^2.1.4"
+  },
+  "browserslist": [
+    "last 2 versions",
+    "not dead"
+  ]
+}
