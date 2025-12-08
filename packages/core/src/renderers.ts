@@ -7,11 +7,15 @@ export interface Renderer {
   destroy(): void;
   getCellElements(): NodeListOf<HTMLElement> | null;
   hitTest(event: MouseEvent): { rowId: string; colKey: string | number; element?: HTMLElement; rect: DOMRect } | null;
+  setActiveCell(rowId: string | null, colKey: string | number | null): void;
 }
 
 export class HTMLRenderer implements Renderer {
   private tableEl: HTMLTableElement | null = null;
   private defaultRowHeight = 24;
+  private rowHeaderWidth = 48;
+  private activeRowId: string | null = null;
+  private activeColKey: string | number | null = null;
   constructor(private dataModel: DataModel) {}
 
   mount(root: HTMLElement) {
@@ -22,20 +26,41 @@ export class HTMLRenderer implements Renderer {
     this.render();
   }
 
+  setActiveCell(rowId: string | null, colKey: string | number | null) {
+    this.activeRowId = rowId;
+    this.activeColKey = colKey;
+    this.updateActiveClasses();
+  }
+
   render() {
     if (!this.tableEl) return;
     const scrollContainer = this.tableEl.parentElement;
     const prevTop = scrollContainer?.scrollTop ?? 0;
     const prevLeft = scrollContainer?.scrollLeft ?? 0;
     const schema = this.dataModel.getSchema();
+    const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
     this.tableEl.innerHTML = '';
+    const colWidths = schema.columns.map((c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100);
+    const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
+    const colgroup = document.createElement('colgroup');
+    const rowCol = document.createElement('col');
+    rowCol.style.width = `${this.rowHeaderWidth}px`;
+    colgroup.appendChild(rowCol);
+    colWidths.forEach((w) => {
+      const colEl = document.createElement('col');
+      if (w) colEl.style.width = `${w}px`;
+      colgroup.appendChild(colEl);
+    });
+    this.tableEl.appendChild(colgroup);
+    this.tableEl.style.width = `${totalWidth}px`;
     this.tableEl.appendChild(this.renderHeader(schema));
     const body = document.createElement('tbody');
     rows.forEach((row) => {
       body.appendChild(this.renderRow(row, schema));
     });
     this.tableEl.appendChild(body);
+    this.updateActiveClasses();
     if (scrollContainer) {
       scrollContainer.scrollTop = prevTop;
       scrollContainer.scrollLeft = prevLeft;
@@ -69,10 +94,21 @@ export class HTMLRenderer implements Renderer {
   private renderHeader(schema: Schema) {
     const thead = document.createElement('thead');
     const tr = document.createElement('tr');
+    const rowTh = document.createElement('th');
+    rowTh.classList.add('extable-row-header');
+    rowTh.textContent = '#';
+    rowTh.style.width = `${this.rowHeaderWidth}px`;
+    if (this.activeRowId) rowTh.classList.toggle('extable-active-row-header', true);
+    rowTh.dataset.colKey = '__row__';
+    tr.appendChild(rowTh);
     schema.columns.forEach((col) => {
       const th = document.createElement('th');
       th.textContent = col.header ?? String(col.key);
       if (col.width) th.style.width = `${col.width}px`;
+      th.dataset.colKey = String(col.key);
+      if (this.activeColKey !== null && String(this.activeColKey) === String(col.key)) {
+        th.classList.add('extable-active-col-header');
+      }
       tr.appendChild(th);
     });
     thead.appendChild(tr);
@@ -83,6 +119,15 @@ export class HTMLRenderer implements Renderer {
     const tr = document.createElement('tr');
     tr.dataset.rowId = row.id;
     const view = this.dataModel.getView();
+    const rowHeader = document.createElement('th');
+    rowHeader.scope = 'row';
+    rowHeader.classList.add('extable-row-header');
+    rowHeader.dataset.rowId = row.id;
+    const index = this.dataModel.getDisplayIndex(row.id) ?? '';
+    rowHeader.textContent = String(index);
+    rowHeader.style.width = `${this.rowHeaderWidth}px`;
+    if (this.activeRowId === row.id) rowHeader.classList.add('extable-active-row-header');
+    tr.appendChild(rowHeader);
     schema.columns.forEach((col) => {
       const td = document.createElement('td');
       td.dataset.rowId = row.id;
@@ -105,6 +150,9 @@ export class HTMLRenderer implements Renderer {
       td.dataset.value = value === null || value === undefined ? '' : String(value);
       td.dataset.original = raw === null || raw === undefined ? '' : String(raw);
       if (isPending) td.classList.add('pending');
+      if (this.activeRowId === row.id && this.activeColKey !== null && String(this.activeColKey) === String(col.key)) {
+        td.classList.add('extable-active-cell');
+      }
       tr.appendChild(td);
     });
     // variable row height based on measured content when wrap enabled
@@ -137,6 +185,28 @@ export class HTMLRenderer implements Renderer {
     }
     return tr;
   }
+
+  private updateActiveClasses() {
+    if (!this.tableEl) return;
+    this.tableEl.querySelectorAll('.extable-active-row-header').forEach((el) => el.classList.remove('extable-active-row-header'));
+    this.tableEl.querySelectorAll('.extable-active-col-header').forEach((el) => el.classList.remove('extable-active-col-header'));
+    this.tableEl.querySelectorAll('.extable-active-cell').forEach((el) => el.classList.remove('extable-active-cell'));
+    if (this.activeRowId) {
+      this.tableEl
+        .querySelectorAll<HTMLElement>(`[data-row-id="${this.activeRowId}"].extable-row-header`)
+        .forEach((el) => el.classList.add('extable-active-row-header'));
+    }
+    if (this.activeColKey !== null) {
+      this.tableEl
+        .querySelectorAll<HTMLElement>(`th[data-col-key="${String(this.activeColKey)}"]`)
+        .forEach((el) => el.classList.add('extable-active-col-header'));
+      if (this.activeRowId) {
+        this.tableEl
+          .querySelectorAll<HTMLElement>(`td[data-row-id="${this.activeRowId}"][data-col-key="${String(this.activeColKey)}"]`)
+          .forEach((el) => el.classList.add('extable-active-cell'));
+      }
+    }
+  }
 }
 
 export class CanvasRenderer implements Renderer {
@@ -149,6 +219,9 @@ export class CanvasRenderer implements Renderer {
   private readonly headerHeight = 24;
   private readonly lineHeight = 16;
   private readonly padding = 12;
+  private readonly rowHeaderWidth = 48;
+  private activeRowId: string | null = null;
+  private activeColKey: string | number | null = null;
 
   constructor(dataModel: DataModel) {
     this.dataModel = dataModel;
@@ -183,6 +256,12 @@ export class CanvasRenderer implements Renderer {
     this.render();
   }
 
+  setActiveCell(rowId: string | null, colKey: string | number | null) {
+    this.activeRowId = rowId;
+    this.activeColKey = colKey;
+    this.render();
+  }
+
   render() {
     if (!this.canvas || !this.root) return;
     const ctx = this.canvas.getContext('2d');
@@ -191,7 +270,7 @@ export class CanvasRenderer implements Renderer {
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
     const colWidths = schema.columns.map((c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100);
-    const totalWidth = colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
+    const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
     const totalHeightInitial =
       this.headerHeight +
       rows.reduce((acc, row) => acc + (this.dataModel.getRowHeight(row.id) ?? this.rowHeight), 0);
@@ -259,8 +338,24 @@ export class CanvasRenderer implements Renderer {
     ctx.fillRect(0, 0, this.canvas.width, this.headerHeight);
     ctx.strokeStyle = '#d0d7de';
     let xHeader = 0;
+    // row header
+    ctx.strokeRect(xHeader, 0, this.rowHeaderWidth, this.headerHeight);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '14px sans-serif';
+    ctx.fillText('#', xHeader + 8, this.headerHeight - 8);
+    if (this.activeRowId) {
+      ctx.fillStyle = 'rgba(59,130,246,0.16)';
+      ctx.fillRect(xHeader, 0, this.rowHeaderWidth, this.headerHeight);
+    }
+    xHeader += this.rowHeaderWidth;
     schema.columns.forEach((c, idx) => {
       const w = colWidths[idx] ?? 100;
+      const isActiveCol = this.activeColKey !== null && String(this.activeColKey) === String(c.key);
+      if (isActiveCol) {
+        ctx.fillStyle = 'rgba(59,130,246,0.16)';
+        ctx.fillRect(xHeader, 0, w, this.headerHeight);
+      }
+      ctx.strokeStyle = '#d0d7de';
       ctx.strokeRect(xHeader, 0, w, this.headerHeight);
       ctx.fillStyle = '#0f172a';
       ctx.font = '14px sans-serif';
@@ -274,6 +369,19 @@ export class CanvasRenderer implements Renderer {
       const row = rows[i];
       const rowH = this.computeRowHeight(ctx, row, schema, colWidths);
       let x = 0;
+      // row header cell
+      ctx.strokeStyle = '#d0d7de';
+      ctx.fillStyle = '#f4f5f7';
+      ctx.fillRect(x, yCursor, this.rowHeaderWidth, rowH);
+      ctx.strokeRect(x, yCursor, this.rowHeaderWidth, rowH);
+      const idxText = this.dataModel.getDisplayIndex(row.id) ?? '';
+      if (this.activeRowId === row.id) {
+        ctx.fillStyle = 'rgba(59,130,246,0.16)';
+        ctx.fillRect(x, yCursor, this.rowHeaderWidth, rowH);
+      }
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText(String(idxText), x + 8, yCursor + this.lineHeight);
+      x += this.rowHeaderWidth;
       schema.columns.forEach((c, idx) => {
         const w = colWidths[idx] ?? 100;
         ctx.strokeStyle = '#d0d7de';
@@ -282,6 +390,14 @@ export class CanvasRenderer implements Renderer {
         ctx.strokeRect(x, yCursor, w, rowH);
         const value = this.dataModel.getCell(row.id, c.key);
         const text = value === null || value === undefined ? '' : String(value);
+        const isActiveCell =
+          this.activeRowId === row.id && this.activeColKey !== null && String(this.activeColKey) === String(c.key);
+        if (isActiveCell) {
+          ctx.strokeStyle = '#3b82f6';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, yCursor + 1, w - 2, rowH - 2);
+          ctx.lineWidth = 1;
+        }
         ctx.fillStyle = this.dataModel.hasPending(row.id, c.key) ? '#b91c1c' : '#0f172a';
         this.drawCellText(ctx, text, x + 8, yCursor + 6, w - 12, rowH - 12, c.wrapText ?? false);
         x += w;
@@ -328,6 +444,7 @@ export class CanvasRenderer implements Renderer {
     const headerHeight = this.headerHeight;
     const colWidths = schema.columns.map((c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100);
     if (y < headerHeight) return null;
+    if (x < this.rowHeaderWidth) return null;
     let rowIndex = -1;
     let accumHeight = 0;
     for (let i = 0; i < rows.length; i += 1) {
@@ -339,7 +456,7 @@ export class CanvasRenderer implements Renderer {
       accumHeight += h;
     }
     if (rowIndex < 0 || rowIndex >= rows.length) return null;
-    let xCursor = 0;
+    let xCursor = this.rowHeaderWidth;
     let colIndex = -1;
     for (let i = 0; i < colWidths.length; i += 1) {
       const w = colWidths[i] ?? 100;
@@ -354,7 +471,7 @@ export class CanvasRenderer implements Renderer {
     const col = schema.columns[colIndex];
     const rowTop = accumHeight;
     const cellRect = new DOMRect(
-      rect.left + xCursor,
+      rect.left + xCursor - this.root.scrollLeft,
       rect.top + headerHeight + rowTop - this.root.scrollTop,
       colWidths[colIndex] ?? 100,
       this.dataModel.getRowHeight(row.id) ?? this.rowHeight

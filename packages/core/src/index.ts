@@ -108,7 +108,8 @@ export class ExtableCore {
       (rowId) => void this.lockManager.selectRow(rowId),
       (rowId) => void this.lockManager.unlockOnMove(rowId),
       (ev) => this.renderer.hitTest(ev),
-      this.dataModel
+      this.dataModel,
+      (rowId, colKey) => this.renderer.setActiveCell(rowId, colKey)
     );
     this.root.dataset.extable = 'ready';
     this.bindViewport();

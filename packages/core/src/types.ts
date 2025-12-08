@@ -110,4 +110,5 @@ export interface TableConfig {
 export interface InternalRow {
   id: string;
   raw: RowObject | RowArray;
+  displayIndex: number;
 }

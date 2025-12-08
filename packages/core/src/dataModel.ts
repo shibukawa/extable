@@ -15,9 +15,10 @@ export class DataModel {
 
   public setData(dataset: DataSet) {
     this.pending.clear();
-    this.rows = dataset.rows.map((row) => ({
+    this.rows = dataset.rows.map((row, idx) => ({
       id: generateId(),
-      raw: row
+      raw: row,
+      displayIndex: idx + 1
     }));
   }
 
@@ -118,13 +119,18 @@ export class DataModel {
 
   public insertRow(rowData: InternalRow['raw']) {
     const id = generateId();
-    this.rows.push({ id, raw: rowData });
+    const nextIndex = this.rows.reduce((max, r) => Math.max(max, r.displayIndex), 0) + 1;
+    this.rows.push({ id, raw: rowData, displayIndex: nextIndex });
     return id;
   }
 
   public deleteRow(rowId: string) {
     this.rows = this.rows.filter((r) => r.id !== rowId);
     this.pending.delete(rowId);
+  }
+
+  public getDisplayIndex(rowId: string) {
+    return this.rows.find((r) => r.id === rowId)?.displayIndex;
   }
 
   public getColumns(): ColumnSchema[] {

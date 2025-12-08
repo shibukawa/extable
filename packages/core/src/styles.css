@@ -2,6 +2,7 @@
   --extable-border: 1px solid #dadce0;
   --extable-accent: #3b82f6;
   --extable-invalid: #ef4444;
+  --extable-header-bg: #e5e7eb;
 }
 
 .extable-cell {
@@ -15,4 +16,26 @@
 
 .pending {
   color: #b91c1c;
+}
+
+.extable-row-header {
+  position: sticky;
+  left: 0;
+  background: #f4f5f7;
+  text-align: right;
+  padding: 4px 6px;
+  border: var(--extable-border);
+  font-weight: 600;
+  color: #334155;
+  z-index: 1;
+}
+
+.extable-active-row-header,
+.extable-active-col-header {
+  background: rgba(59, 130, 246, 0.16);
+}
+
+.extable-active-cell {
+  outline: 2px solid var(--extable-accent);
+  outline-offset: -2px;
 }

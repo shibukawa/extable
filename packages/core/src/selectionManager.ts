@@ -5,6 +5,7 @@ type EditHandler = (cmd: Command, commit: boolean) => void;
 type RowSelectHandler = (rowId: string) => void;
 type MoveHandler = (rowId?: string) => void;
 type HitTest = (event: MouseEvent) => { rowId: string; colKey: string | number; element?: HTMLElement; rect: DOMRect } | null;
+type ActiveChange = (rowId: string | null, colKey: string | number | null) => void;
 
 export class SelectionManager {
   private root: HTMLElement;
@@ -35,7 +36,8 @@ export class SelectionManager {
     onRowSelect: RowSelectHandler,
     onMove: MoveHandler,
     hitTest: HitTest,
-    private dataModel: DataModel
+    private dataModel: DataModel,
+    private onActiveChange: ActiveChange
   ) {
     this.root = root;
     this.editMode = editMode;
@@ -51,12 +53,12 @@ export class SelectionManager {
   }
 
   cancelEditing() {
-    this.teardownInput();
+    this.teardownInput(true);
   }
 
   destroy() {
     this.root.removeEventListener('click', this.handleClick);
-    this.teardownInput();
+    this.teardownInput(true);
   }
 
   onScroll(scrollTop: number, scrollLeft: number) {
@@ -144,11 +146,12 @@ export class SelectionManager {
       // restore previous cell text if editing was abandoned
       const val = (this.activeHost.dataset && this.activeHost.dataset.value) ?? this.inputEl.value;
       this.activeHost.textContent = val;
-      this.teardownInput();
+      this.teardownInput(false);
     }
     const hit = this.hitTest(ev);
     if (!hit) return;
     this.onRowSelect(hit.rowId);
+    this.onActiveChange(hit.rowId, hit.colKey);
     if (hit.element) {
       this.activateCellElement(hit.element, hit.rowId, hit.colKey);
     } else {
@@ -164,8 +167,15 @@ export class SelectionManager {
     const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
-    input.style.width = '100%';
+    input.style.width = 'calc(100% - 4px)';
     input.style.boxSizing = 'border-box';
+    input.style.margin = '2px';
+    input.style.padding = '4px 6px';
+    input.style.border = 'none';
+    input.style.borderRadius = '0';
+    input.style.boxShadow = 'none';
+    input.style.background = 'transparent';
+    input.style.outline = 'none';
     input.addEventListener('keydown', (e) => this.handleKey(e as KeyboardEvent, cell));
     input.addEventListener('focus', () => input.select());
     this.attachInputDebug(input);
@@ -187,13 +197,21 @@ export class SelectionManager {
     this.activeHost = wrapper;
     wrapper.style.position = 'absolute';
     wrapper.style.pointerEvents = 'none';
+    wrapper.style.padding = '0';
     const current = this.dataModel.getCell(rowId, colKey);
     const { control, value } = this.createEditor(colKey, current === null || current === undefined ? '' : String(current));
     const input = control;
     input.value = value;
-    input.style.width = '100%';
-    input.style.height = '100%';
+    input.style.width = 'calc(100% - 4px)';
+    input.style.height = 'calc(100% - 4px)';
     input.style.boxSizing = 'border-box';
+    input.style.margin = '2px';
+    input.style.padding = '4px 6px';
+    input.style.border = 'none';
+    input.style.borderRadius = '0';
+    input.style.boxShadow = 'none';
+    input.style.background = 'transparent';
+    input.style.outline = 'none';
     input.style.pointerEvents = 'auto';
     input.addEventListener('keydown', (e) => this.handleKey(e as KeyboardEvent, wrapper));
     input.addEventListener('focus', () => input.select());
@@ -206,11 +224,12 @@ export class SelectionManager {
     }
     this.root.appendChild(wrapper);
     const rootRect = this.root.getBoundingClientRect();
+    const inset = 2;
     this.floatingMeta = {
-      screenLeft: rect.left,
-      screenTop: rect.top,
-      width: rect.width,
-      height: rect.height,
+      screenLeft: rect.left + inset,
+      screenTop: rect.top + inset,
+      width: Math.max(8, rect.width - inset * 2),
+      height: Math.max(8, rect.height - inset * 2),
       scrollLeft0: this.root.scrollLeft,
       scrollTop0: this.root.scrollTop
     };
@@ -239,7 +258,7 @@ export class SelectionManager {
       const value = this.inputEl.value;
       this.commitEdit(rowId, colKey, value);
       this.onMove(rowId);
-      this.teardownInput();
+      this.teardownInput(false);
     } else if (isTextarea && e.key === 'Enter') {
       if (isAltEnter) {
         // allow newline insertion
@@ -249,7 +268,7 @@ export class SelectionManager {
       const value = this.inputEl.value;
       this.commitEdit(rowId, colKey, value);
       this.onMove(rowId);
-      this.teardownInput();
+      this.teardownInput(false);
     } else if (e.key === 'Escape') {
       e.preventDefault();
       this.cancelEdit(cell);
@@ -258,7 +277,7 @@ export class SelectionManager {
       e.preventDefault();
       this.commitEdit(rowId, colKey, '');
       this.onMove(rowId);
-      this.teardownInput();
+      this.teardownInput(false);
     }
   }
 
@@ -292,14 +311,14 @@ export class SelectionManager {
       };
       this.onEdit(cmd, true);
     }
-    this.teardownInput();
+    this.teardownInput(false);
     if (cell.dataset?.original !== undefined || cell.dataset?.value !== undefined) {
       cell.textContent = cell.dataset.original ?? cell.dataset.value ?? '';
     }
     cell.blur();
   }
 
-  private teardownInput() {
+  private teardownInput(clearActive = false) {
     if (this.inputEl && this.inputEl.parentElement) {
       this.inputEl.parentElement.removeChild(this.inputEl);
     }
@@ -316,9 +335,12 @@ export class SelectionManager {
     }
     this.inputEl = null;
     this.floatingInputWrapper = null;
-    this.activeCell = null;
     this.activeHost = null;
     this.floatingMeta = null;
+    if (clearActive) {
+      this.activeCell = null;
+      this.onActiveChange(null, null);
+    }
   }
 
   private attachInputDebug(input: HTMLInputElement | HTMLTextAreaElement) {
