@@ -71,6 +71,22 @@ export class DataModel {
     return row.raw[String(key)];
   }
 
+  public isRowReadonly(rowId: string) {
+    const row = this.rows.find((r) => r.id === rowId);
+    if (!row) return false;
+    if (Array.isArray(row.raw)) return false;
+    return Boolean((row.raw as Record<string, unknown>)._readonly);
+  }
+
+  public isColumnReadonly(colKey: string | number) {
+    const col = this.schema.columns.find((c) => c.key === colKey);
+    return Boolean(col?.readonly);
+  }
+
+  public isReadonly(rowId: string, colKey: string | number) {
+    return this.isRowReadonly(rowId) || this.isColumnReadonly(colKey);
+  }
+
   public setCell(rowId: string, key: string | number, value: unknown, committed: boolean) {
     const row = this.rows.find((r) => r.id === rowId);
     if (!row) return;

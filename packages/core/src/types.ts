@@ -15,16 +15,26 @@ export interface ColumnSchema {
   readonly?: boolean;
   nullable?: boolean;
   string?: { maxLength?: number; regex?: string };
-  number?: { precision?: number; scale?: number; signed?: boolean };
-  enum?: { options: string[] };
-  tags?: { options: string[] };
-  booleanDisplay?: 'checkbox' | string; // arbitrary label; default checkbox if absent
+  number?: {
+    precision?: number;
+    scale?: number;
+    signed?: boolean;
+    thousandSeparator?: boolean;
+    negativeRed?: boolean;
+    format?: string; // optional custom formatter token
+  };
+  enum?: { options: string[]; allowCustom?: boolean };
+  tags?: { options: string[]; allowCustom?: boolean };
+  booleanDisplay?: 'checkbox' | string | [string, string]; // arbitrary label set; default checkbox when absent
+  dateFormat?: string;
+  timeFormat?: string;
+  dateTimeFormat?: string;
   width?: number; // px
-   wrapText?: boolean; // allow per-column wrapping
+  wrapText?: boolean; // allow per-column wrapping
   format?: {
     textColor?: string;
     background?: string;
-    align?: 'left' | 'right';
+    align?: 'left' | 'right' | 'center';
     decorations?: { strike?: boolean; underline?: boolean };
   };
   conditionalFormat?: { expr: string; engine?: 'cel' };
@@ -35,7 +45,7 @@ export interface Schema {
   columns: ColumnSchema[];
 }
 
-export type RowObject = Record<string, CellValue>;
+export type RowObject = { _readonly?: boolean } & Record<string, CellValue>;
 export type RowArray = CellValue[];
 
 export interface DataSet {
@@ -60,6 +70,7 @@ export interface View {
   userId?: string; // personalization
   columnWidths?: Record<string, number>; // key -> px
   rowHeights?: Record<string, number>;
+  wrapText?: Record<string, boolean>; // view override per column
 }
 
 export type RenderMode = 'html' | 'canvas' | 'auto';

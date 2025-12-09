@@ -1,5 +1,6 @@
 import type { DataModel } from './dataModel';
-import type { InternalRow, Schema } from './types';
+import type { InternalRow, Schema, ColumnSchema } from './types';
+import { format as formatDate, parseISO } from 'date-fns';
 
 export interface Renderer {
   mount(root: HTMLElement): void;
@@ -16,12 +17,15 @@ export class HTMLRenderer implements Renderer {
   private rowHeaderWidth = 48;
   private activeRowId: string | null = null;
   private activeColKey: string | number | null = null;
+  private numberFormatCache = new Map<string, Intl.NumberFormat>();
+  private dateParseCache = new Map<string, Date>();
   constructor(private dataModel: DataModel) {}
 
   mount(root: HTMLElement) {
     this.tableEl = document.createElement('table');
     this.tableEl.dataset.extableRenderer = 'html';
     root.innerHTML = '';
+    root.classList.add('extable-root');
     root.appendChild(this.tableEl);
     this.render();
   }
@@ -75,16 +79,17 @@ export class HTMLRenderer implements Renderer {
   }
 
   getCellElements() {
-    return this.tableEl?.querySelectorAll<HTMLElement>('td[data-row-id][data-col-key]') ?? null;
+    return this.tableEl?.querySelectorAll<HTMLElement>('tr[data-row-id] td[data-col-key]') ?? null;
   }
 
   hitTest(event: MouseEvent) {
     const target = event.target as HTMLElement | null;
     if (!target) return null;
-    const cell = target.closest<HTMLElement>('td[data-row-id][data-col-key]');
-    if (!cell) return null;
+    const cell = target.closest<HTMLElement>('td[data-col-key]');
+    const row = cell?.closest<HTMLElement>('tr[data-row-id]');
+    if (!cell || !row) return null;
     return {
-      rowId: cell.dataset.rowId!,
+      rowId: row.dataset.rowId!,
       colKey: cell.dataset.colKey!,
       element: cell,
       rect: cell.getBoundingClientRect()
@@ -95,8 +100,8 @@ export class HTMLRenderer implements Renderer {
     const thead = document.createElement('thead');
     const tr = document.createElement('tr');
     const rowTh = document.createElement('th');
-    rowTh.classList.add('extable-row-header');
-    rowTh.textContent = '#';
+    rowTh.classList.add('extable-row-header', 'extable-corner');
+    rowTh.textContent = '';
     rowTh.style.width = `${this.rowHeaderWidth}px`;
     if (this.activeRowId) rowTh.classList.toggle('extable-active-row-header', true);
     rowTh.dataset.colKey = '__row__';
@@ -122,7 +127,6 @@ export class HTMLRenderer implements Renderer {
     const rowHeader = document.createElement('th');
     rowHeader.scope = 'row';
     rowHeader.classList.add('extable-row-header');
-    rowHeader.dataset.rowId = row.id;
     const index = this.dataModel.getDisplayIndex(row.id) ?? '';
     rowHeader.textContent = String(index);
     rowHeader.style.width = `${this.rowHeaderWidth}px`;
@@ -130,11 +134,12 @@ export class HTMLRenderer implements Renderer {
     tr.appendChild(rowHeader);
     schema.columns.forEach((col) => {
       const td = document.createElement('td');
-      td.dataset.rowId = row.id;
+      td.classList.add('extable-cell');
       td.dataset.colKey = String(col.key);
       const width = view.columnWidths?.[String(col.key)] ?? col.width;
       if (width) td.style.width = `${width}px`;
-      if (col.wrapText) {
+      const wrap = view.wrapText?.[String(col.key)] ?? col.wrapText;
+      if (wrap) {
         td.style.whiteSpace = 'pre-wrap';
         td.style.textOverflow = 'clip';
         td.style.overflowWrap = 'anywhere';
@@ -145,18 +150,27 @@ export class HTMLRenderer implements Renderer {
       }
       const raw = this.dataModel.getRawCell(row.id, col.key);
       const value = this.dataModel.getCell(row.id, col.key);
+      const formatted = this.formatValue(value, col);
       const isPending = this.dataModel.hasPending(row.id, col.key);
-      td.textContent = value === null || value === undefined ? '' : String(value);
+      td.textContent = formatted.text;
+      if (formatted.color) td.style.color = formatted.color;
+      const align = col.format?.align ?? (col.type === 'number' ? 'right' : 'left');
+      td.style.textAlign = align;
       td.dataset.value = value === null || value === undefined ? '' : String(value);
       td.dataset.original = raw === null || raw === undefined ? '' : String(raw);
       if (isPending) td.classList.add('pending');
+      if (this.dataModel.isReadonly(row.id, col.key)) {
+        td.classList.add('extable-readonly');
+      } else {
+        td.classList.add('extable-editable');
+      }
       if (this.activeRowId === row.id && this.activeColKey !== null && String(this.activeColKey) === String(col.key)) {
         td.classList.add('extable-active-cell');
       }
       tr.appendChild(td);
     });
     // variable row height based on measured content when wrap enabled
-    const wrapAny = schema.columns.some((c) => c.wrapText);
+    const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
     if (wrapAny) {
       let maxHeight = this.defaultRowHeight;
       schema.columns.forEach((col) => {
@@ -193,7 +207,7 @@ export class HTMLRenderer implements Renderer {
     this.tableEl.querySelectorAll('.extable-active-cell').forEach((el) => el.classList.remove('extable-active-cell'));
     if (this.activeRowId) {
       this.tableEl
-        .querySelectorAll<HTMLElement>(`[data-row-id="${this.activeRowId}"].extable-row-header`)
+        .querySelectorAll<HTMLElement>(`tr[data-row-id="${this.activeRowId}"] .extable-row-header`)
         .forEach((el) => el.classList.add('extable-active-row-header'));
     }
     if (this.activeColKey !== null) {
@@ -202,10 +216,60 @@ export class HTMLRenderer implements Renderer {
         .forEach((el) => el.classList.add('extable-active-col-header'));
       if (this.activeRowId) {
         this.tableEl
-          .querySelectorAll<HTMLElement>(`td[data-row-id="${this.activeRowId}"][data-col-key="${String(this.activeColKey)}"]`)
+          .querySelectorAll<HTMLElement>(`tr[data-row-id="${this.activeRowId}"] td[data-col-key="${String(this.activeColKey)}"]`)
           .forEach((el) => el.classList.add('extable-active-cell'));
       }
     }
+  }
+
+  private formatValue(value: unknown, col: ColumnSchema): { text: string; color?: string } {
+    if (value === null || value === undefined) return { text: '' };
+    if (col.type === 'boolean') {
+      if (col.booleanDisplay === 'checkbox' || !col.booleanDisplay) {
+        return { text: value ? '☑' : '☐' };
+      }
+      if (Array.isArray(col.booleanDisplay) && col.booleanDisplay.length >= 2) {
+        return { text: value ? String(col.booleanDisplay[0]) : String(col.booleanDisplay[1]) };
+      }
+      return { text: value ? String(col.booleanDisplay) : '' };
+    }
+    if (col.type === 'number' && typeof value === 'number') {
+      const num = value;
+      const opts: Intl.NumberFormatOptions = {};
+      if (col.number?.scale !== undefined) {
+        opts.minimumFractionDigits = col.number.scale;
+        opts.maximumFractionDigits = col.number.scale;
+      }
+      opts.useGrouping = Boolean(col.number?.thousandSeparator);
+      const key = JSON.stringify(opts);
+      let fmt = this.numberFormatCache.get(key);
+      if (!fmt) {
+        fmt = new Intl.NumberFormat('en-US', opts);
+        this.numberFormatCache.set(key, fmt);
+      }
+      const text = fmt.format(num);
+      const color = col.number?.negativeRed && num < 0 ? '#b91c1c' : undefined;
+      return { text, color };
+    }
+    if ((col.type === 'date' || col.type === 'time' || col.type === 'datetime') && (value instanceof Date || typeof value === 'string')) {
+      const fmt =
+        col.type === 'date'
+          ? col.dateFormat ?? 'yyyy-MM-dd'
+          : col.type === 'time'
+            ? col.timeFormat ?? 'HH:mm'
+            : col.dateTimeFormat ?? "yyyy-MM-dd'T'HH:mm:ss'Z'";
+      let d: Date | null = null;
+      if (value instanceof Date) d = value;
+      else {
+        const cached = this.dateParseCache.get(value);
+        const parsed = cached ?? parseISO(value);
+        if (!cached && !Number.isNaN(parsed.getTime())) this.dateParseCache.set(value, parsed);
+        d = Number.isNaN(parsed.getTime()) ? null : parsed;
+      }
+      if (!d) return { text: String(value) };
+      return { text: formatDate(d, fmt) };
+    }
+    return { text: String(value) };
   }
 }
 
@@ -222,6 +286,8 @@ export class CanvasRenderer implements Renderer {
   private readonly rowHeaderWidth = 48;
   private activeRowId: string | null = null;
   private activeColKey: string | number | null = null;
+  private numberFormatCache = new Map<string, Intl.NumberFormat>();
+  private dateParseCache = new Map<string, Date>();
 
   constructor(dataModel: DataModel) {
     this.dataModel = dataModel;
@@ -229,6 +295,7 @@ export class CanvasRenderer implements Renderer {
 
   mount(root: HTMLElement) {
     this.root = root;
+    this.root.classList.add('extable-root');
     root.style.overflow = 'auto';
     this.canvas = document.createElement('canvas');
     this.canvas.width = root.clientWidth || 600;
@@ -239,6 +306,7 @@ export class CanvasRenderer implements Renderer {
     this.canvas.style.position = 'sticky';
     this.canvas.style.top = '0';
     this.canvas.style.left = '0';
+    this.canvas.style.zIndex = '1';
     this.spacer = document.createElement('div');
     this.spacer.style.width = '1px';
     root.innerHTML = '';
@@ -246,10 +314,6 @@ export class CanvasRenderer implements Renderer {
     root.appendChild(this.canvas);
     root.appendChild(this.spacer);
     this.scrollHandler = () => {
-      console.log('[extable-canvas] root scroll', {
-        scrollTop: this.root?.scrollTop,
-        scrollLeft: this.root?.scrollLeft
-      });
       this.render();
     };
     root.addEventListener('scroll', this.scrollHandler);
@@ -270,10 +334,9 @@ export class CanvasRenderer implements Renderer {
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
     const colWidths = schema.columns.map((c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100);
+    const totalRowsHeight = rows.reduce((acc, row) => acc + (this.dataModel.getRowHeight(row.id) ?? this.rowHeight), 0);
     const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
-    const totalHeightInitial =
-      this.headerHeight +
-      rows.reduce((acc, row) => acc + (this.dataModel.getRowHeight(row.id) ?? this.rowHeight), 0);
+    const totalHeightInitial = this.headerHeight + totalRowsHeight;
     if (this.spacer) {
       this.spacer.style.height = `${totalHeightInitial}px`;
       this.spacer.style.width = `${totalWidth}px`;
@@ -287,31 +350,21 @@ export class CanvasRenderer implements Renderer {
 
     const scrollTop = this.root.scrollTop;
     const scrollLeft = this.root.scrollLeft;
-    console.log('[extable-canvas] render', {
-      canvas: { width: this.canvas.width, height: this.canvas.height },
-      root: {
-        clientWidth: this.root.clientWidth,
-        clientHeight: this.root.clientHeight,
-        scrollWidth: this.root.scrollWidth,
-        scrollHeight: this.root.scrollHeight,
-        scrollLeft,
-        scrollTop
-      },
-      spacer: this.spacer ? { width: this.spacer.style.width, height: this.spacer.style.height } : null,
-      totalWidth,
-      totalHeight: totalHeightInitial,
-      colWidths
-    });
-    // find visible start by accumulating heights
+    const contentScrollTop = Math.max(
+      0,
+      Math.min(scrollTop - this.headerHeight, Math.max(0, totalRowsHeight - this.rowHeight))
+    );
+    const dataXOffset = this.rowHeaderWidth - scrollLeft;
     let accum = 0;
     let visibleStart = 0;
     for (let i = 0; i < rows.length; i += 1) {
       const h = this.dataModel.getRowHeight(rows[i].id) ?? this.rowHeight;
-      if (accum + h >= scrollTop - this.headerHeight) {
+      if (contentScrollTop < accum + h) {
         visibleStart = i;
         break;
       }
       accum += h;
+      if (i === rows.length - 1) visibleStart = rows.length - 1;
     }
     let visibleEnd = visibleStart;
     let drawnHeight = 0;
@@ -320,34 +373,99 @@ export class CanvasRenderer implements Renderer {
       drawnHeight += this.dataModel.getRowHeight(rows[i].id) ?? this.rowHeight;
       visibleEnd = i + 1;
     }
-    console.log('[extable-canvas] viewport', {
-      visibleStart,
-      visibleEnd,
-      maxHeight,
-      accumStart: accum,
-      scrollTop,
-      scrollLeft
-    });
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.save();
-    ctx.translate(-scrollLeft, 0);
+    // Keep row-header column background visible across scroll
+    ctx.fillStyle = '#e5e7eb';
+    ctx.fillRect(0, 0, this.rowHeaderWidth, this.canvas.height);
+    // Body
+    let yCursor = this.headerHeight + accum - contentScrollTop;
+    for (let i = visibleStart; i < visibleEnd; i += 1) {
+      const row = rows[i];
+      const rowH = this.computeRowHeight(ctx, row, schema, colWidths);
+      // row header cell
+      ctx.strokeStyle = '#d0d7de';
+      ctx.fillStyle = '#e5e7eb';
+      ctx.fillRect(0, yCursor, this.rowHeaderWidth, rowH);
+      ctx.strokeRect(0, yCursor, this.rowHeaderWidth, rowH);
+      const idxText = this.dataModel.getDisplayIndex(row.id) ?? '';
+      if (this.activeRowId === row.id) {
+        ctx.fillStyle = 'rgba(59,130,246,0.16)';
+        ctx.fillRect(0, yCursor, this.rowHeaderWidth, rowH);
+      }
+      ctx.fillStyle = '#0f172a';
+      ctx.fillText(String(idxText), 8, yCursor + this.lineHeight);
 
-    // Header
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(this.rowHeaderWidth, this.headerHeight, this.canvas.width - this.rowHeaderWidth, this.canvas.height - this.headerHeight);
+      ctx.clip();
+      ctx.translate(dataXOffset, 0);
+      let x = 0;
+      schema.columns.forEach((c, idx) => {
+        const w = colWidths[idx] ?? 100;
+        const readOnly = this.dataModel.isReadonly(row.id, c.key);
+        ctx.strokeStyle = '#d0d7de';
+        ctx.fillStyle = readOnly ? '#f3f4f6' : '#ffffff';
+        ctx.fillRect(x, yCursor, w, rowH);
+        ctx.strokeRect(x, yCursor, w, rowH);
+        const value = this.dataModel.getCell(row.id, c.key);
+        const formatted = this.formatValue(value, c);
+        const text = formatted.text;
+        const align = c.format?.align ?? (c.type === 'number' ? 'right' : 'left');
+        const isActiveCell =
+          this.activeRowId === row.id && this.activeColKey !== null && String(this.activeColKey) === String(c.key);
+        if (isActiveCell) {
+          ctx.strokeStyle = '#3b82f6';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, yCursor + 1, w - 2, rowH - 2);
+          ctx.lineWidth = 1;
+        }
+        ctx.fillStyle = this.dataModel.hasPending(row.id, c.key)
+          ? '#b91c1c'
+          : formatted.color
+            ? formatted.color
+            : readOnly
+              ? '#94a3b8'
+              : '#0f172a';
+        const wrap = view.wrapText?.[String(c.key)] ?? c.wrapText ?? false;
+        this.drawCellText(ctx, text, x + 8, yCursor + 6, w - 12, rowH - 12, wrap, align);
+        x += w;
+      });
+      ctx.restore();
+      yCursor += rowH;
+    }
+
+    // update spacer height after computing dynamic row heights
+    const totalHeight =
+      this.headerHeight +
+      rows.reduce((acc, row) => acc + (this.dataModel.getRowHeight(row.id) ?? this.rowHeight), 0);
+    if (this.spacer) this.spacer.style.height = `${totalHeight}px`;
+
+    // Header (draw last to stay on top)
     ctx.fillStyle = '#e5e7eb';
     ctx.fillRect(0, 0, this.canvas.width, this.headerHeight);
     ctx.strokeStyle = '#d0d7de';
-    let xHeader = 0;
-    // row header
-    ctx.strokeRect(xHeader, 0, this.rowHeaderWidth, this.headerHeight);
-    ctx.fillStyle = '#0f172a';
-    ctx.font = '14px sans-serif';
-    ctx.fillText('#', xHeader + 8, this.headerHeight - 8);
+    // corner
+    ctx.strokeRect(0, 0, this.rowHeaderWidth, this.headerHeight);
+    ctx.fillStyle = '#9ca3af';
+    ctx.beginPath();
+    ctx.moveTo(4, 4);
+    ctx.lineTo(16, 4);
+    ctx.lineTo(4, 16);
+    ctx.closePath();
+    ctx.fill();
     if (this.activeRowId) {
       ctx.fillStyle = 'rgba(59,130,246,0.16)';
-      ctx.fillRect(xHeader, 0, this.rowHeaderWidth, this.headerHeight);
+      ctx.fillRect(0, 0, this.rowHeaderWidth, this.headerHeight);
     }
-    xHeader += this.rowHeaderWidth;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(this.rowHeaderWidth, 0, this.canvas.width - this.rowHeaderWidth, this.headerHeight);
+    ctx.clip();
+    ctx.translate(dataXOffset, 0);
+    let xHeader = 0;
     schema.columns.forEach((c, idx) => {
       const w = colWidths[idx] ?? 100;
       const isActiveCol = this.activeColKey !== null && String(this.activeColKey) === String(c.key);
@@ -362,55 +480,6 @@ export class CanvasRenderer implements Renderer {
       ctx.fillText(c.header ?? String(c.key), xHeader + 8, this.headerHeight - 8);
       xHeader += w;
     });
-
-    // Body
-    let yCursor = this.headerHeight + accum - scrollTop;
-    for (let i = visibleStart; i < visibleEnd; i += 1) {
-      const row = rows[i];
-      const rowH = this.computeRowHeight(ctx, row, schema, colWidths);
-      let x = 0;
-      // row header cell
-      ctx.strokeStyle = '#d0d7de';
-      ctx.fillStyle = '#f4f5f7';
-      ctx.fillRect(x, yCursor, this.rowHeaderWidth, rowH);
-      ctx.strokeRect(x, yCursor, this.rowHeaderWidth, rowH);
-      const idxText = this.dataModel.getDisplayIndex(row.id) ?? '';
-      if (this.activeRowId === row.id) {
-        ctx.fillStyle = 'rgba(59,130,246,0.16)';
-        ctx.fillRect(x, yCursor, this.rowHeaderWidth, rowH);
-      }
-      ctx.fillStyle = '#0f172a';
-      ctx.fillText(String(idxText), x + 8, yCursor + this.lineHeight);
-      x += this.rowHeaderWidth;
-      schema.columns.forEach((c, idx) => {
-        const w = colWidths[idx] ?? 100;
-        ctx.strokeStyle = '#d0d7de';
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(x, yCursor, w, rowH);
-        ctx.strokeRect(x, yCursor, w, rowH);
-        const value = this.dataModel.getCell(row.id, c.key);
-        const text = value === null || value === undefined ? '' : String(value);
-        const isActiveCell =
-          this.activeRowId === row.id && this.activeColKey !== null && String(this.activeColKey) === String(c.key);
-        if (isActiveCell) {
-          ctx.strokeStyle = '#3b82f6';
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x + 1, yCursor + 1, w - 2, rowH - 2);
-          ctx.lineWidth = 1;
-        }
-        ctx.fillStyle = this.dataModel.hasPending(row.id, c.key) ? '#b91c1c' : '#0f172a';
-        this.drawCellText(ctx, text, x + 8, yCursor + 6, w - 12, rowH - 12, c.wrapText ?? false);
-        x += w;
-      });
-      yCursor += rowH;
-    }
-
-    // update spacer height after computing dynamic row heights
-    const totalHeight =
-      this.headerHeight +
-      rows.reduce((acc, row) => acc + (this.dataModel.getRowHeight(row.id) ?? this.rowHeight), 0);
-    if (this.spacer) this.spacer.style.height = `${totalHeight}px`;
-
     ctx.restore();
   }
 
@@ -481,11 +550,13 @@ export class CanvasRenderer implements Renderer {
 
   private computeRowHeight(ctx: CanvasRenderingContext2D, row: InternalRow, schema: Schema, colWidths: number[]) {
     let maxHeight = this.rowHeight;
+    const view = this.dataModel.getView();
     schema.columns.forEach((c, idx) => {
-      if (!c.wrapText) return;
+      const wrap = view.wrapText?.[String(c.key)] ?? c.wrapText;
+      if (!wrap) return;
       const w = (colWidths[idx] ?? 100) - this.padding;
       const value = this.dataModel.getCell(row.id, c.key);
-      const text = value === null || value === undefined ? '' : String(value);
+      const text = this.formatValue(value, c).text;
       const lines = this.wrapLines(ctx, text, w);
       const h = lines.length * this.lineHeight + this.padding;
       maxHeight = Math.max(maxHeight, h);
@@ -519,24 +590,86 @@ export class CanvasRenderer implements Renderer {
     y: number,
     width: number,
     height: number,
-    wrap: boolean
+    wrap: boolean,
+    align: 'left' | 'right' | 'center' = 'left'
   ) {
     ctx.save();
     ctx.beginPath();
     ctx.rect(x - 4, y - 4, width + 8, height + 8);
     ctx.clip();
+    const renderLine = (ln: string, lineIdx: number) => {
+      if (align === 'right') {
+        ctx.textAlign = 'right';
+        ctx.fillText(ln, x + width, y + this.lineHeight * lineIdx);
+      } else if (align === 'center') {
+        ctx.textAlign = 'center';
+        ctx.fillText(ln, x + width / 2, y + this.lineHeight * lineIdx);
+      } else {
+        ctx.textAlign = 'left';
+        ctx.fillText(ln, x, y + this.lineHeight * lineIdx);
+      }
+    };
     if (wrap) {
       const lines = this.wrapLines(ctx, text, width);
-      lines.forEach((ln, idx) => {
-        ctx.fillText(ln, x, y + this.lineHeight * (idx + 1));
-      });
+      lines.forEach((ln, idx) => renderLine(ln, idx + 1));
     } else {
       let out = text;
       while (ctx.measureText(out).width > width && out.length > 1) {
         out = out.slice(0, -2) + '…';
       }
-      ctx.fillText(out, x, y + this.lineHeight);
+      renderLine(out, 1);
     }
+    ctx.textAlign = 'left';
     ctx.restore();
+  }
+
+  private formatValue(value: unknown, col: ColumnSchema): { text: string; color?: string } {
+    if (value === null || value === undefined) return { text: '' };
+    if (col.type === 'boolean') {
+      if (col.booleanDisplay === 'checkbox' || !col.booleanDisplay) {
+        return { text: value ? '☑' : '☐' };
+      }
+      if (Array.isArray(col.booleanDisplay) && col.booleanDisplay.length >= 2) {
+        return { text: value ? String(col.booleanDisplay[0]) : String(col.booleanDisplay[1]) };
+      }
+      return { text: value ? String(col.booleanDisplay) : '' };
+    }
+    if (col.type === 'number' && typeof value === 'number') {
+      const num = value;
+      const opts: Intl.NumberFormatOptions = {};
+      if (col.number?.scale !== undefined) {
+        opts.minimumFractionDigits = col.number.scale;
+        opts.maximumFractionDigits = col.number.scale;
+      }
+      opts.useGrouping = Boolean(col.number?.thousandSeparator);
+      const key = JSON.stringify(opts);
+      let fmt = this.numberFormatCache.get(key);
+      if (!fmt) {
+        fmt = new Intl.NumberFormat('en-US', opts);
+        this.numberFormatCache.set(key, fmt);
+      }
+      const text = fmt.format(num);
+      const color = col.number?.negativeRed && num < 0 ? '#b91c1c' : undefined;
+      return { text, color };
+    }
+    if ((col.type === 'date' || col.type === 'time' || col.type === 'datetime') && (value instanceof Date || typeof value === 'string')) {
+      const fmt =
+        col.type === 'date'
+          ? col.dateFormat ?? 'yyyy-MM-dd'
+          : col.type === 'time'
+            ? col.timeFormat ?? 'HH:mm'
+            : col.dateTimeFormat ?? "yyyy-MM-dd'T'HH:mm:ss'Z'";
+      let d: Date | null = null;
+      if (value instanceof Date) d = value;
+      else {
+        const cached = this.dateParseCache.get(value);
+        const parsed = cached ?? parseISO(value);
+        if (!cached && !Number.isNaN(parsed.getTime())) this.dateParseCache.set(value, parsed);
+        d = Number.isNaN(parsed.getTime()) ? null : parsed;
+      }
+      if (!d) return { text: String(value) };
+      return { text: formatDate(d, fmt) };
+    }
+    return { text: String(value) };
   }
 }

@@ -64,3 +64,64 @@ export const demoView = {
   filters: [],
   sorts: []
 };
+
+export interface DataFormatRow {
+  id: number;
+  intPlain: number;
+  intGrouped: number;
+  intGroupedRed: number;
+  boolCheck: boolean;
+  boolTrueFalse: boolean;
+  boolTrueFalseJp: boolean;
+  dateIso: string;
+  dateSlash: string;
+  time24s: string;
+  time12: string;
+  datetimeIso: string;
+  datetimeSlash: string;
+}
+
+export const dataFormatRows: DataFormatRow[] = [];
+
+for (let i = 1; i <= 40; i += 1) {
+  const negative = i % 4 === 0;
+  dataFormatRows.push({
+    id: i,
+    intPlain: negative ? -i * 10 : i * 10,
+    intGrouped: negative ? -i * 1234 : i * 1234,
+    intGroupedRed: negative ? -i * 9876 : i * 9876,
+    boolCheck: i % 2 === 0,
+    boolTrueFalse: i % 3 === 0,
+    boolTrueFalseJp: i % 5 === 0,
+    dateIso: `2025-12-${String((i % 28) + 1).padStart(2, '0')}`,
+    dateSlash: `2025/${String((i % 12) + 1).padStart(2, '0')}/${String((i % 28) + 1).padStart(2, '0')}`,
+    time24s: `0${i % 24}:${String(i % 60).padStart(2, '0')}:${String((i * 2) % 60).padStart(2, '0')}`,
+    time12: `${String(((i % 12) || 12)).padStart(2, '0')}:${String((i * 3) % 60).padStart(2, '0')} ${i % 24 >= 12 ? 'PM' : 'AM'}`,
+    datetimeIso: `2025-12-${String((i % 28) + 1).padStart(2, '0')}T0${i % 24}:${String(i % 60).padStart(2, '0')}:00Z`,
+    datetimeSlash: `2025/${String((i % 12) + 1).padStart(2, '0')}/${String((i % 28) + 1).padStart(2, '0')} ${String(i % 24).padStart(2, '0')}:${String((i * 2) % 60).padStart(2, '0')}`
+  });
+}
+
+export const dataFormatSchema = {
+  columns: [
+    { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
+    { key: 'intPlain', header: 'Int Plain', type: 'number', width: 100 },
+    { key: 'intGrouped', header: 'Int Grouped', type: 'number', number: { thousandSeparator: true }, width: 120 },
+    { key: 'intGroupedRed', header: 'Int Grouped Red', type: 'number', number: { thousandSeparator: true, negativeRed: true }, width: 140 },
+    { key: 'boolCheck', header: 'Bool Checkbox', type: 'boolean', booleanDisplay: 'checkbox', width: 120 },
+    { key: 'boolTrueFalse', header: 'Bool TRUE/FALSE', type: 'boolean', booleanDisplay: ['TRUE', 'FALSE'], width: 130 },
+    { key: 'boolTrueFalseJp', header: 'Bool 真/偽', type: 'boolean', booleanDisplay: ['真', '偽'], width: 110 },
+    { key: 'dateIso', header: 'Date ISO', type: 'date', dateFormat: 'yyyy-MM-dd', width: 130 },
+    { key: 'dateSlash', header: 'Date Slash', type: 'date', dateFormat: 'yyyy/MM/dd', width: 130 },
+    { key: 'time24s', header: 'Time 24s', type: 'time', timeFormat: 'HH:mm:ss', width: 120 },
+    { key: 'time12', header: 'Time 12h', type: 'time', timeFormat: 'hh:mm a', width: 120 },
+    { key: 'datetimeIso', header: 'DateTime ISO', type: 'datetime', dateTimeFormat: "yyyy-MM-dd'T'HH:mm:ss'Z'", width: 200 },
+    { key: 'datetimeSlash', header: 'DateTime Slash', type: 'datetime', dateTimeFormat: 'yyyy/MM/dd HH:mm', width: 180 }
+  ]
+};
+
+export const dataFormatView = {
+  hiddenColumns: [],
+  filters: [],
+  sorts: []
+};

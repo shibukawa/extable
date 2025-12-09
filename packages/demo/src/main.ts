@@ -1,23 +1,28 @@
 import './style.css';
+import '@extable/core/style.css';
 import { ExtableCore } from '@extable/core';
 import type { Command, CoreOptions, DataSet, Schema, ServerAdapter, UserInfo, View } from '@extable/core';
-import { demoRows, demoSchema, demoView } from './data/fixtures';
+import { demoRows, demoSchema, demoView, dataFormatRows, dataFormatSchema, dataFormatView } from './data/fixtures';
 
 type Mode = 'html' | 'canvas' | 'auto';
 type EditMode = 'direct' | 'commit';
 type LockMode = 'none' | 'row';
+type DataMode = 'standard' | 'data-format';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 const tableRootId = 'table-root';
 
 const user: UserInfo = { id: 'demo-user', name: 'Demo User' };
 
+let currentConfig: { data: DataSet; view: View; schema: Schema } = {
+  data: { rows: demoRows.map((r) => ({ ...r })) },
+  view: { ...demoView },
+  schema: demoSchema
+};
+
 const serverStub: ServerAdapter = {
   async fetchInitial() {
-    const data: DataSet = { rows: demoRows.map((r) => ({ ...r })) };
-    const view: View = { ...demoView };
-    const schema: Schema = demoSchema;
-    return { data, view, schema, user };
+    return { ...currentConfig, user };
   },
   async lockRow(rowId) {
     console.log('lockRow', rowId);
@@ -61,6 +66,11 @@ function renderShell() {
       <h2>Wrap Text</h2>
       <label><input type="checkbox" id="wrap-toggle" checked /> Enable wrap</label>
     </div>
+    <div>
+      <h2>Data Set</h2>
+      <label><input type="radio" name="data-mode" value="standard" checked /> Standard</label>
+      <label><input type="radio" name="data-mode" value="data-format" /> Data Format</label>
+    </div>
     <button id="commit-btn" style="display:none;">Commit Pending</button>
   </section>
       <section class="layout">
@@ -79,7 +89,14 @@ function renderShell() {
   `;
 }
 
-function cloneConfig() {
+function cloneConfig(dataMode: DataMode) {
+  if (dataMode === 'data-format') {
+    return {
+      data: { rows: dataFormatRows.map((r) => ({ ...r })) },
+      schema: dataFormatSchema,
+      view: { ...dataFormatView }
+    };
+  }
   return {
     data: { rows: demoRows.map((r) => ({ ...r })) },
     schema: demoSchema,
@@ -102,6 +119,7 @@ function main() {
 
   let core: ExtableCore | null = null;
   let wrapText = true;
+  let dataMode: DataMode = 'standard';
 
   const stateEl = document.getElementById('state');
   const updateState = () => {
@@ -111,7 +129,8 @@ function main() {
         renderMode: options.renderMode,
         editMode: options.editMode,
         lockMode: options.lockMode,
-        wrapText
+        wrapText,
+        dataMode
       },
       null,
       2
@@ -120,11 +139,12 @@ function main() {
 
   const rebuildCore = () => {
     core?.destroy();
-    const config = cloneConfig();
+    const config = cloneConfig(dataMode);
+    currentConfig = config;
     core = new ExtableCore({
       root: tableRoot,
       defaultData: config.data,
-      defaultView: { ...config.view, wrapText },
+      defaultView: { ...config.view, wrapText: config.view.wrapText ?? (wrapText ? {} : {}) },
       schema: config.schema,
       options: { ...options }
     });
@@ -162,6 +182,13 @@ function main() {
   wrapToggle?.addEventListener('change', () => {
     wrapText = Boolean(wrapToggle.checked);
     rebuildCore();
+  });
+
+  document.querySelectorAll<HTMLInputElement>('input[name="data-mode"]').forEach((input) => {
+    input.addEventListener('change', () => {
+      dataMode = input.value as DataMode;
+      rebuildCore();
+    });
   });
 
   const commitBtn = document.getElementById('commit-btn');

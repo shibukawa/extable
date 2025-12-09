@@ -9,13 +9,15 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
-    }
+    },
+    "./style.css": "./dist/index.css",
+    "./index.css": "./dist/index.css"
   },
   "files": [
     "dist"
   ],
   "sideEffects": [
-    "./dist/styles.css"
+    "./dist/index.css"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json --emitDeclarationOnly && vite build",
@@ -24,12 +26,15 @@
     "format": "biome format --write ."
   },
   "dependencies": {
-    "@marcbachmann/cel-js": "^1.0.1"
+    "@marcbachmann/cel-js": "^6.3.3"
   },
   "devDependencies": {
     "typescript": "^5.6.3"
   },
   "engines": {
     "node": ">=22"
+  },
+  "peerDependencies": {
+    "date-fns": "^4.1.0"
   }
 }

@@ -12,7 +12,8 @@
     "e2e": "playwright test -c ../../playwright.config.ts"
   },
   "dependencies": {
-    "@extable/core": "0.0.0"
+    "@extable/core": "0.0.0",
+    "date-fns": "^4.1.0"
   },
   "devDependencies": {
     "typescript": "^5.6.3"

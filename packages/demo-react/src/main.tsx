@@ -1,4 +1,5 @@
 import './style.css';
+import '@extable/core/style.css';
 import { Extable } from '@extable/react';
 import { StrictMode, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';

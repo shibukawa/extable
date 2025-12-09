@@ -152,6 +152,9 @@ export class SelectionManager {
     if (!hit) return;
     this.onRowSelect(hit.rowId);
     this.onActiveChange(hit.rowId, hit.colKey);
+    if (this.dataModel.isReadonly(hit.rowId, hit.colKey)) {
+      return;
+    }
     if (hit.element) {
       this.activateCellElement(hit.element, hit.rowId, hit.colKey);
     } else {
@@ -174,8 +177,14 @@ export class SelectionManager {
     input.style.border = 'none';
     input.style.borderRadius = '0';
     input.style.boxShadow = 'none';
-    input.style.background = 'transparent';
+    input.style.background = '#fff';
     input.style.outline = 'none';
+    input.style.fontSize = '14px';
+    input.style.fontFamily = 'inherit';
+    input.style.lineHeight = '1.2';
+    input.style.fontWeight = 'inherit';
+    const col = this.findColumn(colKey);
+    input.style.textAlign = col?.format?.align ?? (col?.type === 'number' ? 'right' : 'left');
     input.addEventListener('keydown', (e) => this.handleKey(e as KeyboardEvent, cell));
     input.addEventListener('focus', () => input.select());
     this.attachInputDebug(input);
@@ -210,8 +219,14 @@ export class SelectionManager {
     input.style.border = 'none';
     input.style.borderRadius = '0';
     input.style.boxShadow = 'none';
-    input.style.background = 'transparent';
+    input.style.background = '#fff';
     input.style.outline = 'none';
+    input.style.fontSize = '14px';
+    input.style.fontFamily = 'inherit';
+    input.style.lineHeight = '1.2';
+    input.style.fontWeight = 'inherit';
+    const col = this.findColumn(colKey);
+    input.style.textAlign = col?.format?.align ?? (col?.type === 'number' ? 'right' : 'left');
     input.style.pointerEvents = 'auto';
     input.addEventListener('keydown', (e) => this.handleKey(e as KeyboardEvent, wrapper));
     input.addEventListener('focus', () => input.select());
