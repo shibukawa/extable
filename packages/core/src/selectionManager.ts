@@ -18,6 +18,7 @@ export class SelectionManager {
   private floatingInputWrapper: HTMLDivElement | null = null;
   private activeCell: { rowId: string; colKey: string | number } | null = null;
   private activeHost: HTMLElement | null = null;
+  private activeHostOriginalText: string | null = null;
   private floatingMeta: {
     screenLeft: number; // rect.left in viewport coords
     screenTop: number; // rect.top in viewport coords
@@ -131,14 +132,15 @@ export class SelectionManager {
       const listId = `extable-datalist-${String(colKey)}`;
       input.setAttribute('list', listId);
       input.value = initial;
-      const datalist = document.getElementById(listId) ?? document.createElement('datalist');
-      datalist.id = listId;
-      if (!datalist.childElementCount) {
-        options.forEach((opt) => {
+      let datalist = document.getElementById(listId) as HTMLDataListElement | null;
+      if (!datalist) {
+        datalist = document.createElement('datalist');
+        datalist.id = listId;
+        for (const opt of options) {
           const op = document.createElement('option');
           op.value = opt;
           datalist.appendChild(op);
-        });
+        }
         document.body.appendChild(datalist);
       }
       return { control: input, value: initial, datalistId: listId };
@@ -218,7 +220,9 @@ export class SelectionManager {
     this.teardownInput();
     this.activeCell = { rowId, colKey };
     this.activeHost = cell;
-    const initialValue = cell.dataset?.value ?? cell.textContent ?? '';
+    this.activeHostOriginalText = cell.textContent ?? '';
+    const current = this.dataModel.getCell(rowId, colKey);
+    const initialValue = current === null || current === undefined ? '' : String(current);
     const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
@@ -259,12 +263,14 @@ export class SelectionManager {
     this.activeCell = { rowId, colKey };
     const wrapper = document.createElement('div');
     this.activeHost = wrapper;
+    this.activeHostOriginalText = null;
     wrapper.style.position = 'absolute';
     wrapper.style.pointerEvents = 'none';
     wrapper.style.padding = '0';
     wrapper.style.zIndex = '2';
     const current = this.dataModel.getCell(rowId, colKey);
-    const { control, value } = this.createEditor(colKey, current === null || current === undefined ? '' : String(current));
+    const initialValue = current === null || current === undefined ? '' : String(current);
+    const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
     input.style.width = 'calc(100% - 4px)';
@@ -431,17 +437,13 @@ export class SelectionManager {
     if (this.floatingInputWrapper && this.floatingInputWrapper.parentElement) {
       this.floatingInputWrapper.parentElement.removeChild(this.floatingInputWrapper);
     }
-    if (this.activeHost) {
-      if (this.activeHost.dataset?.value !== undefined) {
-        this.activeHost.textContent = this.activeHost.dataset.value;
-      } else if (this.activeCell) {
-        const v = this.dataModel.getCell(this.activeCell.rowId, this.activeCell.colKey);
-        this.activeHost.textContent = v === null || v === undefined ? '' : String(v);
-      }
+    if (this.activeHost && this.activeHostOriginalText !== null) {
+      this.activeHost.textContent = this.activeHostOriginalText;
     }
     this.inputEl = null;
     this.floatingInputWrapper = null;
     this.activeHost = null;
+    this.activeHostOriginalText = null;
     this.floatingMeta = null;
     if (clearActive) {
       this.activeCell = null;
@@ -460,7 +462,7 @@ export class SelectionManager {
       'compositionupdate',
       'compositionend'
     ];
-    events.forEach((ev) => {
+    for (const ev of events) {
       input.addEventListener(ev, (e) => {
         const ke = e as KeyboardEvent;
         if (ev === 'compositionstart') this.composing = true;
@@ -475,6 +477,6 @@ export class SelectionManager {
           value: input.value
         });
       });
-    });
+    }
   }
 }

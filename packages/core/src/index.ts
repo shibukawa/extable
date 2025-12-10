@@ -2,7 +2,7 @@ import './styles.css';
 import { CommandQueue } from './commandQueue';
 import { DataModel } from './dataModel';
 import { LockManager } from './lockManager';
-import { CanvasRenderer, HTMLRenderer, type Renderer } from './renderers';
+import { CanvasRenderer, HTMLRenderer, type Renderer, type ViewportState } from './renderers';
 import { SelectionManager } from './selectionManager';
 import { toArray } from './utils';
 import type {
@@ -44,6 +44,8 @@ export class ExtableCore {
   private unsubscribe?: () => void;
   private resizeHandler: (() => void) | null = null;
   private scrollHandler: (() => void) | null = null;
+  private viewportState: ViewportState | null = null;
+  private rafId: number | null = null;
 
   constructor(init: CoreInit) {
     this.root = init.root;
@@ -83,10 +85,10 @@ export class ExtableCore {
       this.root.classList.add(...classes);
     }
     if (options?.defaultStyle) {
-      Object.entries(options.defaultStyle).forEach(([k, v]) => {
+      for (const [k, v] of Object.entries(options.defaultStyle)) {
         // @ts-expect-error CSSStyleDeclaration index
         this.root.style[k] = v ?? '';
-      });
+      }
     }
   }
 
@@ -101,6 +103,7 @@ export class ExtableCore {
 
   private mount() {
     this.renderer.mount(this.root);
+    this.initViewportState();
     this.selectionManager = new SelectionManager(
       this.root,
       this.editMode,
@@ -148,25 +151,25 @@ export class ExtableCore {
   }
 
   setRootStyle(style: Partial<CSSStyleDeclaration>) {
-    Object.entries(style).forEach(([k, v]) => {
+    for (const [k, v] of Object.entries(style)) {
       // @ts-expect-error CSSStyleDeclaration index
       this.root.style[k] = v ?? '';
-    });
+    }
   }
 
   setData(data: DataSet) {
     this.dataModel.setData(data);
-    this.renderer.render();
+    this.renderer.render(this.viewportState ?? undefined);
   }
 
   setView(view: View) {
     this.dataModel.setView(view);
-    this.renderer.render();
+    this.renderer.render(this.viewportState ?? undefined);
   }
 
   setSchema(schema: Schema) {
     this.dataModel.setSchema(schema);
-    this.renderer.render();
+    this.renderer.render(this.viewportState ?? undefined);
   }
 
   private handleEdit(cmd: Command, commitNow: boolean) {
@@ -174,7 +177,7 @@ export class ExtableCore {
     const prev = this.dataModel.getCell(cmd.rowId, cmd.colKey);
     this.commandQueue.enqueue({ ...cmd, prev });
     this.dataModel.setCell(cmd.rowId, cmd.colKey, cmd.next, commitNow);
-    this.renderer.render();
+    this.renderer.render(this.viewportState ?? undefined);
     if (commitNow) {
       void this.sendCommit([cmd]);
     }
@@ -183,13 +186,13 @@ export class ExtableCore {
   async commit() {
     const pending = this.commandQueue.listApplied();
     if (!pending.length) return;
-    pending.forEach((cmd) => {
+    for (const cmd of pending) {
       if (cmd.rowId) this.dataModel.applyPending(cmd.rowId);
-    });
+    }
     await this.sendCommit(pending);
     await this.lockManager.unlockOnCommit(this.commandQueue.listApplied().at(-1)?.rowId);
     this.commandQueue.clear();
-    this.renderer.render();
+    this.renderer.render(this.viewportState ?? undefined);
   }
 
   private async sendCommit(commands: Command[]) {
@@ -204,8 +207,10 @@ export class ExtableCore {
   }
 
   private handleServerEvent(event: { type: 'update'; commands: Command[]; user: UserInfo }) {
-    event.commands.forEach((cmd) => this.applyCommand(cmd));
-    this.renderer.render();
+    for (const cmd of event.commands) {
+      this.applyCommand(cmd);
+    }
+    this.renderer.render(this.viewportState ?? undefined);
   }
 
   private applyCommand(cmd: Command) {
@@ -236,31 +241,19 @@ export class ExtableCore {
   }
 
   private bindViewport() {
-    const rerender = () => {
-      this.renderer.render();
-    };
-    this.resizeHandler = () => rerender();
-    // HTML renderer fully re-renders the DOM, so avoid re-render-on-scroll to prevent scrollTop resets.
-    if (this.renderer.constructor.name === 'CanvasRenderer') {
-      this.scrollHandler = () => {
-        console.log('[extable-core] root scroll -> rerender (canvas)', {
-          scrollTop: this.root.scrollTop,
-          scrollLeft: this.root.scrollLeft
-        });
-        this.selectionManager?.onScroll(this.root.scrollTop, this.root.scrollLeft);
-        rerender();
-      };
-      this.root.addEventListener('scroll', this.scrollHandler);
-    } else {
-      this.scrollHandler = null;
-      console.log('[extable-core] root scroll listener skipped (html renderer)');
-    }
+    this.resizeHandler = () => this.updateViewportFromRoot();
+    this.scrollHandler = () => this.updateViewportFromRoot();
+    this.root.addEventListener('scroll', this.scrollHandler, { passive: true });
     window.addEventListener('resize', this.resizeHandler);
   }
 
   private unbindViewport() {
     if (this.resizeHandler) window.removeEventListener('resize', this.resizeHandler);
     if (this.scrollHandler) this.root.removeEventListener('scroll', this.scrollHandler);
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
   }
 
   remount(target: HTMLElement) {
@@ -270,6 +263,53 @@ export class ExtableCore {
     this.root = target;
     this.renderer = this.chooseRenderer(this.renderMode);
     this.mount();
+  }
+
+  private initViewportState() {
+    this.viewportState = {
+      scrollTop: this.root.scrollTop,
+      scrollLeft: this.root.scrollLeft,
+      clientWidth: this.root.clientWidth,
+      clientHeight: this.root.clientHeight,
+      deltaX: 0,
+      deltaY: 0,
+      timestamp: performance.now()
+    };
+  }
+
+  private updateViewportFromRoot() {
+    if (!this.viewportState) this.initViewportState();
+    const prev = this.viewportState ?? {
+      scrollTop: 0,
+      scrollLeft: 0,
+      clientWidth: 0,
+      clientHeight: 0,
+      deltaX: 0,
+      deltaY: 0,
+      timestamp: performance.now()
+    };
+    const next: ViewportState = {
+      scrollTop: this.root.scrollTop,
+      scrollLeft: this.root.scrollLeft,
+      clientWidth: this.root.clientWidth,
+      clientHeight: this.root.clientHeight,
+      deltaX: this.root.scrollLeft - prev.scrollLeft,
+      deltaY: this.root.scrollTop - prev.scrollTop,
+      timestamp: performance.now()
+    };
+    this.viewportState = next;
+    if (this.rafId === null) {
+      this.rafId = requestAnimationFrame(() => this.flushRender());
+    }
+  }
+
+  private flushRender() {
+    this.rafId = null;
+    if (!this.viewportState) return;
+    this.selectionManager?.onScroll(this.viewportState.scrollTop, this.viewportState.scrollLeft);
+    // HTML renderer re-renders DOM; avoid doing it on scroll to preserve scroll position.
+    if (this.renderer instanceof HTMLRenderer) return;
+    this.renderer.render(this.viewportState);
   }
 }
 

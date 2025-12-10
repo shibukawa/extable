@@ -119,13 +119,13 @@ export class DataModel {
     if (!pendingRow) return;
     const row = this.rows.find((r) => r.id === rowId);
     if (!row) return;
-    Object.entries(pendingRow).forEach(([key, val]) => {
+    for (const [key, val] of Object.entries(pendingRow)) {
       if (Array.isArray(row.raw)) {
         row.raw[Number(key)] = val as any;
       } else {
         row.raw[key] = val as any;
       }
-    });
+    }
     this.pending.delete(rowId);
   }
 

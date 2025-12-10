@@ -2,9 +2,54 @@ import type { DataModel } from './dataModel';
 import type { InternalRow, Schema, ColumnSchema } from './types';
 import { format as formatDate, parseISO } from 'date-fns';
 
+const DAY_MS = 86_400_000;
+
+function safeParseDate(value: string): Date | null {
+  const parsed = parseISO(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function safeParseTime(value: string): Date | null {
+  const parsed = new Date(`1970-01-01T${value}`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function toRawValue(raw: unknown, value: unknown, col: ColumnSchema): string | null {
+  if (value === null || value === undefined) return null;
+  if (col.type === 'string') return null;
+  if (col.type === 'boolean') return String(Boolean(value));
+  if (col.type === 'number' && typeof value === 'number') return String(value);
+  if (col.type === 'datetime') {
+    const d = value instanceof Date ? value : safeParseDate(String(value));
+    return d ? String(d.getTime()) : null;
+  }
+  if (col.type === 'date') {
+    const d = value instanceof Date ? value : safeParseDate(String(value));
+    if (!d) return null;
+    const floored = Math.floor(d.getTime() / DAY_MS) * DAY_MS;
+    return String(floored);
+  }
+  if (col.type === 'time') {
+    const d = value instanceof Date ? value : safeParseTime(String(value));
+    if (!d) return null;
+    return String(d.getTime() % DAY_MS);
+  }
+  return null;
+}
+
+export interface ViewportState {
+  scrollTop: number;
+  scrollLeft: number;
+  clientWidth: number;
+  clientHeight: number;
+  deltaX: number;
+  deltaY: number;
+  timestamp: number;
+}
+
 export interface Renderer {
   mount(root: HTMLElement): void;
-  render(): void;
+  render(state?: ViewportState): void;
   destroy(): void;
   getCellElements(): NodeListOf<HTMLElement> | null;
   hitTest(event: MouseEvent): { rowId: string; colKey: string | number; element?: HTMLElement; rect: DOMRect } | null;
@@ -36,7 +81,7 @@ export class HTMLRenderer implements Renderer {
     this.updateActiveClasses();
   }
 
-  render() {
+  render(_state?: ViewportState) {
     if (!this.tableEl) return;
     const scrollContainer = this.tableEl.parentElement;
     const prevTop = scrollContainer?.scrollTop ?? 0;
@@ -139,15 +184,7 @@ export class HTMLRenderer implements Renderer {
       const width = view.columnWidths?.[String(col.key)] ?? col.width;
       if (width) td.style.width = `${width}px`;
       const wrap = view.wrapText?.[String(col.key)] ?? col.wrapText;
-      if (wrap) {
-        td.style.whiteSpace = 'pre-wrap';
-        td.style.textOverflow = 'clip';
-        td.style.overflowWrap = 'anywhere';
-      } else {
-        td.style.whiteSpace = 'nowrap';
-        td.style.textOverflow = 'ellipsis';
-        td.style.overflow = 'hidden';
-      }
+      td.classList.add(wrap ? 'cell-wrap' : 'cell-nowrap');
       const raw = this.dataModel.getRawCell(row.id, col.key);
       const value = this.dataModel.getCell(row.id, col.key);
       const formatted = this.formatValue(value, col);
@@ -155,9 +192,14 @@ export class HTMLRenderer implements Renderer {
       td.textContent = formatted.text;
       if (formatted.color) td.style.color = formatted.color;
       const align = col.format?.align ?? (col.type === 'number' ? 'right' : 'left');
-      td.style.textAlign = align;
-      td.dataset.value = value === null || value === undefined ? '' : String(value);
-      td.dataset.original = raw === null || raw === undefined ? '' : String(raw);
+      td.classList.add(align === 'right' ? 'align-right' : 'align-left');
+      const rawNumbered = toRawValue(raw, value, col);
+      if (rawNumbered !== null) {
+        td.dataset.raw = rawNumbered;
+      } else {
+        const rawStr = raw === null || raw === undefined ? '' : String(raw);
+        td.dataset.raw = rawStr;
+      }
       if (isPending) td.classList.add('pending');
       if (this.dataModel.isReadonly(row.id, col.key)) {
         td.classList.add('extable-readonly');
@@ -173,8 +215,8 @@ export class HTMLRenderer implements Renderer {
     const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
     if (wrapAny) {
       let maxHeight = this.defaultRowHeight;
-      schema.columns.forEach((col) => {
-        if (!col.wrapText) return;
+      for (const col of schema.columns) {
+        if (!col.wrapText) continue;
         const width = view.columnWidths?.[String(col.key)] ?? col.width ?? 100;
         const value = this.dataModel.getCell(row.id, col.key);
         const text = value === null || value === undefined ? '' : String(value);
@@ -190,7 +232,7 @@ export class HTMLRenderer implements Renderer {
         const h = measure.clientHeight + 10; // padding allowance
         measure.remove();
         maxHeight = Math.max(maxHeight, h);
-      });
+      }
       tr.style.height = `${maxHeight}px`;
       this.dataModel.setRowHeight(row.id, maxHeight);
     } else {
@@ -202,22 +244,36 @@ export class HTMLRenderer implements Renderer {
 
   private updateActiveClasses() {
     if (!this.tableEl) return;
-    this.tableEl.querySelectorAll('.extable-active-row-header').forEach((el) => el.classList.remove('extable-active-row-header'));
-    this.tableEl.querySelectorAll('.extable-active-col-header').forEach((el) => el.classList.remove('extable-active-col-header'));
-    this.tableEl.querySelectorAll('.extable-active-cell').forEach((el) => el.classList.remove('extable-active-cell'));
+    for (const el of Array.from(this.tableEl.querySelectorAll('.extable-active-row-header'))) {
+      el.classList.remove('extable-active-row-header');
+    }
+    for (const el of Array.from(this.tableEl.querySelectorAll('.extable-active-col-header'))) {
+      el.classList.remove('extable-active-col-header');
+    }
+    for (const el of Array.from(this.tableEl.querySelectorAll('.extable-active-cell'))) {
+      el.classList.remove('extable-active-cell');
+    }
     if (this.activeRowId) {
-      this.tableEl
-        .querySelectorAll<HTMLElement>(`tr[data-row-id="${this.activeRowId}"] .extable-row-header`)
-        .forEach((el) => el.classList.add('extable-active-row-header'));
+      for (const el of Array.from(
+        this.tableEl.querySelectorAll<HTMLElement>(`tr[data-row-id="${this.activeRowId}"] .extable-row-header`)
+      )) {
+        el.classList.add('extable-active-row-header');
+      }
     }
     if (this.activeColKey !== null) {
-      this.tableEl
-        .querySelectorAll<HTMLElement>(`th[data-col-key="${String(this.activeColKey)}"]`)
-        .forEach((el) => el.classList.add('extable-active-col-header'));
+      for (const el of Array.from(
+        this.tableEl.querySelectorAll<HTMLElement>(`th[data-col-key="${String(this.activeColKey)}"]`)
+      )) {
+        el.classList.add('extable-active-col-header');
+      }
       if (this.activeRowId) {
-        this.tableEl
-          .querySelectorAll<HTMLElement>(`tr[data-row-id="${this.activeRowId}"] td[data-col-key="${String(this.activeColKey)}"]`)
-          .forEach((el) => el.classList.add('extable-active-cell'));
+        for (const el of Array.from(
+          this.tableEl.querySelectorAll<HTMLElement>(
+            `tr[data-row-id="${this.activeRowId}"] td[data-col-key="${String(this.activeColKey)}"]`
+          )
+        )) {
+          el.classList.add('extable-active-cell');
+        }
       }
     }
   }
@@ -279,7 +335,6 @@ export class CanvasRenderer implements Renderer {
   private canvas: HTMLCanvasElement | null = null;
   private spacer: HTMLDivElement | null = null;
   private dataModel: DataModel;
-  private scrollHandler: (() => void) | null = null;
   private readonly rowHeight = 24;
   private readonly headerHeight = 24;
   private readonly lineHeight = 16;
@@ -314,10 +369,6 @@ export class CanvasRenderer implements Renderer {
     root.style.position = 'relative';
     root.appendChild(this.canvas);
     root.appendChild(this.spacer);
-    this.scrollHandler = () => {
-      this.render();
-    };
-    root.addEventListener('scroll', this.scrollHandler);
     this.render();
   }
 
@@ -327,7 +378,7 @@ export class CanvasRenderer implements Renderer {
     this.render();
   }
 
-  render() {
+  render(state?: ViewportState) {
     if (!this.canvas || !this.root) return;
     const ctx = this.canvas.getContext('2d');
     if (!ctx) return;
@@ -342,15 +393,15 @@ export class CanvasRenderer implements Renderer {
       this.spacer.style.height = `${totalHeightInitial}px`;
       this.spacer.style.width = `${totalWidth}px`;
     }
-    const desiredCanvasWidth = this.root.clientWidth || 600;
-    const desiredCanvasHeight = this.root.clientHeight || this.canvas.height || 400;
+    const desiredCanvasWidth = state?.clientWidth ?? (this.root.clientWidth || 600);
+    const desiredCanvasHeight = state?.clientHeight ?? (this.root.clientHeight || this.canvas.height || 400);
     if (this.canvas.width !== desiredCanvasWidth) this.canvas.width = desiredCanvasWidth;
     if (this.canvas.height !== desiredCanvasHeight) this.canvas.height = desiredCanvasHeight;
     this.canvas.style.width = `${desiredCanvasWidth}px`;
     this.canvas.style.height = `${desiredCanvasHeight}px`;
 
-    const scrollTop = this.root.scrollTop;
-    const scrollLeft = this.root.scrollLeft;
+    const scrollTop = state?.scrollTop ?? this.root.scrollTop;
+    const scrollLeft = state?.scrollLeft ?? this.root.scrollLeft;
     const contentScrollTop = Math.max(
       0,
       Math.min(scrollTop - this.headerHeight, Math.max(0, totalRowsHeight - this.rowHeight))
@@ -404,7 +455,8 @@ export class CanvasRenderer implements Renderer {
       ctx.clip();
       ctx.translate(dataXOffset, 0);
       let x = 0;
-      schema.columns.forEach((c, idx) => {
+      for (let idx = 0; idx < schema.columns.length; idx += 1) {
+        const c = schema.columns[idx];
         const w = colWidths[idx] ?? 100;
         const readOnly = this.dataModel.isReadonly(row.id, c.key);
         ctx.strokeStyle = '#d0d7de';
@@ -435,7 +487,7 @@ export class CanvasRenderer implements Renderer {
         const isCustomBoolean = c.type === 'boolean' && Boolean(c.booleanDisplay && c.booleanDisplay !== 'checkbox');
         this.drawCellText(ctx, text, x + 8, yCursor + 6, w - 12, rowH - 12, wrap, align, isBoolean, isCustomBoolean);
         x += w;
-      });
+      }
       ctx.restore();
       yCursor += rowH;
     }
@@ -470,7 +522,8 @@ export class CanvasRenderer implements Renderer {
     ctx.clip();
     ctx.translate(dataXOffset, 0);
     let xHeader = 0;
-    schema.columns.forEach((c, idx) => {
+    for (let idx = 0; idx < schema.columns.length; idx += 1) {
+      const c = schema.columns[idx];
       const w = colWidths[idx] ?? 100;
       const isActiveCol = this.activeColKey !== null && String(this.activeColKey) === String(c.key);
       if (isActiveCol) {
@@ -483,16 +536,13 @@ export class CanvasRenderer implements Renderer {
       ctx.font = '14px sans-serif';
       ctx.fillText(c.header ?? String(c.key), xHeader + 8, this.headerHeight - 8);
       xHeader += w;
-    });
+    }
     ctx.restore();
   }
 
   destroy() {
     if (this.canvas && this.canvas.parentElement) {
       this.canvas.parentElement.removeChild(this.canvas);
-    }
-    if (this.root && this.scrollHandler) {
-      this.root.removeEventListener('scroll', this.scrollHandler);
     }
     if (this.spacer && this.spacer.parentElement) {
       this.spacer.parentElement.removeChild(this.spacer);
@@ -555,16 +605,17 @@ export class CanvasRenderer implements Renderer {
   private computeRowHeight(ctx: CanvasRenderingContext2D, row: InternalRow, schema: Schema, colWidths: number[]) {
     let maxHeight = this.rowHeight;
     const view = this.dataModel.getView();
-    schema.columns.forEach((c, idx) => {
+    for (let idx = 0; idx < schema.columns.length; idx += 1) {
+      const c = schema.columns[idx];
       const wrap = view.wrapText?.[String(c.key)] ?? c.wrapText;
-      if (!wrap) return;
+      if (!wrap) continue;
       const w = (colWidths[idx] ?? 100) - this.padding;
       const value = this.dataModel.getCell(row.id, c.key);
       const text = this.formatValue(value, c).text;
       const lines = this.wrapLines(ctx, text, w);
       const h = lines.length * this.lineHeight + this.padding;
       maxHeight = Math.max(maxHeight, h);
-    });
+    }
     this.dataModel.setRowHeight(row.id, maxHeight);
     return maxHeight;
   }
@@ -572,7 +623,7 @@ export class CanvasRenderer implements Renderer {
   private wrapLines(ctx: CanvasRenderingContext2D, text: string, width: number) {
     const rawLines = text.split('\n');
     const lines: string[] = [];
-    rawLines.forEach((line) => {
+    for (const line of rawLines) {
       let current = line;
       while (ctx.measureText(current).width > width && current.length > 1) {
         let cut = current.length;
@@ -583,7 +634,7 @@ export class CanvasRenderer implements Renderer {
         current = current.slice(cut);
       }
       lines.push(current);
-    });
+    }
     return lines;
   }
 
@@ -623,7 +674,9 @@ export class CanvasRenderer implements Renderer {
     };
     if (wrap) {
       const lines = this.wrapLines(ctx, text, width);
-      lines.forEach((ln, idx) => renderLine(ln, idx + 1));
+      for (let idx = 0; idx < lines.length; idx += 1) {
+        renderLine(lines[idx], idx + 1);
+      }
     } else {
       let out = text;
       while (ctx.measureText(out).width > width && out.length > 1) {
@@ -685,4 +738,5 @@ export class CanvasRenderer implements Renderer {
     }
     return { text: String(value) };
   }
+
 }

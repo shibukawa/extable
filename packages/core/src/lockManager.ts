@@ -43,16 +43,16 @@ export class LockManager {
   async unlockOnCommit(keepRowId?: string) {
     if (this.mode !== 'row') return;
     const toUnlock: string[] = [];
-    this.lockedRows.forEach((id) => {
+    for (const id of this.lockedRows) {
       if (id !== keepRowId) toUnlock.push(id);
-    });
+    }
     if (toUnlock.length) {
       await this.unlockRows(toUnlock);
     }
   }
 
   async unlockRows(rowIds: string[]) {
-    rowIds.forEach((id) => this.lockedRows.delete(id));
+    for (const id of rowIds) this.lockedRows.delete(id);
     if (this.server && this.user) {
       try {
         await this.server.unlockRows(rowIds, this.user);
