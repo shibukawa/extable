@@ -14,7 +14,7 @@ export class SelectionManager {
   private onRowSelect: RowSelectHandler;
   private onMove: MoveHandler;
   private hitTest: HitTest;
-  private inputEl: HTMLInputElement | HTMLTextAreaElement | null = null;
+  private inputEl: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null = null;
   private floatingInputWrapper: HTMLDivElement | null = null;
   private activeCell: { rowId: string; colKey: string | number } | null = null;
   private activeHost: HTMLElement | null = null;
@@ -90,6 +90,59 @@ export class SelectionManager {
       ta.addEventListener('input', () => this.autosize(ta));
       return { control: ta, value: initial };
     }
+    if (col?.type === 'boolean') {
+      const input = document.createElement('input');
+      input.type = 'checkbox';
+      input.checked = initial === 'true' || initial === '1' || initial === 'on';
+      return { control: input, value: initial };
+    }
+    if (col?.type === 'number') {
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.value = initial;
+      return { control: input, value: initial };
+    }
+    if (col?.type === 'date' || col?.type === 'time' || col?.type === 'datetime') {
+      const input = document.createElement('input');
+      input.type = col.type === 'date' ? 'date' : col.type === 'time' ? 'time' : 'datetime-local';
+      input.value = initial;
+      return { control: input, value: initial };
+    }
+    if (col?.type === 'enum' || col?.type === 'tags') {
+      const allowCustom = col.enum?.allowCustom ?? col.tags?.allowCustom;
+      const options = col.enum?.options ?? col.tags?.options ?? [];
+      if (allowCustom === false) {
+        const select = document.createElement('select');
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = '';
+        select.appendChild(empty);
+        for (const opt of options) {
+          const op = document.createElement('option');
+          op.value = opt;
+          op.textContent = opt;
+          if (initial === opt) op.selected = true;
+          select.appendChild(op);
+        }
+        return { control: select, value: initial };
+      }
+      const input = document.createElement('input');
+      input.type = 'text';
+      const listId = `extable-datalist-${String(colKey)}`;
+      input.setAttribute('list', listId);
+      input.value = initial;
+      const datalist = document.getElementById(listId) ?? document.createElement('datalist');
+      datalist.id = listId;
+      if (!datalist.childElementCount) {
+        options.forEach((opt) => {
+          const op = document.createElement('option');
+          op.value = opt;
+          datalist.appendChild(op);
+        });
+        document.body.appendChild(datalist);
+      }
+      return { control: input, value: initial, datalistId: listId };
+    }
     const input = document.createElement('input');
     input.type = 'text';
     input.value = initial;
@@ -125,17 +178,6 @@ export class SelectionManager {
     host.style.width = `${meta.width}px`;
     host.style.height = `${meta.height}px`;
     host.style.pointerEvents = 'none';
-    const hostRect = host.getBoundingClientRect();
-    console.log('[extable-floating] position', {
-      meta,
-      scrollTop,
-      scrollLeft,
-      leftPx,
-      topPx,
-      hostRect,
-      dpr,
-      rootRect
-    });
   }
 
   private handleClick = (ev: MouseEvent) => {
@@ -152,7 +194,17 @@ export class SelectionManager {
     if (!hit) return;
     this.onRowSelect(hit.rowId);
     this.onActiveChange(hit.rowId, hit.colKey);
-    if (this.dataModel.isReadonly(hit.rowId, hit.colKey)) {
+    if (this.dataModel.isReadonly(hit.rowId, hit.colKey)) return;
+    const col = this.findColumn(hit.colKey);
+    const isBoolean = col?.type === 'boolean';
+    if (isBoolean) {
+      const current = this.dataModel.getCell(hit.rowId, hit.colKey);
+      const currentBool = current === true || current === 'true' || current === '1' || current === 1;
+      const next = !currentBool;
+      const cmd: Command = { kind: 'edit', rowId: hit.rowId, colKey: hit.colKey, next };
+      const commitNow = this.editMode === 'direct';
+      this.onEdit(cmd, commitNow);
+      this.onMove(hit.rowId);
       return;
     }
     if (hit.element) {
@@ -186,8 +238,11 @@ export class SelectionManager {
     const col = this.findColumn(colKey);
     input.style.textAlign = col?.format?.align ?? (col?.type === 'number' ? 'right' : 'left');
     input.addEventListener('keydown', (e) => this.handleKey(e as KeyboardEvent, cell));
-    input.addEventListener('focus', () => input.select());
-    this.attachInputDebug(input);
+    input.addEventListener('focus', () => {
+      if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) input.select();
+    });
+    this.bindImmediateCommit(input, cell);
+    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) this.attachInputDebug(input);
     cell.textContent = '';
     cell.appendChild(input);
     if (input.tagName.toLowerCase() === 'textarea') {
@@ -207,6 +262,7 @@ export class SelectionManager {
     wrapper.style.position = 'absolute';
     wrapper.style.pointerEvents = 'none';
     wrapper.style.padding = '0';
+    wrapper.style.zIndex = '2';
     const current = this.dataModel.getCell(rowId, colKey);
     const { control, value } = this.createEditor(colKey, current === null || current === undefined ? '' : String(current));
     const input = control;
@@ -229,9 +285,15 @@ export class SelectionManager {
     input.style.textAlign = col?.format?.align ?? (col?.type === 'number' ? 'right' : 'left');
     input.style.pointerEvents = 'auto';
     input.addEventListener('keydown', (e) => this.handleKey(e as KeyboardEvent, wrapper));
-    input.addEventListener('focus', () => input.select());
-    this.attachInputDebug(input);
+    input.addEventListener('focus', () => {
+      if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) input.select();
+    });
+    this.bindImmediateCommit(input, wrapper);
+    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) this.attachInputDebug(input);
     wrapper.appendChild(input);
+    if (input instanceof HTMLSelectElement) {
+      // No auto focus/click for select; standard focus will allow selection on first interaction
+    }
     if (input.tagName.toLowerCase() === 'textarea') {
       requestAnimationFrame(() => {
         if (input instanceof HTMLTextAreaElement) this.autosize(input);
@@ -248,12 +310,6 @@ export class SelectionManager {
       scrollLeft0: this.root.scrollLeft,
       scrollTop0: this.root.scrollTop
     };
-    console.log('[extable-floating] activate', {
-      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-      rootRect: { left: rootRect.left, top: rootRect.top, width: rootRect.width, height: rootRect.height },
-      meta: this.floatingMeta,
-      dpr: window.devicePixelRatio ?? 1
-    });
     this.positionFloating(this.floatingMeta, this.root.scrollTop, this.root.scrollLeft, wrapper);
     input.focus();
     this.inputEl = input;
@@ -270,7 +326,7 @@ export class SelectionManager {
     const isAltEnter = e.key === 'Enter' && (e.altKey || e.shiftKey || e.metaKey || e.ctrlKey);
     if (!isTextarea && (e.key === 'Enter' || e.key === 'Tab')) {
       e.preventDefault();
-      const value = this.inputEl.value;
+      const value = this.readActiveValue();
       this.commitEdit(rowId, colKey, value);
       this.onMove(rowId);
       this.teardownInput(false);
@@ -280,7 +336,7 @@ export class SelectionManager {
         return;
       }
       e.preventDefault();
-      const value = this.inputEl.value;
+      const value = this.readActiveValue();
       this.commitEdit(rowId, colKey, value);
       this.onMove(rowId);
       this.teardownInput(false);
@@ -305,6 +361,41 @@ export class SelectionManager {
     };
     const commitNow = this.editMode === 'direct';
     this.onEdit(cmd, commitNow);
+  }
+
+  private readActiveValue() {
+    if (!this.inputEl || !this.activeCell) return this.inputEl?.value ?? '';
+    if (this.inputEl instanceof HTMLInputElement) {
+      if (this.inputEl.type === 'checkbox') {
+        return this.inputEl.checked;
+      }
+      if (this.inputEl.type === 'number') {
+        if (this.inputEl.value === '') return '';
+        const parsed = Number(this.inputEl.value);
+        return Number.isNaN(parsed) ? '' : parsed;
+      }
+      return this.inputEl.value;
+    }
+    if (this.inputEl instanceof HTMLSelectElement) {
+      return this.inputEl.value;
+    }
+    return (this.inputEl as HTMLTextAreaElement).value;
+  }
+
+  private bindImmediateCommit(control: HTMLElement, host: HTMLElement) {
+    if (!this.activeCell) return;
+    const isInstant =
+      control instanceof HTMLInputElement
+        ? control.type === 'checkbox' || control.type === 'number' || control.type === 'date' || control.type === 'time' || control.type === 'datetime-local'
+        : control instanceof HTMLSelectElement;
+    if (!isInstant) return;
+    control.addEventListener('change', () => {
+      const { rowId, colKey } = this.activeCell!;
+      const value = this.readActiveValue();
+      this.commitEdit(rowId, colKey, value);
+      this.onMove(rowId);
+      this.teardownInput(false);
+    });
   }
 
   private cancelEdit(cell: HTMLElement) {

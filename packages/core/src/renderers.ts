@@ -51,18 +51,18 @@ export class HTMLRenderer implements Renderer {
     const rowCol = document.createElement('col');
     rowCol.style.width = `${this.rowHeaderWidth}px`;
     colgroup.appendChild(rowCol);
-    colWidths.forEach((w) => {
+    for (const w of colWidths) {
       const colEl = document.createElement('col');
       if (w) colEl.style.width = `${w}px`;
       colgroup.appendChild(colEl);
-    });
+    }
     this.tableEl.appendChild(colgroup);
     this.tableEl.style.width = `${totalWidth}px`;
     this.tableEl.appendChild(this.renderHeader(schema));
     const body = document.createElement('tbody');
-    rows.forEach((row) => {
+    for (const row of rows) {
       body.appendChild(this.renderRow(row, schema));
-    });
+    }
     this.tableEl.appendChild(body);
     this.updateActiveClasses();
     if (scrollContainer) {
@@ -106,7 +106,7 @@ export class HTMLRenderer implements Renderer {
     if (this.activeRowId) rowTh.classList.toggle('extable-active-row-header', true);
     rowTh.dataset.colKey = '__row__';
     tr.appendChild(rowTh);
-    schema.columns.forEach((col) => {
+    for (const col of schema.columns) {
       const th = document.createElement('th');
       th.textContent = col.header ?? String(col.key);
       if (col.width) th.style.width = `${col.width}px`;
@@ -115,7 +115,7 @@ export class HTMLRenderer implements Renderer {
         th.classList.add('extable-active-col-header');
       }
       tr.appendChild(th);
-    });
+    }
     thead.appendChild(tr);
     return thead;
   }
@@ -132,7 +132,7 @@ export class HTMLRenderer implements Renderer {
     rowHeader.style.width = `${this.rowHeaderWidth}px`;
     if (this.activeRowId === row.id) rowHeader.classList.add('extable-active-row-header');
     tr.appendChild(rowHeader);
-    schema.columns.forEach((col) => {
+    for (const col of schema.columns) {
       const td = document.createElement('td');
       td.classList.add('extable-cell');
       td.dataset.colKey = String(col.key);
@@ -168,7 +168,7 @@ export class HTMLRenderer implements Renderer {
         td.classList.add('extable-active-cell');
       }
       tr.appendChild(td);
-    });
+    }
     // variable row height based on measured content when wrap enabled
     const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
     if (wrapAny) {
@@ -271,6 +271,7 @@ export class HTMLRenderer implements Renderer {
     }
     return { text: String(value) };
   }
+
 }
 
 export class CanvasRenderer implements Renderer {
@@ -394,6 +395,7 @@ export class CanvasRenderer implements Renderer {
         ctx.fillRect(0, yCursor, this.rowHeaderWidth, rowH);
       }
       ctx.fillStyle = '#0f172a';
+      ctx.font = '14px sans-serif';
       ctx.fillText(String(idxText), 8, yCursor + this.lineHeight);
 
       ctx.save();
@@ -429,7 +431,9 @@ export class CanvasRenderer implements Renderer {
               ? '#94a3b8'
               : '#0f172a';
         const wrap = view.wrapText?.[String(c.key)] ?? c.wrapText ?? false;
-        this.drawCellText(ctx, text, x + 8, yCursor + 6, w - 12, rowH - 12, wrap, align);
+        const isBoolean = c.type === 'boolean' && (!c.booleanDisplay || c.booleanDisplay === 'checkbox');
+        const isCustomBoolean = c.type === 'boolean' && Boolean(c.booleanDisplay && c.booleanDisplay !== 'checkbox');
+        this.drawCellText(ctx, text, x + 8, yCursor + 6, w - 12, rowH - 12, wrap, align, isBoolean, isCustomBoolean);
         x += w;
       });
       ctx.restore();
@@ -591,12 +595,20 @@ export class CanvasRenderer implements Renderer {
     width: number,
     height: number,
     wrap: boolean,
-    align: 'left' | 'right' | 'center' = 'left'
+    align: 'left' | 'right' | 'center' = 'left',
+    isBoolean = false,
+    isCustomBoolean = false
   ) {
     ctx.save();
     ctx.beginPath();
     ctx.rect(x - 4, y - 4, width + 8, height + 8);
     ctx.clip();
+    const fontBackup = ctx.font;
+    if (isBoolean) {
+      ctx.font = '28px sans-serif';
+    } else if (isCustomBoolean) {
+      ctx.font = '14px sans-serif';
+    }
     const renderLine = (ln: string, lineIdx: number) => {
       if (align === 'right') {
         ctx.textAlign = 'right';
@@ -620,6 +632,7 @@ export class CanvasRenderer implements Renderer {
       renderLine(out, 1);
     }
     ctx.textAlign = 'left';
+    ctx.font = fontBackup;
     ctx.restore();
   }
 

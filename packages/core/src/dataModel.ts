@@ -98,9 +98,19 @@ export class DataModel {
       }
       this.pending.delete(rowId);
     } else {
+      const rawVal = this.getRawCell(rowId, key);
       const current = this.pending.get(rowId) ?? {};
-      current[key] = value;
-      this.pending.set(rowId, current);
+      if (this.isEqual(rawVal, value)) {
+        delete current[key];
+      } else {
+        current[key] = value;
+      }
+      const hasKeys = Object.keys(current).length > 0;
+      if (hasKeys) {
+        this.pending.set(rowId, current);
+      } else {
+        this.pending.delete(rowId);
+      }
     }
   }
 
@@ -151,5 +161,10 @@ export class DataModel {
 
   public getColumns(): ColumnSchema[] {
     return this.schema.columns;
+  }
+
+  private isEqual(a: unknown, b: unknown) {
+    if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+    return Object.is(a, b);
   }
 }
