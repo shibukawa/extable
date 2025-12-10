@@ -6,6 +6,7 @@ export class DataModel {
   private view: View;
   private rows: InternalRow[] = [];
   private pending: Map<string, Record<string | number, unknown>> = new Map();
+  private rowVersion: Map<string, number> = new Map();
 
   constructor(dataset: DataSet, schema: Schema, view: View) {
     this.schema = schema;
@@ -15,11 +16,15 @@ export class DataModel {
 
   public setData(dataset: DataSet) {
     this.pending.clear();
-    this.rows = dataset.rows.map((row, idx) => ({
-      id: generateId(),
-      raw: row,
-      displayIndex: idx + 1
-    }));
+    this.rows = dataset.rows.map((row, idx) => {
+      const id = generateId();
+      this.rowVersion.set(id, 0);
+      return {
+        id,
+        raw: row,
+        displayIndex: idx + 1
+      };
+    });
   }
 
   public setSchema(schema: Schema) {
@@ -90,6 +95,10 @@ export class DataModel {
   public setCell(rowId: string, key: string | number, value: unknown, committed: boolean) {
     const row = this.rows.find((r) => r.id === rowId);
     if (!row) return;
+    const bumpVersion = () => {
+      const prev = this.rowVersion.get(rowId) ?? 0;
+      this.rowVersion.set(rowId, prev + 1);
+    };
     if (committed) {
       if (Array.isArray(row.raw)) {
         row.raw[Number(key)] = value as any;
@@ -97,6 +106,7 @@ export class DataModel {
         row.raw[String(key)] = value as any;
       }
       this.pending.delete(rowId);
+      bumpVersion();
     } else {
       const rawVal = this.getRawCell(rowId, key);
       const current = this.pending.get(rowId) ?? {};
@@ -111,6 +121,7 @@ export class DataModel {
       } else {
         this.pending.delete(rowId);
       }
+      bumpVersion();
     }
   }
 
@@ -147,12 +158,14 @@ export class DataModel {
     const id = generateId();
     const nextIndex = this.rows.reduce((max, r) => Math.max(max, r.displayIndex), 0) + 1;
     this.rows.push({ id, raw: rowData, displayIndex: nextIndex });
+    this.rowVersion.set(id, 0);
     return id;
   }
 
   public deleteRow(rowId: string) {
     this.rows = this.rows.filter((r) => r.id !== rowId);
     this.pending.delete(rowId);
+    this.rowVersion.delete(rowId);
   }
 
   public getDisplayIndex(rowId: string) {
@@ -166,5 +179,9 @@ export class DataModel {
   private isEqual(a: unknown, b: unknown) {
     if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
     return Object.is(a, b);
+  }
+
+  public getRowVersion(rowId: string) {
+    return this.rowVersion.get(rowId) ?? 0;
   }
 }

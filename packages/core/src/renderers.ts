@@ -64,6 +64,8 @@ export class HTMLRenderer implements Renderer {
   private activeColKey: string | number | null = null;
   private numberFormatCache = new Map<string, Intl.NumberFormat>();
   private dateParseCache = new Map<string, Date>();
+   private measureCache = new Map<string, { height: number; frame: number }>();
+   private frame = 0;
   constructor(private dataModel: DataModel) {}
 
   mount(root: HTMLElement) {
@@ -82,6 +84,7 @@ export class HTMLRenderer implements Renderer {
   }
 
   render(_state?: ViewportState) {
+    this.frame += 1;
     if (!this.tableEl) return;
     const scrollContainer = this.tableEl.parentElement;
     const prevTop = scrollContainer?.scrollTop ?? 0;
@@ -113,6 +116,9 @@ export class HTMLRenderer implements Renderer {
     if (scrollContainer) {
       scrollContainer.scrollTop = prevTop;
       scrollContainer.scrollLeft = prevLeft;
+    }
+    for (const [key, entry] of Array.from(this.measureCache.entries())) {
+      if (entry.frame !== this.frame) this.measureCache.delete(key);
     }
   }
 
@@ -220,6 +226,15 @@ export class HTMLRenderer implements Renderer {
         const width = view.columnWidths?.[String(col.key)] ?? col.width ?? 100;
         const value = this.dataModel.getCell(row.id, col.key);
         const text = value === null || value === undefined ? '' : String(value);
+        const version = this.dataModel.getRowVersion(row.id);
+        const key = `${row.id}|${String(col.key)}|${version}|${width}|${text}`;
+        const cached = this.measureCache.get(key);
+        if (cached) {
+          cached.frame = this.frame;
+          this.measureCache.set(key, cached);
+          maxHeight = Math.max(maxHeight, cached.height);
+          continue;
+        }
         const measure = document.createElement('span');
         measure.style.visibility = 'hidden';
         measure.style.position = 'absolute';
@@ -231,6 +246,7 @@ export class HTMLRenderer implements Renderer {
         document.body.appendChild(measure);
         const h = measure.clientHeight + 10; // padding allowance
         measure.remove();
+        this.measureCache.set(key, { height: h, frame: this.frame });
         maxHeight = Math.max(maxHeight, h);
       }
       tr.style.height = `${maxHeight}px`;
@@ -344,6 +360,8 @@ export class CanvasRenderer implements Renderer {
   private activeColKey: string | number | null = null;
   private numberFormatCache = new Map<string, Intl.NumberFormat>();
   private dateParseCache = new Map<string, Date>();
+  private textMeasureCache = new Map<string, { lines: string[]; frame: number }>();
+  private frame = 0;
 
   constructor(dataModel: DataModel) {
     this.dataModel = dataModel;
@@ -379,6 +397,7 @@ export class CanvasRenderer implements Renderer {
   }
 
   render(state?: ViewportState) {
+    this.frame += 1;
     if (!this.canvas || !this.root) return;
     const ctx = this.canvas.getContext('2d');
     if (!ctx) return;
@@ -621,6 +640,9 @@ export class CanvasRenderer implements Renderer {
   }
 
   private wrapLines(ctx: CanvasRenderingContext2D, text: string, width: number) {
+    const key = `${ctx.font}|${width}|${text}`;
+    const cached = this.textMeasureCache.get(key);
+    if (cached && cached.frame === this.frame) return cached.lines;
     const rawLines = text.split('\n');
     const lines: string[] = [];
     for (const line of rawLines) {
@@ -635,6 +657,7 @@ export class CanvasRenderer implements Renderer {
       }
       lines.push(current);
     }
+    this.textMeasureCache.set(key, { lines, frame: this.frame });
     return lines;
   }
 
