@@ -1,10 +1,10 @@
-import './styles.css';
-import { CommandQueue } from './commandQueue';
-import { DataModel } from './dataModel';
-import { LockManager } from './lockManager';
-import { CanvasRenderer, HTMLRenderer, type Renderer, type ViewportState } from './renderers';
-import { SelectionManager } from './selectionManager';
-import { toArray } from './utils';
+import "./styles.css";
+import { CommandQueue } from "./commandQueue";
+import { DataModel } from "./dataModel";
+import { LockManager } from "./lockManager";
+import { CanvasRenderer, HTMLRenderer, type Renderer, type ViewportState } from "./renderers";
+import { SelectionManager } from "./selectionManager";
+import { toArray } from "./utils";
 import type {
   Command,
   CoreOptions,
@@ -16,10 +16,12 @@ import type {
   ServerAdapter,
   TableConfig,
   UserInfo,
-  View
-} from './types';
+  View,
+  RowObject,
+  RowArray,
+} from "./types";
 
-export * from './types';
+export * from "./types";
 
 export interface CoreInit {
   root: HTMLElement;
@@ -46,12 +48,18 @@ export class ExtableCore {
   private scrollHandler: (() => void) | null = null;
   private viewportState: ViewportState | null = null;
   private rafId: number | null = null;
+  private contextMenu: HTMLDivElement | null = null;
+  private contextMenuRowId: string | null = null;
+  private contextMenuColKey: string | number | null = null;
+  private handleGlobalPointer: ((ev: MouseEvent | PointerEvent) => void) | null = null;
+  private toast: HTMLDivElement | null = null;
+  private toastTimer: number | null = null;
 
   constructor(init: CoreInit) {
     this.root = init.root;
-    this.renderMode = init.options?.renderMode ?? 'auto';
-    this.editMode = init.options?.editMode ?? 'direct';
-    this.lockMode = init.options?.lockMode ?? 'none';
+    this.renderMode = init.options?.renderMode ?? "auto";
+    this.editMode = init.options?.editMode ?? "direct";
+    this.lockMode = init.options?.lockMode ?? "none";
     this.server = init.options?.server;
     this.user = init.options?.user;
     this.dataModel = new DataModel(init.defaultData, init.schema, init.defaultView);
@@ -73,7 +81,7 @@ export class ExtableCore {
         this.lockManager.setUser(this.user);
       } catch (e) {
         // eslint-disable-next-line no-console
-        console.warn('fetchInitial failed', e);
+        console.warn("fetchInitial failed", e);
       }
     }
     this.mount();
@@ -87,22 +95,28 @@ export class ExtableCore {
     if (options?.defaultStyle) {
       for (const [k, v] of Object.entries(options.defaultStyle)) {
         // @ts-expect-error CSSStyleDeclaration index
-        this.root.style[k] = v ?? '';
+        this.root.style[k] = v ?? "";
       }
     }
   }
 
   private chooseRenderer(mode: RenderMode): Renderer {
-    if (mode === 'auto') {
-      const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-      const isBot = /bot|crawl|spider/i.test(ua) || (typeof navigator !== 'undefined' && 'userAgentData' in navigator && (navigator as any).userAgentData?.brands?.some((b: any) => /bot/i.test(b.brand)));
+    if (mode === "auto") {
+      const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+      const isBot =
+        /bot|crawl|spider/i.test(ua) ||
+        (typeof navigator !== "undefined" &&
+          "userAgentData" in navigator &&
+          (navigator as any).userAgentData?.brands?.some((b: any) => /bot/i.test(b.brand)));
       return isBot ? new HTMLRenderer(this.dataModel) : new CanvasRenderer(this.dataModel);
     }
-    return mode === 'html' ? new HTMLRenderer(this.dataModel) : new CanvasRenderer(this.dataModel);
+    return mode === "html" ? new HTMLRenderer(this.dataModel) : new CanvasRenderer(this.dataModel);
   }
 
   private mount() {
     this.renderer.mount(this.root);
+    this.ensureContextMenu();
+    this.ensureToast();
     this.initViewportState();
     this.selectionManager = new SelectionManager(
       this.root,
@@ -112,9 +126,11 @@ export class ExtableCore {
       (rowId) => void this.lockManager.unlockOnMove(rowId),
       (ev) => this.renderer.hitTest(ev),
       this.dataModel,
-      (rowId, colKey) => this.renderer.setActiveCell(rowId, colKey)
+      (rowId, colKey) => this.renderer.setActiveCell(rowId, colKey),
+      (rowId, colKey, x, y) => this.showContextMenu(rowId, colKey, x, y),
+      (ranges) => this.renderer.setSelection(ranges),
     );
-    this.root.dataset.extable = 'ready';
+    this.root.dataset.extable = "ready";
     this.bindViewport();
     if (this.server) {
       this.unsubscribe = this.server.subscribe((event) => this.handleServerEvent(event));
@@ -146,14 +162,14 @@ export class ExtableCore {
   }
 
   setRootClass(classNames: string | string[]) {
-    this.root.className = '';
-    this.root.classList.add(...toArray(classNames) ?? []);
+    this.root.className = "";
+    this.root.classList.add(...(toArray(classNames) ?? []));
   }
 
   setRootStyle(style: Partial<CSSStyleDeclaration>) {
     for (const [k, v] of Object.entries(style)) {
       // @ts-expect-error CSSStyleDeclaration index
-      this.root.style[k] = v ?? '';
+      this.root.style[k] = v ?? "";
     }
   }
 
@@ -201,12 +217,16 @@ export class ExtableCore {
         await this.server.commit(commands, this.user);
       } catch (e) {
         // eslint-disable-next-line no-console
-        console.warn('commit failed', e);
+        console.warn("commit failed", e);
       }
     }
   }
 
-  private handleServerEvent(event: { type: 'update'; commands: Command[]; user: UserInfo }) {
+  private handleServerEvent(event: {
+    type: "update";
+    commands: Command[];
+    user: UserInfo;
+  }) {
     for (const cmd of event.commands) {
       this.applyCommand(cmd);
     }
@@ -215,23 +235,23 @@ export class ExtableCore {
 
   private applyCommand(cmd: Command) {
     switch (cmd.kind) {
-      case 'edit':
+      case "edit":
         if (cmd.rowId && cmd.colKey !== undefined) {
           this.dataModel.setCell(cmd.rowId, cmd.colKey, cmd.next, true);
         }
         break;
-      case 'insertRow':
+      case "insertRow":
         if (cmd.rowData) {
           this.dataModel.insertRow(cmd.rowData);
         }
         break;
-      case 'deleteRow':
+      case "deleteRow":
         if (cmd.rowId) {
           this.dataModel.deleteRow(cmd.rowId);
         }
         break;
-      case 'updateView':
-        if (cmd.next && typeof cmd.next === 'object') {
+      case "updateView":
+        if (cmd.next && typeof cmd.next === "object") {
           this.dataModel.setView(cmd.next as View);
         }
         break;
@@ -240,19 +260,165 @@ export class ExtableCore {
     }
   }
 
+  private ensureContextMenu() {
+    if (this.contextMenu) return;
+    const pop = document.createElement("div");
+    pop.className = "extable-context-menu";
+    pop.setAttribute("popover", "manual");
+    pop.addEventListener("contextmenu", (e) => e.preventDefault());
+    const actions: { key: string; label: string }[] = [
+      { key: "insert-above", label: "Insert row above" },
+      { key: "insert-below", label: "Insert row below" },
+      { key: "delete-row", label: "Delete row" },
+    ];
+    const list = document.createElement("div");
+    for (const act of actions) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.dataset.action = act.key;
+      btn.textContent = act.label;
+      btn.addEventListener("click", () => {
+        this.handleContextAction(act.key);
+        this.closeContextMenu();
+      });
+      list.appendChild(btn);
+    }
+    pop.appendChild(list);
+    document.body.appendChild(pop);
+    this.contextMenu = pop;
+	}
+
+  private showContextMenu(
+    rowId: string | null,
+    colKey: string | number | null,
+    clientX: number,
+    clientY: number,
+  ) {
+    this.ensureContextMenu();
+    if (!this.contextMenu) return;
+    this.contextMenuRowId = rowId;
+    this.contextMenuColKey = colKey;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const rect = { width: 220, height: 160 };
+    let left = clientX;
+    let top = clientY;
+    if (left + rect.width > viewportWidth) left = Math.max(0, viewportWidth - rect.width - 8);
+    if (top + rect.height > viewportHeight) top = Math.max(0, viewportHeight - rect.height - 8);
+    // eslint-disable-next-line no-console
+    console.log("[extable ctx] show", { rowId, colKey, left, top });
+    this.contextMenu.style.left = `${left}px`;
+    this.contextMenu.style.top = `${top}px`;
+    const anyPopover = this.contextMenu as any;
+    if (anyPopover.hidePopover) anyPopover.hidePopover();
+    if (anyPopover.showPopover) anyPopover.showPopover();
+  }
+
+  private handleContextAction(action: string) {
+    if (!this.contextMenuRowId) return;
+    const rows = this.dataModel.listRows();
+    const idx = rows.findIndex((r) => r.id === this.contextMenuRowId);
+    const targetIndex = idx >= 0 ? idx : rows.length;
+    if (action === "insert-above" || action === "insert-below") {
+      const insertAt = action === "insert-above" ? targetIndex : targetIndex + 1;
+      const raw = this.createBlankRow();
+      this.dataModel.insertRowAt(raw, insertAt);
+      this.renderer.render(this.viewportState ?? undefined);
+      this.showToast("Row inserted", "info");
+      return;
+    }
+    if (action === "delete-row") {
+      this.dataModel.deleteRow(this.contextMenuRowId);
+      this.renderer.render(this.viewportState ?? undefined);
+      this.showToast("Row deleted", "info");
+      return;
+    }
+  }
+
+  private createBlankRow(): RowObject | RowArray {
+    const schema = this.dataModel.getSchema();
+    const rows = this.dataModel.listRows();
+    const sample = rows[0]?.raw;
+    if (Array.isArray(sample)) {
+      return new Array(schema.columns.length).fill(null) as RowArray;
+    }
+    const obj: RowObject = {};
+    for (const col of schema.columns) {
+      obj[String(col.key)] = null;
+    }
+    return obj;
+  }
+
+  private closeContextMenu() {
+    const anyPopover = this.contextMenu as any;
+    if (anyPopover?.hidePopover) anyPopover.hidePopover();
+  }
+
+  private ensureToast() {
+    if (this.toast) return;
+    const toast = document.createElement("div");
+    toast.className = "extable-toast";
+    toast.setAttribute("popover", "manual");
+    toast.style.right = "16px";
+    toast.style.bottom = "16px";
+    toast.style.position = "fixed";
+    document.body.appendChild(toast);
+    this.toast = toast;
+  }
+
+  private showToast(message: string, variant: "info" | "error" = "info", durationMs = 2500) {
+    this.ensureToast();
+    if (!this.toast) return;
+    this.toast.textContent = message;
+    this.toast.dataset.variant = variant;
+    const anyPopover = this.toast as any;
+    if (anyPopover.hidePopover) anyPopover.hidePopover();
+    if (anyPopover.showPopover) anyPopover.showPopover();
+    if (this.toastTimer) {
+      window.clearTimeout(this.toastTimer);
+      this.toastTimer = null;
+    }
+    this.toastTimer = window.setTimeout(() => {
+      if (anyPopover.hidePopover) anyPopover.hidePopover();
+    }, durationMs);
+  }
+
   private bindViewport() {
     this.resizeHandler = () => this.updateViewportFromRoot();
     this.scrollHandler = () => this.updateViewportFromRoot();
-    this.root.addEventListener('scroll', this.scrollHandler, { passive: true });
-    window.addEventListener('resize', this.resizeHandler);
-  }
+    this.root.addEventListener("scroll", this.scrollHandler, { passive: true });
+    window.addEventListener("resize", this.resizeHandler);
+    this.handleGlobalPointer = (ev: MouseEvent | PointerEvent) => {
+      if (this.contextMenu && !this.contextMenu.contains(ev.target as Node)) {
+        const anyPopover = this.contextMenu as any;
+        if (anyPopover.hidePopover) anyPopover.hidePopover();
+      }
+    };
+    document.addEventListener("pointerdown", this.handleGlobalPointer, true);
+	}
 
   private unbindViewport() {
-    if (this.resizeHandler) window.removeEventListener('resize', this.resizeHandler);
-    if (this.scrollHandler) this.root.removeEventListener('scroll', this.scrollHandler);
+    if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
+    if (this.scrollHandler) this.root.removeEventListener("scroll", this.scrollHandler);
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
+    }
+    if (this.handleGlobalPointer) {
+      document.removeEventListener("pointerdown", this.handleGlobalPointer, true);
+      this.handleGlobalPointer = null;
+    }
+    if (this.contextMenu?.parentElement) {
+      const anyPopover = this.contextMenu as any;
+      if (anyPopover.hidePopover) anyPopover.hidePopover();
+      this.contextMenu.parentElement.removeChild(this.contextMenu);
+      this.contextMenu = null;
+    }
+    if (this.toast?.parentElement) {
+      const anyToast = this.toast as any;
+      if (anyToast.hidePopover) anyToast.hidePopover();
+      this.toast.parentElement.removeChild(this.toast);
+      this.toast = null;
     }
   }
 
@@ -273,7 +439,7 @@ export class ExtableCore {
       clientHeight: this.root.clientHeight,
       deltaX: 0,
       deltaY: 0,
-      timestamp: performance.now()
+      timestamp: performance.now(),
     };
   }
 
@@ -286,7 +452,7 @@ export class ExtableCore {
       clientHeight: 0,
       deltaX: 0,
       deltaY: 0,
-      timestamp: performance.now()
+      timestamp: performance.now(),
     };
     const next: ViewportState = {
       scrollTop: this.root.scrollTop,
@@ -295,8 +461,17 @@ export class ExtableCore {
       clientHeight: this.root.clientHeight,
       deltaX: this.root.scrollLeft - prev.scrollLeft,
       deltaY: this.root.scrollTop - prev.scrollTop,
-      timestamp: performance.now()
+      timestamp: performance.now(),
     };
+    // eslint-disable-next-line no-console
+    console.log("[extable scroll]", {
+      scrollTop: next.scrollTop,
+      scrollLeft: next.scrollLeft,
+      deltaX: next.deltaX,
+      deltaY: next.deltaY,
+      clientWidth: next.clientWidth,
+      clientHeight: next.clientHeight,
+    });
     this.viewportState = next;
     if (this.rafId === null) {
       this.rafId = requestAnimationFrame(() => this.flushRender());
@@ -316,11 +491,11 @@ export class ExtableCore {
 // Compatibility helpers for wrappers/tests
 export function createTablePlaceholder(config: TableConfig, options: CoreOptions) {
   const core = new ExtableCore({
-    root: document.createElement('div'),
+    root: document.createElement("div"),
     defaultData: config.data,
     defaultView: config.view,
     schema: config.schema,
-    options
+    options,
   });
   return core;
 }

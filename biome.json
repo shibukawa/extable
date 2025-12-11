@@ -9,11 +9,6 @@
     "enabled": true
   },
   "linter": {
-    "enabled": true,
-    "rules": {
-      "style": {
-        "useSortedImports": "fixable"
-      }
-    }
+    "enabled": true
   }
 }

@@ -123,3 +123,13 @@ export interface InternalRow {
   raw: RowObject | RowArray;
   displayIndex: number;
 }
+
+export type SelectionKind = 'cells' | 'rows';
+
+export interface SelectionRange {
+  kind: SelectionKind;
+  startRow: number;
+  endRow: number;
+  startCol: number;
+  endCol: number;
+}

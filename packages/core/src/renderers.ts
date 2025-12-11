@@ -1,5 +1,5 @@
 import type { DataModel } from './dataModel';
-import type { InternalRow, Schema, ColumnSchema } from './types';
+import type { InternalRow, Schema, ColumnSchema, SelectionRange } from './types';
 import { format as formatDate, parseISO } from 'date-fns';
 
 const DAY_MS = 86_400_000;
@@ -54,6 +54,7 @@ export interface Renderer {
   getCellElements(): NodeListOf<HTMLElement> | null;
   hitTest(event: MouseEvent): { rowId: string; colKey: string | number; element?: HTMLElement; rect: DOMRect } | null;
   setActiveCell(rowId: string | null, colKey: string | number | null): void;
+  setSelection(ranges: SelectionRange[]): void;
 }
 
 export class HTMLRenderer implements Renderer {
@@ -62,6 +63,7 @@ export class HTMLRenderer implements Renderer {
   private rowHeaderWidth = 48;
   private activeRowId: string | null = null;
   private activeColKey: string | number | null = null;
+  private selection: SelectionRange[] = [];
   private numberFormatCache = new Map<string, Intl.NumberFormat>();
   private dateParseCache = new Map<string, Date>();
    private measureCache = new Map<string, { height: number; frame: number }>();
@@ -81,6 +83,11 @@ export class HTMLRenderer implements Renderer {
     this.activeRowId = rowId;
     this.activeColKey = colKey;
     this.updateActiveClasses();
+  }
+
+  setSelection(ranges: SelectionRange[]) {
+    this.selection = ranges;
+    this.applySelectionClasses();
   }
 
   render(_state?: ViewportState) {
@@ -113,6 +120,7 @@ export class HTMLRenderer implements Renderer {
     }
     this.tableEl.appendChild(body);
     this.updateActiveClasses();
+    this.applySelectionClasses();
     if (scrollContainer) {
       scrollContainer.scrollTop = prevTop;
       scrollContainer.scrollLeft = prevLeft;
@@ -136,6 +144,22 @@ export class HTMLRenderer implements Renderer {
   hitTest(event: MouseEvent) {
     const target = event.target as HTMLElement | null;
     if (!target) return null;
+    const corner = target.closest<HTMLElement>('th.extable-corner');
+    if (corner) {
+      return { rowId: '__all__', colKey: '__all__', element: corner, rect: corner.getBoundingClientRect() };
+    }
+    const rowHeader = target.closest<HTMLElement>('th.extable-row-header:not(.extable-corner)');
+    if (rowHeader) {
+      const row = rowHeader.closest<HTMLElement>('tr[data-row-id]');
+      if (row) {
+        return {
+          rowId: row.dataset.rowId!,
+          colKey: '__row__',
+          element: rowHeader,
+          rect: rowHeader.getBoundingClientRect()
+        };
+      }
+    }
     const cell = target.closest<HTMLElement>('td[data-col-key]');
     const row = cell?.closest<HTMLElement>('tr[data-row-id]');
     if (!cell || !row) return null;
@@ -260,6 +284,8 @@ export class HTMLRenderer implements Renderer {
 
   private updateActiveClasses() {
     if (!this.tableEl) return;
+    const isAll = this.activeRowId === '__all__' && this.activeColKey === '__all__';
+    this.tableEl.classList.toggle('extable-all-selected', isAll);
     for (const el of Array.from(this.tableEl.querySelectorAll('.extable-active-row-header'))) {
       el.classList.remove('extable-active-row-header');
     }
@@ -289,6 +315,33 @@ export class HTMLRenderer implements Renderer {
           )
         )) {
           el.classList.add('extable-active-cell');
+        }
+      }
+    }
+  }
+
+  private applySelectionClasses() {
+    if (!this.tableEl) return;
+    for (const el of Array.from(this.tableEl.querySelectorAll('.extable-selected'))) {
+      el.classList.remove('extable-selected');
+    }
+    if (!this.selection.length) return;
+    const rows = Array.from(this.tableEl.querySelectorAll<HTMLTableRowElement>('tbody tr'));
+    const schema = this.dataModel.getSchema();
+    for (const range of this.selection) {
+      const startRow = Math.max(0, Math.min(range.startRow, range.endRow));
+      const endRow = Math.min(rows.length - 1, Math.max(range.startRow, range.endRow));
+      const startCol = Math.max(0, Math.min(range.startCol, range.endCol));
+      const endCol = Math.min(schema.columns.length - 1, Math.max(range.startCol, range.endCol));
+      for (let r = startRow; r <= endRow; r += 1) {
+        const rowEl = rows[r];
+        if (!rowEl) continue;
+        const th = rowEl.querySelector('th.extable-row-header');
+        if (th) th.classList.add('extable-selected');
+        const cells = Array.from(rowEl.querySelectorAll<HTMLTableCellElement>('td'));
+        for (let c = startCol; c <= endCol; c += 1) {
+          const cell = cells[c];
+          if (cell) cell.classList.add('extable-selected');
         }
       }
     }
@@ -358,6 +411,7 @@ export class CanvasRenderer implements Renderer {
   private readonly rowHeaderWidth = 48;
   private activeRowId: string | null = null;
   private activeColKey: string | number | null = null;
+  private selection: SelectionRange[] = [];
   private numberFormatCache = new Map<string, Intl.NumberFormat>();
   private dateParseCache = new Map<string, Date>();
   private textMeasureCache = new Map<string, { lines: string[]; frame: number }>();
@@ -371,6 +425,7 @@ export class CanvasRenderer implements Renderer {
     this.root = root;
     this.root.classList.add('extable-root');
     root.style.overflow = 'auto';
+    root.style.paddingTop = `${this.headerHeight}px`;
     this.canvas = document.createElement('canvas');
     this.canvas.width = root.clientWidth || 600;
     this.canvas.height = root.clientHeight || 400;
@@ -396,20 +451,30 @@ export class CanvasRenderer implements Renderer {
     this.render();
   }
 
+  setSelection(ranges: SelectionRange[]) {
+    this.selection = ranges;
+    this.render();
+  }
+
   render(state?: ViewportState) {
     this.frame += 1;
     if (!this.canvas || !this.root) return;
     const ctx = this.canvas.getContext('2d');
     if (!ctx) return;
+    ctx.font = '14px sans-serif';
+    const selectAll = this.activeRowId === '__all__' && this.activeColKey === '__all__';
     const schema = this.dataModel.getSchema();
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
     const colWidths = schema.columns.map((c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100);
-    const totalRowsHeight = rows.reduce((acc, row) => acc + (this.dataModel.getRowHeight(row.id) ?? this.rowHeight), 0);
+    const rowHeights: number[] = [];
+    for (const row of rows) {
+      rowHeights.push(this.computeRowHeight(ctx, row, schema, colWidths));
+    }
+    const totalRowsHeight = rowHeights.reduce((acc, h) => acc + h, 0);
     const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
-    const totalHeightInitial = this.headerHeight + totalRowsHeight;
     if (this.spacer) {
-      this.spacer.style.height = `${totalHeightInitial}px`;
+      this.spacer.style.height = `${totalRowsHeight + this.headerHeight}px`;
       this.spacer.style.width = `${totalWidth}px`;
     }
     const desiredCanvasWidth = state?.clientWidth ?? (this.root.clientWidth || 600);
@@ -421,15 +486,12 @@ export class CanvasRenderer implements Renderer {
 
     const scrollTop = state?.scrollTop ?? this.root.scrollTop;
     const scrollLeft = state?.scrollLeft ?? this.root.scrollLeft;
-    const contentScrollTop = Math.max(
-      0,
-      Math.min(scrollTop - this.headerHeight, Math.max(0, totalRowsHeight - this.rowHeight))
-    );
+    const contentScrollTop = Math.max(0, Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)));
     const dataXOffset = this.rowHeaderWidth - scrollLeft;
     let accum = 0;
     let visibleStart = 0;
     for (let i = 0; i < rows.length; i += 1) {
-      const h = this.dataModel.getRowHeight(rows[i].id) ?? this.rowHeight;
+      const h = rowHeights[i] ?? this.rowHeight;
       if (contentScrollTop < accum + h) {
         visibleStart = i;
         break;
@@ -441,7 +503,7 @@ export class CanvasRenderer implements Renderer {
     let drawnHeight = 0;
     const maxHeight = this.canvas.height + this.rowHeight * 2;
     for (let i = visibleStart; i < rows.length && drawnHeight < maxHeight; i += 1) {
-      drawnHeight += this.dataModel.getRowHeight(rows[i].id) ?? this.rowHeight;
+      drawnHeight += rowHeights[i] ?? this.rowHeight;
       visibleEnd = i + 1;
     }
 
@@ -453,7 +515,7 @@ export class CanvasRenderer implements Renderer {
     let yCursor = this.headerHeight + accum - contentScrollTop;
     for (let i = visibleStart; i < visibleEnd; i += 1) {
       const row = rows[i];
-      const rowH = this.computeRowHeight(ctx, row, schema, colWidths);
+      const rowH = rowHeights[i] ?? this.rowHeight;
       // row header cell
       ctx.strokeStyle = '#d0d7de';
       ctx.fillStyle = '#e5e7eb';
@@ -512,9 +574,7 @@ export class CanvasRenderer implements Renderer {
     }
 
     // update spacer height after computing dynamic row heights
-    const totalHeight =
-      this.headerHeight +
-      rows.reduce((acc, row) => acc + (this.dataModel.getRowHeight(row.id) ?? this.rowHeight), 0);
+    const totalHeight = rowHeights.reduce((acc, h) => acc + h, 0);
     if (this.spacer) this.spacer.style.height = `${totalHeight}px`;
 
     // Header (draw last to stay on top)
@@ -557,6 +617,48 @@ export class CanvasRenderer implements Renderer {
       xHeader += w;
     }
     ctx.restore();
+
+    // selection overlay
+    if (this.selection.length) {
+      ctx.save();
+      ctx.strokeStyle = '#3b82f6';
+      ctx.fillStyle = 'rgba(59,130,246,0.12)';
+      for (const range of this.selection) {
+      const startRow = Math.max(0, Math.min(range.startRow, range.endRow));
+      const endRow = Math.min(rows.length - 1, Math.max(range.startRow, range.endRow));
+      const startCol = Math.max(0, Math.min(range.startCol, range.endCol));
+      const endCol = Math.min(schema.columns.length - 1, Math.max(range.startCol, range.endCol));
+      let yTop = this.headerHeight;
+      for (let i = 0; i < startRow; i += 1) {
+        yTop += rowHeights[i] ?? this.rowHeight;
+      }
+      let height = 0;
+      for (let i = startRow; i <= endRow; i += 1) {
+        height += rowHeights[i] ?? this.rowHeight;
+      }
+      const contentScrollTop = Math.max(0, Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)));
+      yTop -= contentScrollTop;
+      let xLeft = this.rowHeaderWidth;
+      for (let c = 0; c < startCol; c += 1) {
+        xLeft += colWidths[c] ?? 100;
+      }
+      let width = 0;
+        for (let c = startCol; c <= endCol; c += 1) {
+          width += colWidths[c] ?? 100;
+        }
+        xLeft -= scrollLeft;
+        ctx.fillRect(xLeft, yTop, width, height);
+        ctx.strokeRect(xLeft + 0.5, yTop + 0.5, width - 1, height - 1);
+      }
+      ctx.restore();
+    }
+
+    if (selectAll) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(59,130,246,0.08)';
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      ctx.restore();
+    }
   }
 
   destroy() {
@@ -585,8 +687,36 @@ export class CanvasRenderer implements Renderer {
     const rows = this.dataModel.listRows();
     const headerHeight = this.headerHeight;
     const colWidths = schema.columns.map((c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100);
+    const totalRowsHeight = rows.reduce((acc, row) => acc + (this.dataModel.getRowHeight(row.id) ?? this.rowHeight), 0);
+    const contentScrollTop = Math.max(
+      0,
+      Math.min(this.root.scrollTop - this.headerHeight, Math.max(0, totalRowsHeight - this.rowHeight))
+    );
+    if (y < headerHeight && x < this.rowHeaderWidth) {
+      return {
+        rowId: '__all__',
+        colKey: '__all__',
+        rect: new DOMRect(rect.left, rect.top, this.rowHeaderWidth, headerHeight)
+      };
+    }
     if (y < headerHeight) return null;
-    if (x < this.rowHeaderWidth) return null;
+    if (x < this.rowHeaderWidth) {
+      let accumHeight = 0;
+      let rowIndex = -1;
+      for (let i = 0; i < rows.length; i += 1) {
+        const h = this.dataModel.getRowHeight(rows[i].id) ?? this.rowHeight;
+        if (y - headerHeight < accumHeight + h) {
+          rowIndex = i;
+          break;
+        }
+        accumHeight += h;
+      }
+      if (rowIndex < 0 || rowIndex >= rows.length) return null;
+      const row = rows[rowIndex];
+      const topPx = rect.top + headerHeight + accumHeight - contentScrollTop;
+      const cellRect = new DOMRect(rect.left, topPx, this.rowHeaderWidth, this.dataModel.getRowHeight(row.id) ?? this.rowHeight);
+      return { rowId: row.id, colKey: '__row__', rect: cellRect };
+    }
     let rowIndex = -1;
     let accumHeight = 0;
     for (let i = 0; i < rows.length; i += 1) {

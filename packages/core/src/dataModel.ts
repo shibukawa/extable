@@ -155,9 +155,14 @@ export class DataModel {
   }
 
   public insertRow(rowData: InternalRow['raw']) {
+    return this.insertRowAt(rowData, this.rows.length);
+  }
+
+  public insertRowAt(rowData: InternalRow['raw'], index: number) {
     const id = generateId();
-    const nextIndex = this.rows.reduce((max, r) => Math.max(max, r.displayIndex), 0) + 1;
-    this.rows.push({ id, raw: rowData, displayIndex: nextIndex });
+    const clamped = Math.max(0, Math.min(index, this.rows.length));
+    this.rows.splice(clamped, 0, { id, raw: rowData, displayIndex: 0 });
+    this.reindexRows();
     this.rowVersion.set(id, 0);
     return id;
   }
@@ -166,10 +171,15 @@ export class DataModel {
     this.rows = this.rows.filter((r) => r.id !== rowId);
     this.pending.delete(rowId);
     this.rowVersion.delete(rowId);
+    this.reindexRows();
   }
 
   public getDisplayIndex(rowId: string) {
     return this.rows.find((r) => r.id === rowId)?.displayIndex;
+  }
+
+  public getRowIndex(rowId: string) {
+    return this.rows.findIndex((r) => r.id === rowId);
   }
 
   public getColumns(): ColumnSchema[] {
@@ -183,5 +193,13 @@ export class DataModel {
 
   public getRowVersion(rowId: string) {
     return this.rowVersion.get(rowId) ?? 0;
+  }
+
+  private reindexRows() {
+    let idx = 1;
+    for (const row of this.rows) {
+      row.displayIndex = idx;
+      idx += 1;
+    }
   }
 }

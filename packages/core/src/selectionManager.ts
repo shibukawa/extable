@@ -1,4 +1,4 @@
-import type { Command, EditMode } from './types';
+import type { Command, EditMode, SelectionRange } from './types';
 import type { DataModel } from './dataModel';
 
 type EditHandler = (cmd: Command, commit: boolean) => void;
@@ -6,6 +6,8 @@ type RowSelectHandler = (rowId: string) => void;
 type MoveHandler = (rowId?: string) => void;
 type HitTest = (event: MouseEvent) => { rowId: string; colKey: string | number; element?: HTMLElement; rect: DOMRect } | null;
 type ActiveChange = (rowId: string | null, colKey: string | number | null) => void;
+type ContextMenuHandler = (rowId: string | null, colKey: string | number | null, clientX: number, clientY: number) => void;
+type SelectionChange = (ranges: SelectionRange[]) => void;
 
 export class SelectionManager {
   private root: HTMLElement;
@@ -14,6 +16,10 @@ export class SelectionManager {
   private onRowSelect: RowSelectHandler;
   private onMove: MoveHandler;
   private hitTest: HitTest;
+  private onContextMenu: ContextMenuHandler;
+  private handleDocumentContextMenu: ((ev: MouseEvent) => void) | null = null;
+  private debug = true;
+  private selectionRanges: SelectionRange[] = [];
   private inputEl: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null = null;
   private floatingInputWrapper: HTMLDivElement | null = null;
   private activeCell: { rowId: string; colKey: string | number } | null = null;
@@ -38,7 +44,9 @@ export class SelectionManager {
     onMove: MoveHandler,
     hitTest: HitTest,
     private dataModel: DataModel,
-    private onActiveChange: ActiveChange
+    private onActiveChange: ActiveChange,
+    onContextMenu: ContextMenuHandler,
+    private onSelectionChange: SelectionChange
   ) {
     this.root = root;
     this.editMode = editMode;
@@ -46,6 +54,7 @@ export class SelectionManager {
     this.onRowSelect = onRowSelect;
     this.onMove = onMove;
     this.hitTest = hitTest;
+    this.onContextMenu = onContextMenu;
     this.bind();
   }
 
@@ -59,17 +68,28 @@ export class SelectionManager {
 
   destroy() {
     this.root.removeEventListener('click', this.handleClick);
+    if (this.handleDocumentContextMenu) {
+      document.removeEventListener('contextmenu', this.handleDocumentContextMenu, true);
+    }
     this.teardownInput(true);
   }
 
   onScroll(scrollTop: number, scrollLeft: number) {
     if (this.floatingInputWrapper && this.floatingMeta) {
+      if (this.debug) {
+        // eslint-disable-next-line no-console
+        console.log('[extable input] onScroll', { scrollTop, scrollLeft });
+      }
       this.positionFloating(this.floatingMeta, scrollTop, scrollLeft);
     }
   }
 
   private bind() {
     this.root.addEventListener('click', this.handleClick);
+    this.handleDocumentContextMenu = (ev: MouseEvent) => this.handleContextMenu(ev);
+    document.addEventListener('contextmenu', this.handleDocumentContextMenu, { capture: true });
+    // eslint-disable-next-line no-console
+    console.log('[extable ctx] document contextmenu listener attached');
   }
 
   private findColumn(colKey: string | number) {
@@ -169,12 +189,25 @@ export class SelectionManager {
   ) {
     const host = wrapper ?? this.floatingInputWrapper;
     if (!host) return;
-    const dpr = window.devicePixelRatio ?? 1;
     const screenLeft = meta.screenLeft + (meta.scrollLeft0 - scrollLeft);
     const screenTop = meta.screenTop + (meta.scrollTop0 - scrollTop);
-    const rootRect = this.root.getBoundingClientRect();
-    const leftPx = screenLeft - rootRect.left;
-    const topPx = screenTop - rootRect.top;
+    const leftPx = screenLeft;
+    const topPx = screenTop;
+    if (this.debug) {
+      // eslint-disable-next-line no-console
+      console.log('[extable input] positionFloating', {
+        screenLeft,
+        screenTop,
+        leftPx,
+        topPx,
+        width: meta.width,
+        height: meta.height,
+        scrollLeft0: meta.scrollLeft0,
+        scrollTop0: meta.scrollTop0,
+        scrollLeft,
+        scrollTop
+      });
+    }
     host.style.left = `${leftPx}px`;
     host.style.top = `${topPx}px`;
     host.style.width = `${meta.width}px`;
@@ -183,6 +216,9 @@ export class SelectionManager {
   }
 
   private handleClick = (ev: MouseEvent) => {
+    if (ev.button !== 0) {
+      return; // only left click starts edit/selection; right-click is handled by contextmenu
+    }
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) {
       return;
     }
@@ -194,8 +230,17 @@ export class SelectionManager {
     }
     const hit = this.hitTest(ev);
     if (!hit) return;
+    if (hit.rowId === '__all__' && hit.colKey === '__all__') {
+      this.teardownInput(false);
+      this.activeCell = null;
+      this.onActiveChange('__all__', '__all__');
+      return;
+    }
     this.onRowSelect(hit.rowId);
-    this.onActiveChange(hit.rowId, hit.colKey);
+    this.applySelectionFromHit(ev, hit);
+    if (hit.colKey === '__row__' || hit.colKey === '__all__') {
+      return;
+    }
     if (this.dataModel.isReadonly(hit.rowId, hit.colKey)) return;
     const col = this.findColumn(hit.colKey);
     const isBoolean = col?.type === 'boolean';
@@ -215,6 +260,123 @@ export class SelectionManager {
       this.activateFloating(hit.rect, hit.rowId, hit.colKey);
     }
   };
+
+  private handleContextMenu = (ev: MouseEvent) => {
+    const target = ev.target as Node | null;
+    if (this.debug) {
+      // eslint-disable-next-line no-console
+      console.log('[extable ctx] contextmenu event', {
+        inRoot: !!(target && this.root.contains(target)),
+        targetTag: (target as HTMLElement | null)?.tagName,
+        x: ev.clientX,
+        y: ev.clientY,
+        ctrl: ev.ctrlKey
+      });
+    }
+    if (ev.ctrlKey) {
+      ev.preventDefault();
+      return;
+    }
+    if (!target || !this.root.contains(target)) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    const hit = this.hitTest(ev);
+    if (this.debug) {
+      // eslint-disable-next-line no-console
+      console.log('[extable ctx] hit', hit);
+    }
+    const rowId = hit?.rowId ?? null;
+    const colKey = hit?.colKey ?? null;
+    this.onContextMenu(rowId, colKey, ev.clientX, ev.clientY);
+  };
+
+  private applySelectionFromHit(ev: MouseEvent, hit: { rowId: string; colKey: string | number }) {
+    const schema = this.dataModel.getSchema();
+    const rowIdx = this.dataModel.getRowIndex(hit.rowId);
+    const colIdx = schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
+    const isRow = hit.colKey === '__row__';
+    const targetRange: SelectionRange = isRow
+      ? { kind: 'rows', startRow: rowIdx, endRow: rowIdx, startCol: 0, endCol: schema.columns.length - 1 }
+      : { kind: 'cells', startRow: rowIdx, endRow: rowIdx, startCol: Math.max(0, colIdx), endCol: Math.max(0, colIdx) };
+    let nextRanges: SelectionRange[] = [];
+    if (ev.shiftKey && this.activeCell) {
+      const anchorRow = this.dataModel.getRowIndex(this.activeCell.rowId);
+      const anchorCol = schema.columns.findIndex((c) => String(c.key) === String(this.activeCell!.colKey));
+      const anchorRange: SelectionRange = isRow
+        ? { kind: 'rows', startRow: anchorRow, endRow: rowIdx, startCol: 0, endCol: schema.columns.length - 1 }
+        : {
+            kind: 'cells',
+            startRow: anchorRow,
+            endRow: rowIdx,
+            startCol: Math.max(0, anchorCol),
+            endCol: Math.max(0, colIdx)
+          };
+      nextRanges = [anchorRange];
+    } else if (ev.metaKey || ev.ctrlKey) {
+      nextRanges = [...this.selectionRanges, targetRange];
+    } else {
+      nextRanges = [targetRange];
+    }
+    this.selectionRanges = this.mergeRanges(nextRanges);
+    const anchorCell =
+      targetRange.kind === 'rows'
+        ? { rowId: hit.rowId, colKey: schema.columns[0]?.key ?? null }
+        : { rowId: hit.rowId, colKey: hit.colKey };
+    this.activeCell = anchorCell;
+    this.onActiveChange(anchorCell.rowId, anchorCell.colKey);
+    this.onSelectionChange(this.selectionRanges);
+  }
+
+  private mergeRanges(ranges: SelectionRange[]) {
+    const merged: SelectionRange[] = [];
+    const sorted = [...ranges].sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'rows' ? -1 : 1;
+      if (a.startRow !== b.startRow) return a.startRow - b.startRow;
+      if (a.startCol !== b.startCol) return a.startCol - b.startCol;
+      if (a.endRow !== b.endRow) return a.endRow - b.endRow;
+      return a.endCol - b.endCol;
+    });
+    for (const r of sorted) {
+      const last = merged.at(-1);
+      if (!last) {
+        merged.push({ ...r });
+        continue;
+      }
+      if (last.kind !== r.kind) {
+        merged.push({ ...r });
+        continue;
+      }
+      if (r.kind === 'rows') {
+        const canMerge =
+          last.startCol === r.startCol &&
+          last.endCol === r.endCol &&
+          last.startRow <= r.endRow + 1 &&
+          r.startRow <= last.endRow + 1;
+        if (canMerge) {
+          last.startRow = Math.min(last.startRow, r.startRow);
+          last.endRow = Math.max(last.endRow, r.endRow);
+          continue;
+        }
+      } else {
+        const sameCols = last.startCol === r.startCol && last.endCol === r.endCol;
+        const sameRows = last.startRow === r.startRow && last.endRow === r.endRow;
+        const rowsTouch = last.startRow <= r.endRow + 1 && r.startRow <= last.endRow + 1;
+        const colsTouch = last.startCol <= r.endCol + 1 && r.startCol <= last.endCol + 1;
+        if (sameCols && rowsTouch) {
+          last.startRow = Math.min(last.startRow, r.startRow);
+          last.endRow = Math.max(last.endRow, r.endRow);
+          continue;
+        }
+        if (sameRows && colsTouch) {
+          last.startCol = Math.min(last.startCol, r.startCol);
+          last.endCol = Math.max(last.endCol, r.endCol);
+          continue;
+        }
+      }
+      merged.push({ ...r });
+    }
+    return merged;
+  }
 
   private activateCellElement(cell: HTMLElement, rowId: string, colKey: string | number) {
     this.teardownInput();
@@ -264,8 +426,9 @@ export class SelectionManager {
     const wrapper = document.createElement('div');
     this.activeHost = wrapper;
     this.activeHostOriginalText = null;
-    wrapper.style.position = 'absolute';
-    wrapper.style.pointerEvents = 'none';
+    wrapper.style.position = 'fixed';
+    wrapper.dataset.extableFloating = 'fixed';
+    wrapper.style.pointerEvents = 'auto';
     wrapper.style.padding = '0';
     wrapper.style.zIndex = '2';
     const current = this.dataModel.getCell(rowId, colKey);
@@ -297,6 +460,13 @@ export class SelectionManager {
     this.bindImmediateCommit(input, wrapper);
     if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) this.attachInputDebug(input);
     wrapper.appendChild(input);
+    const forwardWheel = (e: Event) => {
+      const evt = e as WheelEvent;
+      e.preventDefault();
+      this.root.scrollBy(evt.deltaX, evt.deltaY);
+    };
+    wrapper.addEventListener('wheel', forwardWheel, { passive: false });
+    input.addEventListener('wheel', forwardWheel, { passive: false });
     if (input instanceof HTMLSelectElement) {
       // No auto focus/click for select; standard focus will allow selection on first interaction
     }
@@ -305,8 +475,7 @@ export class SelectionManager {
         if (input instanceof HTMLTextAreaElement) this.autosize(input);
       });
     }
-    this.root.appendChild(wrapper);
-    const rootRect = this.root.getBoundingClientRect();
+    document.body.appendChild(wrapper);
     const inset = 2;
     this.floatingMeta = {
       screenLeft: rect.left + inset,
@@ -317,6 +486,10 @@ export class SelectionManager {
       scrollTop0: this.root.scrollTop
     };
     this.positionFloating(this.floatingMeta, this.root.scrollTop, this.root.scrollLeft, wrapper);
+    if (this.debug) {
+      // eslint-disable-next-line no-console
+      console.log('[extable input] activateFloating meta', this.floatingMeta);
+    }
     input.focus();
     this.inputEl = input;
     this.floatingInputWrapper = wrapper;
