@@ -9,8 +9,8 @@ describe('CommandQueue', () => {
     q.enqueue({ kind: 'edit', rowId: 'r3', colKey: 'c', next: 3 });
     expect(q.listApplied().length).toBe(2); // cap applied
     const undone = q.undo();
-    expect(undone?.rowId).toBe('r3');
+    expect(undone?.[0]?.rowId).toBe('r3');
     const redone = q.redo();
-    expect(redone?.rowId).toBe('r3');
+    expect(redone?.[0]?.rowId).toBe('r3');
   });
 });

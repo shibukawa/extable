@@ -16,6 +16,7 @@ type HitTest = (event: MouseEvent) => { rowId: string; colKey: string | number; 
 type ActiveChange = (rowId: string | null, colKey: string | number | null) => void;
 type ContextMenuHandler = (rowId: string | null, colKey: string | number | null, clientX: number, clientY: number) => void;
 type SelectionChange = (ranges: SelectionRange[]) => void;
+type UndoRedoHandler = () => void;
 
 export class SelectionManager {
   private root: HTMLElement;
@@ -64,7 +65,9 @@ export class SelectionManager {
     private dataModel: DataModel,
     private onActiveChange: ActiveChange,
     onContextMenu: ContextMenuHandler,
-    private onSelectionChange: SelectionChange
+    private onSelectionChange: SelectionChange,
+    private onUndo: UndoRedoHandler,
+    private onRedo: UndoRedoHandler
   ) {
     this.root = root;
     this.editMode = editMode;
@@ -684,13 +687,14 @@ export class SelectionManager {
     if (!getValue) return;
 
     const commitNow = this.editMode === 'direct';
+    const batchId = `fill:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     for (let r = source.endRowIndex + 1; r <= endRowIndex; r += 1) {
       const row = rows[r];
       if (!row) break;
       if (this.dataModel.isReadonly(row.id, col.key)) continue;
       const offset = r - source.endRowIndex;
       const next = getValue(offset);
-      const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next };
+      const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next, payload: { batchId } };
       this.onEdit(cmd, commitNow);
     }
 
@@ -790,6 +794,19 @@ export class SelectionManager {
     const accel = isMac ? ev.metaKey : ev.ctrlKey;
     if (accel) {
       const key = ev.key.toLowerCase();
+      if (key === 'z') {
+        ev.preventDefault();
+        if (isMac && ev.shiftKey) this.onRedo();
+        else this.onUndo();
+        this.selectionAnchor = null;
+        return;
+      }
+      if (key === 'y') {
+        ev.preventDefault();
+        this.onRedo();
+        this.selectionAnchor = null;
+        return;
+      }
       if (key === 'c') {
         ev.preventDefault();
         document.execCommand('copy');
@@ -944,6 +961,7 @@ export class SelectionManager {
     const range = this.getCopyRange();
     if (!range || range.kind !== 'cells') return;
     const commitNow = this.editMode === 'direct';
+    const batchId = `cut:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     for (let r = range.startRow; r <= range.endRow; r += 1) {
       const row = rows[r];
       if (!row) continue;
@@ -952,7 +970,7 @@ export class SelectionManager {
         if (!col) continue;
         if (this.dataModel.isReadonly(row.id, col.key)) continue;
         const next = col.type === 'boolean' ? false : '';
-        const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next };
+        const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next, payload: { batchId } };
         this.onEdit(cmd, commitNow);
       }
     }
@@ -1017,6 +1035,7 @@ export class SelectionManager {
     const rows = this.dataModel.listRows();
     const { rowIndex: startRow, colIndex: startCol } = this.getActiveIndices();
     const commitNow = this.editMode === 'direct';
+    const batchId = `paste:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     for (let r = 0; r < grid.length; r += 1) {
       const row = rows[startRow + r];
       if (!row) break;
@@ -1026,7 +1045,7 @@ export class SelectionManager {
         if (!col) break;
         if (this.dataModel.isReadonly(row.id, col.key)) continue;
         const next = this.coerceCellValue(line[c] ?? '', col.key);
-        const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next };
+        const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next, payload: { batchId } };
         this.onEdit(cmd, commitNow);
       }
     }

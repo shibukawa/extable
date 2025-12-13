@@ -129,6 +129,8 @@ export class ExtableCore {
       (rowId, colKey) => this.renderer.setActiveCell(rowId, colKey),
       (rowId, colKey, x, y) => this.showContextMenu(rowId, colKey, x, y),
       (ranges) => this.renderer.setSelection(ranges),
+      () => this.undo(),
+      () => this.redo(),
     );
     this.root.dataset.extable = "ready";
     this.bindViewport();
@@ -196,6 +198,73 @@ export class ExtableCore {
     this.renderer.render(this.viewportState ?? undefined);
     if (commitNow) {
       void this.sendCommit([cmd]);
+    }
+  }
+
+  undo() {
+    this.selectionManager?.cancelEditing();
+    const cmds = this.commandQueue.undo();
+    if (!cmds || !cmds.length) return;
+    // Apply inverse operations in reverse order.
+    for (let i = cmds.length - 1; i >= 0; i -= 1) {
+      const cmd = cmds[i]!;
+      this.applyInverse(cmd);
+    }
+    this.renderer.render(this.viewportState ?? undefined);
+  }
+
+  redo() {
+    this.selectionManager?.cancelEditing();
+    const cmds = this.commandQueue.redo();
+    if (!cmds || !cmds.length) return;
+    for (const cmd of cmds) {
+      this.applyForward(cmd);
+    }
+    this.renderer.render(this.viewportState ?? undefined);
+  }
+
+  private applyInverse(cmd: Command) {
+    switch (cmd.kind) {
+      case "edit":
+        if (cmd.rowId && cmd.colKey !== undefined) {
+          this.dataModel.setCell(cmd.rowId, cmd.colKey, cmd.prev, this.editMode === "direct");
+        }
+        return;
+      case "insertRow":
+        if (cmd.rowId) this.dataModel.deleteRow(cmd.rowId);
+        return;
+      case "deleteRow":
+        if (cmd.rowId && cmd.rowData) {
+          const idx = (cmd.payload as any)?.index;
+          const index = typeof idx === "number" ? idx : this.dataModel.listRows().length;
+          this.dataModel.insertRowAt(cmd.rowData, index, cmd.rowId);
+        }
+        return;
+      default:
+        return;
+    }
+  }
+
+  private applyForward(cmd: Command) {
+    switch (cmd.kind) {
+      case "edit":
+        if (cmd.rowId && cmd.colKey !== undefined) {
+          this.dataModel.setCell(cmd.rowId, cmd.colKey, cmd.next, this.editMode === "direct");
+        }
+        return;
+      case "insertRow":
+        if (cmd.rowData) {
+          const idx = (cmd.payload as any)?.index;
+          const index = typeof idx === "number" ? idx : this.dataModel.listRows().length;
+          const forcedId = typeof cmd.rowId === "string" ? cmd.rowId : undefined;
+          this.dataModel.insertRowAt(cmd.rowData, index, forcedId);
+        }
+        return;
+      case "deleteRow":
+        if (cmd.rowId) this.dataModel.deleteRow(cmd.rowId);
+        return;
+      default:
+        return;
     }
   }
 
@@ -267,6 +336,8 @@ export class ExtableCore {
     pop.setAttribute("popover", "manual");
     pop.addEventListener("contextmenu", (e) => e.preventDefault());
     const actions: { key: string; label: string }[] = [
+      { key: "undo", label: "Undo" },
+      { key: "redo", label: "Redo" },
       { key: "insert-above", label: "Insert row above" },
       { key: "insert-below", label: "Insert row below" },
       { key: "delete-row", label: "Delete row" },
@@ -282,6 +353,11 @@ export class ExtableCore {
         this.closeContextMenu();
       });
       list.appendChild(btn);
+      if (act.key === "redo") {
+        const hr = document.createElement("hr");
+        hr.className = "extable-context-sep";
+        list.appendChild(hr);
+      }
     }
     pop.appendChild(list);
     document.body.appendChild(pop);
@@ -298,6 +374,12 @@ export class ExtableCore {
     if (!this.contextMenu) return;
     this.contextMenuRowId = rowId;
     this.contextMenuColKey = colKey;
+    // Update enable/disable state for undo/redo.
+    for (const btn of Array.from(this.contextMenu.querySelectorAll<HTMLButtonElement>("button[data-action]"))) {
+      const action = btn.dataset.action;
+      if (action === "undo") btn.disabled = !this.commandQueue.canUndo();
+      else if (action === "redo") btn.disabled = !this.commandQueue.canRedo();
+    }
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
     const rect = { width: 220, height: 160 };
@@ -315,6 +397,14 @@ export class ExtableCore {
   }
 
   private handleContextAction(action: string) {
+    if (action === "undo") {
+      this.undo();
+      return;
+    }
+    if (action === "redo") {
+      this.redo();
+      return;
+    }
     if (!this.contextMenuRowId) return;
     const rows = this.dataModel.listRows();
     const idx = rows.findIndex((r) => r.id === this.contextMenuRowId);
@@ -322,13 +412,26 @@ export class ExtableCore {
     if (action === "insert-above" || action === "insert-below") {
       const insertAt = action === "insert-above" ? targetIndex : targetIndex + 1;
       const raw = this.createBlankRow();
-      this.dataModel.insertRowAt(raw, insertAt);
+      const newId = this.dataModel.insertRowAt(raw, insertAt);
+      this.commandQueue.enqueue({
+        kind: "insertRow",
+        rowId: newId,
+        rowData: raw,
+        payload: { index: insertAt },
+      });
       this.renderer.render(this.viewportState ?? undefined);
       this.showToast("Row inserted", "info");
       return;
     }
     if (action === "delete-row") {
-      this.dataModel.deleteRow(this.contextMenuRowId);
+      const removed = this.dataModel.removeRow(this.contextMenuRowId);
+      if (!removed) return;
+      this.commandQueue.enqueue({
+        kind: "deleteRow",
+        rowId: removed.row.id,
+        rowData: removed.row.raw,
+        payload: { index: removed.index },
+      });
       this.renderer.render(this.viewportState ?? undefined);
       this.showToast("Row deleted", "info");
       return;

@@ -158,8 +158,8 @@ export class DataModel {
     return this.insertRowAt(rowData, this.rows.length);
   }
 
-  public insertRowAt(rowData: InternalRow['raw'], index: number) {
-    const id = generateId();
+  public insertRowAt(rowData: InternalRow['raw'], index: number, forcedId?: string) {
+    const id = forcedId ?? generateId();
     const clamped = Math.max(0, Math.min(index, this.rows.length));
     this.rows.splice(clamped, 0, { id, raw: rowData, displayIndex: 0 });
     this.reindexRows();
@@ -167,11 +167,19 @@ export class DataModel {
     return id;
   }
 
-  public deleteRow(rowId: string) {
-    this.rows = this.rows.filter((r) => r.id !== rowId);
+  public removeRow(rowId: string): { row: InternalRow; index: number } | null {
+    const idx = this.rows.findIndex((r) => r.id === rowId);
+    if (idx < 0) return null;
+    const removed = this.rows.splice(idx, 1)[0];
+    if (!removed) return null;
     this.pending.delete(rowId);
     this.rowVersion.delete(rowId);
     this.reindexRows();
+    return { row: removed, index: idx };
+  }
+
+  public deleteRow(rowId: string) {
+    void this.removeRow(rowId);
   }
 
   public getDisplayIndex(rowId: string) {
