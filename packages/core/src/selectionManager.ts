@@ -23,6 +23,8 @@ export class SelectionManager {
   private inputEl: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null = null;
   private floatingInputWrapper: HTMLDivElement | null = null;
   private selectionInput: HTMLInputElement | null = null;
+  private copyToastEl: HTMLDivElement | null = null;
+  private copyToastTimer: number | null = null;
   private selectionMode = true;
   private lastBooleanCell: { rowId: string; colKey: string | number } | null = null;
   private selectionAnchor: { rowIndex: number; colIndex: number } | null = null;
@@ -70,12 +72,14 @@ export class SelectionManager {
     }
     this.teardownInput(true);
     this.teardownSelectionInput();
+    this.teardownCopyToast();
   }
 
   onScroll(scrollTop: number, scrollLeft: number) {
     // Editors are positioned in scroll-container content coordinates and follow scroll automatically.
     void scrollTop;
     void scrollLeft;
+    this.positionCopyToast();
   }
 
   private bind() {
@@ -89,6 +93,71 @@ export class SelectionManager {
   private findColumn(colKey: string | number) {
     const schema = this.dataModel.getSchema();
     return schema.columns.find((c) => c.key === colKey);
+  }
+
+  private ensureCopyToast() {
+    if (this.copyToastEl) return this.copyToastEl;
+    // Ensure a positioning context for the toast.
+    const computed = window.getComputedStyle(this.root);
+    if (computed.position === 'static') {
+      this.root.style.position = 'relative';
+    }
+    const toast = document.createElement('div');
+    toast.className = 'extable-toast';
+    toast.dataset.extableCopyToast = '1';
+    toast.setAttribute('popover', 'manual');
+    toast.style.position = 'absolute';
+    toast.style.left = '0';
+    toast.style.top = '0';
+    toast.style.pointerEvents = 'none';
+    toast.style.zIndex = '1000';
+    // Keep it from affecting layout.
+    toast.style.margin = '0';
+    this.root.appendChild(toast);
+    this.copyToastEl = toast;
+    return toast;
+  }
+
+  private teardownCopyToast() {
+    if (this.copyToastTimer) {
+      window.clearTimeout(this.copyToastTimer);
+      this.copyToastTimer = null;
+    }
+    if (!this.copyToastEl) return;
+    const anyPopover = this.copyToastEl as any;
+    if (anyPopover.hidePopover) anyPopover.hidePopover();
+    if (this.copyToastEl.parentElement) {
+      this.copyToastEl.parentElement.removeChild(this.copyToastEl);
+    }
+    this.copyToastEl = null;
+  }
+
+  private positionCopyToast() {
+    if (!this.copyToastEl) return;
+    const w = this.copyToastEl.offsetWidth || 0;
+    const h = this.copyToastEl.offsetHeight || 0;
+    const inset = 16;
+    const left = Math.max(0, this.root.scrollLeft + this.root.clientWidth - w - inset);
+    const top = Math.max(0, this.root.scrollTop + this.root.clientHeight - h - inset);
+    this.copyToastEl.style.left = `${left}px`;
+    this.copyToastEl.style.top = `${top}px`;
+  }
+
+  private showCopyToast(message: string, variant: 'info' | 'error' = 'info', durationMs = 1200) {
+    const toast = this.ensureCopyToast();
+    toast.textContent = message;
+    toast.dataset.variant = variant;
+    const anyPopover = toast as any;
+    if (anyPopover.hidePopover) anyPopover.hidePopover();
+    if (anyPopover.showPopover) anyPopover.showPopover();
+    this.positionCopyToast();
+    if (this.copyToastTimer) {
+      window.clearTimeout(this.copyToastTimer);
+      this.copyToastTimer = null;
+    }
+    this.copyToastTimer = window.setTimeout(() => {
+      if (anyPopover.hidePopover) anyPopover.hidePopover();
+    }, durationMs);
   }
 
   private ensureSelectionInput() {
@@ -294,6 +363,7 @@ export class SelectionManager {
     ev.clipboardData?.setData('text/plain', payload.text);
     ev.clipboardData?.setData('text/tab-separated-values', payload.text);
     ev.clipboardData?.setData('text/html', payload.html);
+    this.showCopyToast(`Copied ${payload.cellCount} cells`, 'info');
   };
 
   private handleSelectionCut = (ev: ClipboardEvent) => {
@@ -461,7 +531,7 @@ export class SelectionManager {
       .replaceAll("'", '&#39;');
   }
 
-  private buildSelectionClipboardPayload(): { text: string; html: string } | null {
+  private buildSelectionClipboardPayload(): { text: string; html: string; cellCount: number } | null {
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
     const range = this.getCopyRange();
@@ -470,6 +540,9 @@ export class SelectionManager {
 
     const out: string[] = [];
     const htmlRows: string[] = [];
+    const tableStyle = 'border-collapse:collapse;border-spacing:0;';
+    const cellStyle = 'border:1px solid #d0d7de;padding:4px 6px;vertical-align:top;';
+    let cellCount = 0;
     for (let r = range.startRow; r <= range.endRow; r += 1) {
       const row = rows[r];
       if (!row) continue;
@@ -481,14 +554,15 @@ export class SelectionManager {
         const v = this.dataModel.getCell(row.id, col.key);
         const s = this.cellToClipboardString(v);
         line.push(s);
-        htmlCells.push(`<td>${this.escapeHtml(s)}</td>`);
+        htmlCells.push(`<td style="${cellStyle}">${this.escapeHtml(s)}</td>`);
+        cellCount += 1;
       }
       out.push(line.join('\t'));
       htmlRows.push(`<tr>${htmlCells.join('')}</tr>`);
     }
     const text = out.join('\r\n');
-    const html = `<table><tbody>${htmlRows.join('')}</tbody></table>`;
-    return { text, html };
+    const html = `<table style="${tableStyle}"><tbody>${htmlRows.join('')}</tbody></table>`;
+    return { text, html, cellCount };
   }
 
   private clearSelectionValues() {
