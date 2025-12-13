@@ -28,6 +28,9 @@ export class SelectionManager {
   private selectionMode = true;
   private lastBooleanCell: { rowId: string; colKey: string | number } | null = null;
   private selectionAnchor: { rowIndex: number; colIndex: number } | null = null;
+  private dragging = false;
+  private dragStart: { rowIndex: number; colIndex: number; kind: 'cells' | 'rows' } | null = null;
+  private suppressNextClick = false;
   private activeCell: { rowId: string; colKey: string | number } | null = null;
   private activeHost: HTMLElement | null = null;
   private activeHostOriginalText: string | null = null;
@@ -67,6 +70,10 @@ export class SelectionManager {
 
   destroy() {
     this.root.removeEventListener('click', this.handleClick);
+    this.root.removeEventListener('pointerdown', this.handlePointerDown);
+    this.root.removeEventListener('pointermove', this.handlePointerMove);
+    this.root.removeEventListener('pointerup', this.handlePointerUp);
+    this.root.removeEventListener('pointercancel', this.handlePointerUp);
     if (this.handleDocumentContextMenu) {
       document.removeEventListener('contextmenu', this.handleDocumentContextMenu, true);
     }
@@ -84,6 +91,10 @@ export class SelectionManager {
 
   private bind() {
     this.root.addEventListener('click', this.handleClick);
+    this.root.addEventListener('pointerdown', this.handlePointerDown);
+    this.root.addEventListener('pointermove', this.handlePointerMove);
+    this.root.addEventListener('pointerup', this.handlePointerUp);
+    this.root.addEventListener('pointercancel', this.handlePointerUp);
     this.handleDocumentContextMenu = (ev: MouseEvent) => this.handleContextMenu(ev);
     document.addEventListener('contextmenu', this.handleDocumentContextMenu, { capture: true });
     // eslint-disable-next-line no-console
@@ -341,6 +352,109 @@ export class SelectionManager {
     const currentText = this.cellToClipboardString(current);
     this.focusSelectionInput(currentText);
   }
+
+  private handlePointerDown = (ev: PointerEvent) => {
+    if (ev.button !== 0) return;
+    // Avoid starting a drag from inside an active editor.
+    if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) return;
+    const hit = this.hitTest(ev as unknown as MouseEvent);
+    if (!hit) return;
+    if (hit.rowId === '__all__' && hit.colKey === '__all__') return;
+    if (hit.colKey === '__all__') return;
+
+    const schema = this.dataModel.getSchema();
+    const rowIndex = this.dataModel.getRowIndex(hit.rowId);
+    const colIndex =
+      hit.colKey === '__row__' ? 0 : schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
+    if (rowIndex < 0 || colIndex < 0) return;
+
+    const kind: 'cells' | 'rows' = hit.colKey === '__row__' ? 'rows' : 'cells';
+    this.dragging = true;
+    this.dragStart = { rowIndex, colIndex, kind };
+    this.suppressNextClick = false;
+    this.selectionMode = true;
+    this.selectionAnchor = null;
+
+    // Set initial selection on pointer down.
+    const endCol = kind === 'rows' ? schema.columns.length - 1 : colIndex;
+    const nextRange: SelectionRange = {
+      kind,
+      startRow: rowIndex,
+      endRow: rowIndex,
+      startCol: kind === 'rows' ? 0 : colIndex,
+      endCol
+    };
+    this.selectionRanges = [nextRange];
+    const activeColKey = kind === 'rows' ? schema.columns[0]?.key ?? hit.colKey : hit.colKey;
+    this.activeCell = { rowId: hit.rowId, colKey: activeColKey };
+    this.onActiveChange(hit.rowId, activeColKey);
+    this.onSelectionChange(this.selectionRanges);
+    this.onRowSelect(hit.rowId);
+    this.teardownInput(false);
+    this.teardownSelectionInput();
+    const current = this.dataModel.getCell(hit.rowId, activeColKey);
+    this.focusSelectionInput(this.cellToClipboardString(current));
+
+    try {
+      (ev.target as Element | null)?.setPointerCapture?.(ev.pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
+  private handlePointerMove = (ev: PointerEvent) => {
+    if (!this.dragging || !this.dragStart) return;
+    const hit = this.hitTest(ev as unknown as MouseEvent);
+    if (!hit) return;
+    if (hit.colKey === '__all__' || (this.dragStart.kind === 'cells' && hit.colKey === '__row__')) return;
+
+    const schema = this.dataModel.getSchema();
+    const rows = this.dataModel.listRows();
+    const endRowIndex = this.dataModel.getRowIndex(hit.rowId);
+    if (endRowIndex < 0) return;
+    const endColIndex =
+      this.dragStart.kind === 'rows'
+        ? schema.columns.length - 1
+        : schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
+    if (endColIndex < 0) return;
+
+    const startRow = this.dragStart.rowIndex;
+    const startCol = this.dragStart.kind === 'rows' ? 0 : this.dragStart.colIndex;
+    const endCol = this.dragStart.kind === 'rows' ? schema.columns.length - 1 : endColIndex;
+    const nextRange: SelectionRange = {
+      kind: this.dragStart.kind,
+      startRow,
+      endRow: endRowIndex,
+      startCol,
+      endCol
+    };
+    this.selectionRanges = [nextRange];
+    const activeRowId = rows[endRowIndex]?.id ?? hit.rowId;
+    const activeColKey =
+      this.dragStart.kind === 'rows' ? schema.columns[0]?.key ?? hit.colKey : schema.columns[endColIndex]?.key ?? hit.colKey;
+    this.activeCell = { rowId: activeRowId, colKey: activeColKey };
+    this.onActiveChange(activeRowId, activeColKey);
+    this.onSelectionChange(this.selectionRanges);
+    this.suppressNextClick = true;
+  };
+
+  private handlePointerUp = (ev: PointerEvent) => {
+    if (!this.dragging) return;
+    this.dragging = false;
+    this.dragStart = null;
+    try {
+      (ev.target as Element | null)?.releasePointerCapture?.(ev.pointerId);
+    } catch {
+      // ignore
+    }
+    if (this.suppressNextClick) {
+      // Keep selection mode focus; prevent the trailing click from opening edit.
+      if (this.activeCell) {
+        const current = this.dataModel.getCell(this.activeCell.rowId, this.activeCell.colKey);
+        this.focusSelectionInput(this.cellToClipboardString(current));
+      }
+    }
+  };
 
   private teardownSelectionInput() {
     if (!this.selectionInput) return;
@@ -754,6 +868,10 @@ export class SelectionManager {
   private handleClick = (ev: MouseEvent) => {
     if (ev.button !== 0) {
       return; // only left click starts edit/selection; right-click is handled by contextmenu
+    }
+    if (this.suppressNextClick) {
+      this.suppressNextClick = false;
+      return;
     }
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) {
       return;
