@@ -4,7 +4,7 @@ import { DataModel } from "./dataModel";
 import { LockManager } from "./lockManager";
 import { CanvasRenderer, HTMLRenderer, type Renderer, type ViewportState } from "./renderers";
 import { SelectionManager } from "./selectionManager";
-import { toArray } from "./utils";
+import { removeFromParent, toArray } from "./utils";
 import type {
   Command,
   CoreOptions,
@@ -231,7 +231,7 @@ export class ExtableCore {
         }
         return;
       case "insertRow":
-        if (cmd.rowId) this.dataModel.deleteRow(cmd.rowId);
+        if (cmd.rowId) this.dataModel.removeRow(cmd.rowId);
         return;
       case "deleteRow":
         if (cmd.rowId && cmd.rowData) {
@@ -261,7 +261,7 @@ export class ExtableCore {
         }
         return;
       case "deleteRow":
-        if (cmd.rowId) this.dataModel.deleteRow(cmd.rowId);
+        if (cmd.rowId) this.dataModel.removeRow(cmd.rowId);
         return;
       default:
         return;
@@ -316,7 +316,7 @@ export class ExtableCore {
         break;
       case "deleteRow":
         if (cmd.rowId) {
-          this.dataModel.deleteRow(cmd.rowId);
+          this.dataModel.removeRow(cmd.rowId);
         }
         break;
       case "updateView":
@@ -362,7 +362,7 @@ export class ExtableCore {
     pop.appendChild(list);
     document.body.appendChild(pop);
     this.contextMenu = pop;
-	}
+  }
 
   private showContextMenu(
     rowId: string | null,
@@ -375,7 +375,9 @@ export class ExtableCore {
     this.contextMenuRowId = rowId;
     this.contextMenuColKey = colKey;
     // Update enable/disable state for undo/redo.
-    for (const btn of Array.from(this.contextMenu.querySelectorAll<HTMLButtonElement>("button[data-action]"))) {
+    for (const btn of Array.from(
+      this.contextMenu.querySelectorAll<HTMLButtonElement>("button[data-action]"),
+    )) {
       const action = btn.dataset.action;
       if (action === "undo") btn.disabled = !this.commandQueue.canUndo();
       else if (action === "redo") btn.disabled = !this.commandQueue.canRedo();
@@ -387,8 +389,6 @@ export class ExtableCore {
     let top = clientY;
     if (left + rect.width > viewportWidth) left = Math.max(0, viewportWidth - rect.width - 8);
     if (top + rect.height > viewportHeight) top = Math.max(0, viewportHeight - rect.height - 8);
-    // eslint-disable-next-line no-console
-    console.log("[extable ctx] show", { rowId, colKey, left, top });
     this.contextMenu.style.left = `${left}px`;
     this.contextMenu.style.top = `${top}px`;
     const anyPopover = this.contextMenu as any;
@@ -498,7 +498,7 @@ export class ExtableCore {
       }
     };
     document.addEventListener("pointerdown", this.handleGlobalPointer, true);
-	}
+  }
 
   private unbindViewport() {
     if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
@@ -514,13 +514,13 @@ export class ExtableCore {
     if (this.contextMenu?.parentElement) {
       const anyPopover = this.contextMenu as any;
       if (anyPopover.hidePopover) anyPopover.hidePopover();
-      this.contextMenu.parentElement.removeChild(this.contextMenu);
+      removeFromParent(this.contextMenu);
       this.contextMenu = null;
     }
     if (this.toast?.parentElement) {
       const anyToast = this.toast as any;
       if (anyToast.hidePopover) anyToast.hidePopover();
-      this.toast.parentElement.removeChild(this.toast);
+      removeFromParent(this.toast);
       this.toast = null;
     }
   }
@@ -566,15 +566,6 @@ export class ExtableCore {
       deltaY: this.root.scrollTop - prev.scrollTop,
       timestamp: performance.now(),
     };
-    // eslint-disable-next-line no-console
-    console.log("[extable scroll]", {
-      scrollTop: next.scrollTop,
-      scrollLeft: next.scrollLeft,
-      deltaX: next.deltaX,
-      deltaY: next.deltaY,
-      clientWidth: next.clientWidth,
-      clientHeight: next.clientHeight,
-    });
     this.viewportState = next;
     if (this.rafId === null) {
       this.rafId = requestAnimationFrame(() => this.flushRender());

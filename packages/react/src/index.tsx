@@ -12,8 +12,11 @@ export function Extable(props: ExtableProps) {
 
   useEffect(() => {
     if (!containerRef.current) return;
-    const table = createTablePlaceholder(config, options);
-    mountTable(containerRef.current, table);
+    const core = createTablePlaceholder(config, options);
+    mountTable(containerRef.current, core);
+    return () => {
+      core.destroy();
+    };
   }, [config, options]);
 
   return <div data-extable-wrapper ref={containerRef} />;

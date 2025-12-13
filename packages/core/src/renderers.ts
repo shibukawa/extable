@@ -1,6 +1,8 @@
 import type { DataModel } from "./dataModel";
 import type { InternalRow, Schema, ColumnSchema, SelectionRange } from "./types";
 import { format as formatDate, parseISO } from "date-fns";
+import { toRawValue } from "./cellValueCodec";
+import { DEFAULT_ROW_HEIGHT_PX, HEADER_HEIGHT_PX, ROW_HEADER_WIDTH_PX, getColumnWidths } from "./geometry";
 import {
   FILL_HANDLE_HIT_SIZE_PX,
   FILL_HANDLE_VISUAL_SIZE_PX,
@@ -8,40 +10,28 @@ import {
   isPointInRect,
   shouldShowFillHandle,
 } from "./fillHandle";
+import { removeFromParent } from "./utils";
 
-const DAY_MS = 86_400_000;
+class ValueFormatCache {
+  private numberFormatCache = new Map<string, Intl.NumberFormat>();
+  private dateParseCache = new Map<string, Date>();
 
-function safeParseDate(value: string): Date | null {
-  const parsed = parseISO(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function safeParseTime(value: string): Date | null {
-  const parsed = new Date(`1970-01-01T${value}`);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function toRawValue(raw: unknown, value: unknown, col: ColumnSchema): string | null {
-  if (value === null || value === undefined) return null;
-  if (col.type === "string") return null;
-  if (col.type === "boolean") return String(Boolean(value));
-  if (col.type === "number" && typeof value === "number") return String(value);
-  if (col.type === "datetime") {
-    const d = value instanceof Date ? value : safeParseDate(String(value));
-    return d ? String(d.getTime()) : null;
+  getNumberFormatter(options: Intl.NumberFormatOptions): Intl.NumberFormat {
+    const key = JSON.stringify(options);
+    let fmt = this.numberFormatCache.get(key);
+    if (!fmt) {
+      fmt = new Intl.NumberFormat("en-US", options);
+      this.numberFormatCache.set(key, fmt);
+    }
+    return fmt;
   }
-  if (col.type === "date") {
-    const d = value instanceof Date ? value : safeParseDate(String(value));
-    if (!d) return null;
-    const floored = Math.floor(d.getTime() / DAY_MS) * DAY_MS;
-    return String(floored);
+
+  parseIsoDate(value: string): Date | null {
+    const cached = this.dateParseCache.get(value);
+    const parsed = cached ?? parseISO(value);
+    if (!cached && !Number.isNaN(parsed.getTime())) this.dateParseCache.set(value, parsed);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
-  if (col.type === "time") {
-    const d = value instanceof Date ? value : safeParseTime(String(value));
-    if (!d) return null;
-    return String(d.getTime() % DAY_MS);
-  }
-  return null;
 }
 
 export interface ViewportState {
@@ -68,13 +58,12 @@ export interface Renderer {
 
 export class HTMLRenderer implements Renderer {
   private tableEl: HTMLTableElement | null = null;
-  private defaultRowHeight = 24;
-  private rowHeaderWidth = 48;
+  private defaultRowHeight = DEFAULT_ROW_HEIGHT_PX;
+  private rowHeaderWidth = ROW_HEADER_WIDTH_PX;
   private activeRowId: string | null = null;
   private activeColKey: string | number | null = null;
   private selection: SelectionRange[] = [];
-  private numberFormatCache = new Map<string, Intl.NumberFormat>();
-  private dateParseCache = new Map<string, Date>();
+  private valueFormatCache = new ValueFormatCache();
   private measureCache = new Map<string, { height: number; frame: number }>();
   private frame = 0;
   constructor(private dataModel: DataModel) {}
@@ -109,9 +98,7 @@ export class HTMLRenderer implements Renderer {
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
     this.tableEl.innerHTML = "";
-    const colWidths = schema.columns.map(
-      (c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100,
-    );
+    const colWidths = getColumnWidths(schema, view);
     const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
     const colgroup = document.createElement("colgroup");
     const rowCol = document.createElement("col");
@@ -124,10 +111,10 @@ export class HTMLRenderer implements Renderer {
     }
     this.tableEl.appendChild(colgroup);
     this.tableEl.style.width = `${totalWidth}px`;
-    this.tableEl.appendChild(this.renderHeader(schema));
+    this.tableEl.appendChild(this.renderHeader(schema, colWidths));
     const body = document.createElement("tbody");
     for (const row of rows) {
-      body.appendChild(this.renderRow(row, schema));
+      body.appendChild(this.renderRow(row, schema, colWidths));
     }
     this.tableEl.appendChild(body);
     this.updateActiveClasses();
@@ -142,9 +129,7 @@ export class HTMLRenderer implements Renderer {
   }
 
   destroy() {
-    if (this.tableEl && this.tableEl.parentElement) {
-      this.tableEl.parentElement.removeChild(this.tableEl);
-    }
+    removeFromParent(this.tableEl);
     this.tableEl = null;
   }
 
@@ -187,7 +172,7 @@ export class HTMLRenderer implements Renderer {
     };
   }
 
-  private renderHeader(schema: Schema) {
+  private renderHeader(schema: Schema, colWidths: number[]) {
     const thead = document.createElement("thead");
     const tr = document.createElement("tr");
     const rowTh = document.createElement("th");
@@ -197,10 +182,12 @@ export class HTMLRenderer implements Renderer {
     if (this.activeRowId) rowTh.classList.toggle("extable-active-row-header", true);
     rowTh.dataset.colKey = "__row__";
     tr.appendChild(rowTh);
-    for (const col of schema.columns) {
+    for (let idx = 0; idx < schema.columns.length; idx += 1) {
+      const col = schema.columns[idx]!;
       const th = document.createElement("th");
       th.textContent = col.header ?? String(col.key);
-      if (col.width) th.style.width = `${col.width}px`;
+      const width = colWidths[idx] ?? col.width;
+      if (width) th.style.width = `${width}px`;
       th.dataset.colKey = String(col.key);
       if (this.activeColKey !== null && String(this.activeColKey) === String(col.key)) {
         th.classList.add("extable-active-col-header");
@@ -211,7 +198,7 @@ export class HTMLRenderer implements Renderer {
     return thead;
   }
 
-  private renderRow(row: InternalRow, schema: Schema) {
+  private renderRow(row: InternalRow, schema: Schema, colWidths: number[]) {
     const tr = document.createElement("tr");
     tr.dataset.rowId = row.id;
     const view = this.dataModel.getView();
@@ -223,11 +210,13 @@ export class HTMLRenderer implements Renderer {
     rowHeader.style.width = `${this.rowHeaderWidth}px`;
     if (this.activeRowId === row.id) rowHeader.classList.add("extable-active-row-header");
     tr.appendChild(rowHeader);
-    for (const col of schema.columns) {
+    for (let idx = 0; idx < schema.columns.length; idx += 1) {
+      const col = schema.columns[idx]!;
       const td = document.createElement("td");
       td.classList.add("extable-cell");
       td.dataset.colKey = String(col.key);
-      const width = view.columnWidths?.[String(col.key)] ?? col.width;
+      if (col.type === "boolean") td.classList.add("extable-boolean");
+      const width = colWidths[idx] ?? (view.columnWidths?.[String(col.key)] ?? col.width);
       if (width) td.style.width = `${width}px`;
       const wrap = view.wrapText?.[String(col.key)] ?? col.wrapText;
       td.classList.add(wrap ? "cell-wrap" : "cell-nowrap");
@@ -265,9 +254,10 @@ export class HTMLRenderer implements Renderer {
     const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
     if (wrapAny) {
       let maxHeight = this.defaultRowHeight;
-      for (const col of schema.columns) {
+      for (let idx = 0; idx < schema.columns.length; idx += 1) {
+        const col = schema.columns[idx]!;
         if (!col.wrapText) continue;
-        const width = view.columnWidths?.[String(col.key)] ?? col.width ?? 100;
+        const width = colWidths[idx] ?? (view.columnWidths?.[String(col.key)] ?? col.width ?? 100);
         const value = this.dataModel.getCell(row.id, col.key);
         const text = value === null || value === undefined ? "" : String(value);
         const version = this.dataModel.getRowVersion(row.id);
@@ -390,13 +380,7 @@ export class HTMLRenderer implements Renderer {
         opts.maximumFractionDigits = col.number.scale;
       }
       opts.useGrouping = Boolean(col.number?.thousandSeparator);
-      const key = JSON.stringify(opts);
-      let fmt = this.numberFormatCache.get(key);
-      if (!fmt) {
-        fmt = new Intl.NumberFormat("en-US", opts);
-        this.numberFormatCache.set(key, fmt);
-      }
-      const text = fmt.format(num);
+      const text = this.valueFormatCache.getNumberFormatter(opts).format(num);
       const color = col.number?.negativeRed && num < 0 ? "#b91c1c" : undefined;
       return { text, color };
     }
@@ -413,10 +397,7 @@ export class HTMLRenderer implements Renderer {
       let d: Date | null = null;
       if (value instanceof Date) d = value;
       else {
-        const cached = this.dateParseCache.get(value);
-        const parsed = cached ?? parseISO(value);
-        if (!cached && !Number.isNaN(parsed.getTime())) this.dateParseCache.set(value, parsed);
-        d = Number.isNaN(parsed.getTime()) ? null : parsed;
+        d = this.valueFormatCache.parseIsoDate(value);
       }
       if (!d) return { text: String(value) };
       return { text: formatDate(d, fmt) };
@@ -430,16 +411,15 @@ export class CanvasRenderer implements Renderer {
   private canvas: HTMLCanvasElement | null = null;
   private spacer: HTMLDivElement | null = null;
   private dataModel: DataModel;
-  private readonly rowHeight = 24;
-  private readonly headerHeight = 24;
+  private readonly rowHeight = DEFAULT_ROW_HEIGHT_PX;
+  private readonly headerHeight = HEADER_HEIGHT_PX;
   private readonly lineHeight = 16;
   private readonly padding = 12;
-  private readonly rowHeaderWidth = 48;
+  private readonly rowHeaderWidth = ROW_HEADER_WIDTH_PX;
   private activeRowId: string | null = null;
   private activeColKey: string | number | null = null;
   private selection: SelectionRange[] = [];
-  private numberFormatCache = new Map<string, Intl.NumberFormat>();
-  private dateParseCache = new Map<string, Date>();
+  private valueFormatCache = new ValueFormatCache();
   private textMeasureCache = new Map<string, { lines: string[]; frame: number }>();
   private frame = 0;
   private cursorTimer: number | null = null;
@@ -492,13 +472,12 @@ export class CanvasRenderer implements Renderer {
     const ctx = this.canvas.getContext("2d");
     if (!ctx) return;
     ctx.font = "14px sans-serif";
+    const baseFont = ctx.font;
     const selectAll = this.activeRowId === "__all__" && this.activeColKey === "__all__";
     const schema = this.dataModel.getSchema();
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
-    const colWidths = schema.columns.map(
-      (c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100,
-    );
+    const colWidths = getColumnWidths(schema, view);
     const rowHeights: number[] = [];
     for (const row of rows) {
       rowHeights.push(this.computeRowHeight(ctx, row, schema, colWidths));
@@ -565,6 +544,7 @@ export class CanvasRenderer implements Renderer {
       ctx.fillStyle = "#0f172a";
       ctx.font = "bold 14px sans-serif";
       ctx.fillText(String(idxText), 8, yCursor + this.lineHeight);
+      ctx.font = baseFont;
 
       ctx.save();
       ctx.beginPath();
@@ -679,6 +659,7 @@ export class CanvasRenderer implements Renderer {
       ctx.fillStyle = "#0f172a";
       ctx.font = "bold 14px sans-serif";
       ctx.fillText(c.header ?? String(c.key), xHeader + 8, this.headerHeight - 8);
+      ctx.font = baseFont;
       xHeader += w;
     }
     ctx.restore();
@@ -739,12 +720,8 @@ export class CanvasRenderer implements Renderer {
       this.cursorTimer = null;
     }
     this.pendingCursorPoint = null;
-    if (this.canvas && this.canvas.parentElement) {
-      this.canvas.parentElement.removeChild(this.canvas);
-    }
-    if (this.spacer && this.spacer.parentElement) {
-      this.spacer.parentElement.removeChild(this.spacer);
-    }
+    removeFromParent(this.canvas);
+    removeFromParent(this.spacer);
     this.canvas = null;
     this.spacer = null;
     this.root = null;
@@ -763,9 +740,7 @@ export class CanvasRenderer implements Renderer {
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
     const headerHeight = this.headerHeight;
-    const colWidths = schema.columns.map(
-      (c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100,
-    );
+    const colWidths = getColumnWidths(schema, view);
     const totalRowsHeight = rows.reduce(
       (acc, row) => acc + (this.dataModel.getRowHeight(row.id) ?? this.rowHeight),
       0,
@@ -853,7 +828,8 @@ export class CanvasRenderer implements Renderer {
       const endRow = Math.max(range.startRow, range.endRow);
       const startCol = Math.min(range.startCol, range.endCol);
       const endCol = Math.max(range.startCol, range.endCol);
-      if (rowIndex >= startRow && rowIndex <= endRow && colIndex >= startCol && colIndex <= endCol) return true;
+      if (rowIndex >= startRow && rowIndex <= endRow && colIndex >= startCol && colIndex <= endCol)
+        return true;
     }
     return false;
   }
@@ -883,9 +859,7 @@ export class CanvasRenderer implements Renderer {
     const rowIndex = this.dataModel.getRowIndex(rowId);
     const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
     if (rowIndex < 0 || colIndex < 0) return null;
-    const colWidths = schema.columns.map(
-      (c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100,
-    );
+    const colWidths = getColumnWidths(schema, view);
     let accumHeight = 0;
     for (let i = 0; i < rowIndex; i += 1) {
       const r = rows[i];
@@ -961,7 +935,9 @@ export class CanvasRenderer implements Renderer {
       }
     }
 
-    const col = this.dataModel.getSchema().columns.find((c) => String(c.key) === String(hit.colKey));
+    const col = this.dataModel
+      .getSchema()
+      .columns.find((c) => String(c.key) === String(hit.colKey));
     const readOnly = this.dataModel.isReadonly(hit.rowId, hit.colKey);
     if (readOnly || col?.type === "boolean") cursor = "default";
     else cursor = "text";
@@ -1083,13 +1059,7 @@ export class CanvasRenderer implements Renderer {
         opts.maximumFractionDigits = col.number.scale;
       }
       opts.useGrouping = Boolean(col.number?.thousandSeparator);
-      const key = JSON.stringify(opts);
-      let fmt = this.numberFormatCache.get(key);
-      if (!fmt) {
-        fmt = new Intl.NumberFormat("en-US", opts);
-        this.numberFormatCache.set(key, fmt);
-      }
-      const text = fmt.format(num);
+      const text = this.valueFormatCache.getNumberFormatter(opts).format(num);
       const color = col.number?.negativeRed && num < 0 ? "#b91c1c" : undefined;
       return { text, color };
     }
@@ -1106,10 +1076,7 @@ export class CanvasRenderer implements Renderer {
       let d: Date | null = null;
       if (value instanceof Date) d = value;
       else {
-        const cached = this.dateParseCache.get(value);
-        const parsed = cached ?? parseISO(value);
-        if (!cached && !Number.isNaN(parsed.getTime())) this.dateParseCache.set(value, parsed);
-        d = Number.isNaN(parsed.getTime()) ? null : parsed;
+        d = this.valueFormatCache.parseIsoDate(value);
       }
       if (!d) return { text: String(value) };
       return { text: formatDate(d, fmt) };

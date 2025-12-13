@@ -1,20 +1,29 @@
-import type { Command, EditMode, SelectionRange } from './types';
-import type { DataModel } from './dataModel';
+import type { Command, EditMode, SelectionRange } from "./types";
+import type { DataModel } from "./dataModel";
 import {
   FILL_HANDLE_HIT_SIZE_PX,
   getFillHandleRect,
   getFillHandleSource,
   isPointInRect,
   makeFillValueGetter,
-  shouldShowFillHandle
-} from './fillHandle';
+  shouldShowFillHandle,
+} from "./fillHandle";
+import { removeFromParent } from "./utils";
+import { DEFAULT_ROW_HEIGHT_PX, HEADER_HEIGHT_PX, ROW_HEADER_WIDTH_PX, getColumnWidths } from "./geometry";
 
 type EditHandler = (cmd: Command, commit: boolean) => void;
 type RowSelectHandler = (rowId: string) => void;
 type MoveHandler = (rowId?: string) => void;
-type HitTest = (event: MouseEvent) => { rowId: string; colKey: string | number; element?: HTMLElement; rect: DOMRect } | null;
+type HitTest = (
+  event: MouseEvent,
+) => { rowId: string; colKey: string | number; element?: HTMLElement; rect: DOMRect } | null;
 type ActiveChange = (rowId: string | null, colKey: string | number | null) => void;
-type ContextMenuHandler = (rowId: string | null, colKey: string | number | null, clientX: number, clientY: number) => void;
+type ContextMenuHandler = (
+  rowId: string | null,
+  colKey: string | number | null,
+  clientX: number,
+  clientY: number,
+) => void;
 type SelectionChange = (ranges: SelectionRange[]) => void;
 type UndoRedoHandler = () => void;
 
@@ -27,7 +36,6 @@ export class SelectionManager {
   private hitTest: HitTest;
   private onContextMenu: ContextMenuHandler;
   private handleDocumentContextMenu: ((ev: MouseEvent) => void) | null = null;
-  private debug = true;
   private selectionRanges: SelectionRange[] = [];
   private inputEl: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null = null;
   private floatingInputWrapper: HTMLDivElement | null = null;
@@ -38,10 +46,13 @@ export class SelectionManager {
   private lastBooleanCell: { rowId: string; colKey: string | number } | null = null;
   private selectionAnchor: { rowIndex: number; colIndex: number } | null = null;
   private dragging = false;
-  private dragStart: { rowIndex: number; colIndex: number; kind: 'cells' | 'rows' } | null = null;
+  private dragStart: { rowIndex: number; colIndex: number; kind: "cells" | "rows" } | null = null;
+  private pointerDownClient: { x: number; y: number } | null = null;
+  private dragMoved = false;
+  private dragSelectionChanged = false;
   private suppressNextClick = false;
   private fillDragging = false;
-  private fillSource: import('./fillHandle').FillHandleSource | null = null;
+  private fillSource: import("./fillHandle").FillHandleSource | null = null;
   private fillEndRowIndex: number | null = null;
   private rootCursorBackup: string | null = null;
   private lastPointerClient: { x: number; y: number } | null = null;
@@ -51,9 +62,9 @@ export class SelectionManager {
   private activeCell: { rowId: string; colKey: string | number } | null = null;
   private activeHost: HTMLElement | null = null;
   private activeHostOriginalText: string | null = null;
-  private floatingMeta: null = null;
   private composing = false;
   private lastCompositionEnd = 0;
+  private readonly handleSelectionBlur = () => this.teardownSelectionInput();
 
   constructor(
     root: HTMLElement,
@@ -67,7 +78,7 @@ export class SelectionManager {
     onContextMenu: ContextMenuHandler,
     private onSelectionChange: SelectionChange,
     private onUndo: UndoRedoHandler,
-    private onRedo: UndoRedoHandler
+    private onRedo: UndoRedoHandler,
   ) {
     this.root = root;
     this.editMode = editMode;
@@ -88,13 +99,13 @@ export class SelectionManager {
   }
 
   destroy() {
-    this.root.removeEventListener('click', this.handleClick);
-    this.root.removeEventListener('pointerdown', this.handlePointerDown);
-    this.root.removeEventListener('pointermove', this.handlePointerMove);
-    this.root.removeEventListener('pointerup', this.handlePointerUp);
-    this.root.removeEventListener('pointercancel', this.handlePointerUp);
+    this.root.removeEventListener("click", this.handleClick);
+    this.root.removeEventListener("pointerdown", this.handlePointerDown);
+    this.root.removeEventListener("pointermove", this.handlePointerMove);
+    this.root.removeEventListener("pointerup", this.handlePointerUp);
+    this.root.removeEventListener("pointercancel", this.handlePointerUp);
     if (this.handleDocumentContextMenu) {
-      document.removeEventListener('contextmenu', this.handleDocumentContextMenu, true);
+      document.removeEventListener("contextmenu", this.handleDocumentContextMenu, true);
     }
     this.teardownInput(true);
     this.teardownSelectionInput();
@@ -110,22 +121,24 @@ export class SelectionManager {
   }
 
   private bind() {
-    this.root.addEventListener('click', this.handleClick);
-    this.root.addEventListener('pointerdown', this.handlePointerDown);
-    this.root.addEventListener('pointermove', this.handlePointerMove);
-    this.root.addEventListener('pointerup', this.handlePointerUp);
-    this.root.addEventListener('pointercancel', this.handlePointerUp);
+    this.root.addEventListener("click", this.handleClick);
+    this.root.addEventListener("pointerdown", this.handlePointerDown);
+    this.root.addEventListener("pointermove", this.handlePointerMove);
+    this.root.addEventListener("pointerup", this.handlePointerUp);
+    this.root.addEventListener("pointercancel", this.handlePointerUp);
     this.handleDocumentContextMenu = (ev: MouseEvent) => this.handleContextMenu(ev);
-    document.addEventListener('contextmenu', this.handleDocumentContextMenu, { capture: true });
-    // eslint-disable-next-line no-console
-    console.log('[extable ctx] document contextmenu listener attached');
+    document.addEventListener("contextmenu", this.handleDocumentContextMenu, { capture: true });
   }
 
   private updateFillHandleFlag() {
     const activeColKey = this.activeCell?.colKey ?? null;
-    this.root.dataset.extableFillHandle = shouldShowFillHandle(this.dataModel, this.selectionRanges, activeColKey)
-      ? '1'
-      : '';
+    this.root.dataset.extableFillHandle = shouldShowFillHandle(
+      this.dataModel,
+      this.selectionRanges,
+      activeColKey,
+    )
+      ? "1"
+      : "";
   }
 
   private findColumn(colKey: string | number) {
@@ -133,24 +146,89 @@ export class SelectionManager {
     return schema.columns.find((c) => c.key === colKey);
   }
 
+  private pad2(n: number) {
+    return String(n).padStart(2, "0");
+  }
+
+  private formatLocalDateForInput(d: Date) {
+    return `${d.getFullYear()}-${this.pad2(d.getMonth() + 1)}-${this.pad2(d.getDate())}`;
+  }
+
+  private formatLocalTimeForInput(d: Date) {
+    return `${this.pad2(d.getHours())}:${this.pad2(d.getMinutes())}`;
+  }
+
+  private formatLocalDateTimeForInput(d: Date) {
+    return `${this.formatLocalDateForInput(d)}T${this.formatLocalTimeForInput(d)}`;
+  }
+
+  private normalizeTemporalInitialValue(colType: "date" | "time" | "datetime", initial: string) {
+    const value = initial.trim();
+    if (!value) return "";
+
+    if (colType === "date") {
+      const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (m) return m[1]!;
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) return this.formatLocalDateForInput(d);
+      return "";
+    }
+
+    if (colType === "time") {
+      const m = value.match(/(\d{2}:\d{2})(?::\d{2})?/);
+      if (m) return m[1]!;
+      const d = new Date(value);
+      if (!Number.isNaN(d.getTime())) return this.formatLocalTimeForInput(d);
+      return "";
+    }
+
+    // datetime => input[type="datetime-local"] expects "YYYY-MM-DDTHH:mm" (no timezone).
+    if (/Z$/.test(value) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+      return value.replace(/Z$/, "").slice(0, 16);
+    }
+    if (
+      /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}/.test(value) &&
+      !/[+-]\d{2}:\d{2}$/.test(value)
+    ) {
+      return value.slice(0, 16);
+    }
+    const d = new Date(value);
+    if (!Number.isNaN(d.getTime())) return this.formatLocalDateTimeForInput(d);
+    return "";
+  }
+
+  private debugLog(event: string, detail?: Record<string, unknown>) {
+    const active = this.activeCell ? { ...this.activeCell } : null;
+    // eslint-disable-next-line no-console
+    console.log(`[extable debug] ${event}`, {
+      selectionMode: this.selectionMode,
+      suppressNextClick: this.suppressNextClick,
+      dragging: this.dragging,
+      dragMoved: this.dragMoved,
+      fillDragging: this.fillDragging,
+      activeCell: active,
+      ...detail,
+    });
+  }
+
   private ensureCopyToast() {
     if (this.copyToastEl) return this.copyToastEl;
     // Ensure a positioning context for the toast.
     const computed = window.getComputedStyle(this.root);
-    if (computed.position === 'static') {
-      this.root.style.position = 'relative';
+    if (computed.position === "static") {
+      this.root.style.position = "relative";
     }
-    const toast = document.createElement('div');
-    toast.className = 'extable-toast';
-    toast.dataset.extableCopyToast = '1';
-    toast.setAttribute('popover', 'manual');
-    toast.style.position = 'absolute';
-    toast.style.left = '0';
-    toast.style.top = '0';
-    toast.style.pointerEvents = 'none';
-    toast.style.zIndex = '1000';
+    const toast = document.createElement("div");
+    toast.className = "extable-toast";
+    toast.dataset.extableCopyToast = "1";
+    toast.setAttribute("popover", "manual");
+    toast.style.position = "absolute";
+    toast.style.left = "0";
+    toast.style.top = "0";
+    toast.style.pointerEvents = "none";
+    toast.style.zIndex = "1000";
     // Keep it from affecting layout.
-    toast.style.margin = '0';
+    toast.style.margin = "0";
     this.root.appendChild(toast);
     this.copyToastEl = toast;
     return toast;
@@ -164,9 +242,7 @@ export class SelectionManager {
     if (!this.copyToastEl) return;
     const anyPopover = this.copyToastEl as any;
     if (anyPopover.hidePopover) anyPopover.hidePopover();
-    if (this.copyToastEl.parentElement) {
-      this.copyToastEl.parentElement.removeChild(this.copyToastEl);
-    }
+    removeFromParent(this.copyToastEl);
     this.copyToastEl = null;
   }
 
@@ -181,7 +257,7 @@ export class SelectionManager {
     this.copyToastEl.style.top = `${top}px`;
   }
 
-  private showCopyToast(message: string, variant: 'info' | 'error' = 'info', durationMs = 1200) {
+  private showCopyToast(message: string, variant: "info" | "error" = "info", durationMs = 1200) {
     const toast = this.ensureCopyToast();
     toast.textContent = message;
     toast.dataset.variant = variant;
@@ -200,26 +276,25 @@ export class SelectionManager {
 
   private ensureSelectionInput() {
     if (this.selectionInput) return this.selectionInput;
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.autocomplete = 'off';
+    const input = document.createElement("input");
+    input.type = "text";
+    input.autocomplete = "off";
     input.spellcheck = false;
-    input.setAttribute('aria-hidden', 'true');
-    input.style.position = 'absolute';
-    input.style.left = '0';
-    input.style.top = '0';
+    input.style.position = "absolute";
+    input.style.left = "0";
+    input.style.top = "0";
     // Avoid affecting scroll extents in the scroll container.
-    input.style.transform = 'translate(-10000px, 0)';
-    input.style.width = '1px';
-    input.style.height = '1px';
-    input.style.opacity = '0';
-    input.style.pointerEvents = 'none';
-    input.addEventListener('keydown', this.handleSelectionKeydown);
-    input.addEventListener('compositionstart', this.handleSelectionCompositionStart);
-    input.addEventListener('copy', this.handleSelectionCopy);
-    input.addEventListener('cut', this.handleSelectionCut);
-    input.addEventListener('paste', this.handleSelectionPaste);
-    input.addEventListener('blur', () => this.teardownSelectionInput());
+    input.style.transform = "translate(-10000px, 0)";
+    input.style.width = "1px";
+    input.style.height = "1px";
+    input.style.opacity = "0";
+    input.style.pointerEvents = "none";
+    input.addEventListener("keydown", this.handleSelectionKeydown);
+    input.addEventListener("compositionstart", this.handleSelectionCompositionStart);
+    input.addEventListener("copy", this.handleSelectionCopy);
+    input.addEventListener("cut", this.handleSelectionCut);
+    input.addEventListener("paste", this.handleSelectionPaste);
+    input.addEventListener("blur", this.handleSelectionBlur);
     // Keep the selection input inside the table container (root), but offscreen.
     this.root.appendChild(input);
     this.selectionInput = input;
@@ -234,7 +309,10 @@ export class SelectionManager {
     input.select();
   }
 
-  private openEditorAtActiveCell(options?: { initialValueOverride?: string; placeCursorAtEnd?: boolean }) {
+  private openEditorAtActiveCell(options?: {
+    initialValueOverride?: string;
+    placeCursorAtEnd?: boolean;
+  }) {
     if (!this.activeCell) return;
     const { rowId, colKey } = this.activeCell;
     const cell = this.findHtmlCellElement(rowId, colKey);
@@ -248,11 +326,21 @@ export class SelectionManager {
     }
   }
 
+  private escapeCssAttrValue(value: string) {
+    const anyCSS = (globalThis as any).CSS;
+    const escapeFn = anyCSS?.escape;
+    if (typeof escapeFn === "function") return escapeFn(value);
+    // Minimal escaping for attribute selector values inside double quotes.
+    return value.replace(/["\\]/g, "\\$&");
+  }
+
   private findHtmlCellElement(rowId: string, colKey: string | number) {
     const key = String(colKey);
+    const rowIdEsc = this.escapeCssAttrValue(rowId);
+    const keyEsc = this.escapeCssAttrValue(key);
     return (
       this.root.querySelector<HTMLElement>(
-        `tr[data-row-id="${CSS.escape(rowId)}"] td[data-col-key="${CSS.escape(key)}"]`
+        `tr[data-row-id="${rowIdEsc}"] td[data-col-key="${keyEsc}"]`,
       ) ?? null
     );
   }
@@ -265,13 +353,19 @@ export class SelectionManager {
       rootRect.left + box.left - this.root.scrollLeft,
       rootRect.top + box.top - this.root.scrollTop,
       box.width,
-      box.height
+      box.height,
     );
   }
 
   private computeCanvasCellBoxContent(rowId: string, colKey: string | number) {
-    const canvas = this.root.querySelector<HTMLCanvasElement>('canvas[data-extable-renderer="canvas"]');
+    const canvas = this.root.querySelector<HTMLCanvasElement>(
+      'canvas[data-extable-renderer="canvas"]',
+    );
     if (!canvas) return null;
+    return this.getCanvasCellMetrics(rowId, colKey);
+  }
+
+  private getCanvasCellMetrics(rowId: string, colKey: string | number) {
     const schema = this.dataModel.getSchema();
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
@@ -279,54 +373,38 @@ export class SelectionManager {
     const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
     if (rowIndex < 0 || colIndex < 0) return null;
 
-    const headerHeight = 24;
-    const rowHeaderWidth = 48;
-    const defaultRowHeight = 24;
-    const colWidths = schema.columns.map((c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100);
+    const headerHeight = HEADER_HEIGHT_PX;
+    const rowHeaderWidth = ROW_HEADER_WIDTH_PX;
+    const defaultRowHeight = DEFAULT_ROW_HEIGHT_PX;
+    const colWidths = getColumnWidths(schema, view);
 
     let left = rowHeaderWidth;
     for (let i = 0; i < colIndex; i += 1) left += colWidths[i] ?? 100;
 
     let top = headerHeight;
     for (let i = 0; i < rowIndex; i += 1) {
-      const h = this.dataModel.getRowHeight(rows[i]!.id) ?? defaultRowHeight;
+      const row = rows[i];
+      if (!row) return null;
+      const h = this.dataModel.getRowHeight(row.id) ?? defaultRowHeight;
       top += h;
     }
     const height = this.dataModel.getRowHeight(rowId) ?? defaultRowHeight;
     const width = colWidths[colIndex] ?? 100;
-    return { left, top, width, height };
+    return { left, top, width, height, rowIndex, colIndex };
   }
 
   private ensureVisibleCell(rowId: string, colKey: string | number) {
     const htmlCell = this.findHtmlCellElement(rowId, colKey);
     if (htmlCell) {
-      htmlCell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      htmlCell.scrollIntoView({ block: "nearest", inline: "nearest" });
       return;
     }
-    const schema = this.dataModel.getSchema();
-    const view = this.dataModel.getView();
-    const rows = this.dataModel.listRows();
-    const rowIndex = rows.findIndex((r) => r.id === rowId);
-    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
-    if (rowIndex < 0 || colIndex < 0) return;
-
-    const headerHeight = 24;
-    const rowHeaderWidth = 48;
-    const defaultRowHeight = 24;
-    const colWidths = schema.columns.map((c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100);
-
-    let xStart = rowHeaderWidth;
-    for (let i = 0; i < colIndex; i += 1) xStart += colWidths[i] ?? 100;
-    const cellW = colWidths[colIndex] ?? 100;
-    const xEnd = xStart + cellW;
-
-    let yStart = headerHeight;
-    for (let i = 0; i < rowIndex; i += 1) {
-      const h = this.dataModel.getRowHeight(rows[i]!.id) ?? defaultRowHeight;
-      yStart += h;
-    }
-    const cellH = this.dataModel.getRowHeight(rowId) ?? defaultRowHeight;
-    const yEnd = yStart + cellH;
+    const metrics = this.getCanvasCellMetrics(rowId, colKey);
+    if (!metrics) return;
+    const xStart = metrics.left;
+    const xEnd = metrics.left + metrics.width;
+    const yStart = metrics.top;
+    const yEnd = metrics.top + metrics.height;
 
     const leftVis = this.root.scrollLeft;
     const rightVis = this.root.scrollLeft + this.root.clientWidth;
@@ -347,7 +425,11 @@ export class SelectionManager {
     const { rowIndex, colIndex } = this.getActiveIndices();
     if (!extendSelection) this.selectionAnchor = null;
     const anchor =
-      extendSelection && this.selectionAnchor ? this.selectionAnchor : extendSelection ? { rowIndex, colIndex } : null;
+      extendSelection && this.selectionAnchor
+        ? this.selectionAnchor
+        : extendSelection
+          ? { rowIndex, colIndex }
+          : null;
     if (extendSelection && !this.selectionAnchor) this.selectionAnchor = { rowIndex, colIndex };
     const nextRowIndex = Math.max(0, Math.min(rows.length - 1, rowIndex + deltaRow));
     const nextColIndex = Math.max(0, Math.min(schema.columns.length - 1, colIndex + deltaCol));
@@ -356,18 +438,18 @@ export class SelectionManager {
 
     const nextRange: SelectionRange = anchor
       ? {
-          kind: 'cells',
+          kind: "cells",
           startRow: anchor.rowIndex,
           endRow: nextRowIndex,
           startCol: anchor.colIndex,
-          endCol: nextColIndex
+          endCol: nextColIndex,
         }
       : {
-          kind: 'cells',
+          kind: "cells",
           startRow: nextRowIndex,
           endRow: nextRowIndex,
           startCol: nextColIndex,
-          endCol: nextColIndex
+          endCol: nextColIndex,
         };
     this.selectionRanges = [nextRange];
     this.activeCell = { rowId, colKey };
@@ -383,6 +465,7 @@ export class SelectionManager {
 
   private handlePointerDown = (ev: PointerEvent) => {
     if (ev.button !== 0) return;
+    this.debugLog("pointerdown", { clientX: ev.clientX, clientY: ev.clientY, target: (ev.target as any)?.tagName });
     // Avoid starting a drag from inside an active editor.
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) return;
     // Commit current editor before starting a drag/select operation.
@@ -396,8 +479,8 @@ export class SelectionManager {
     if (this.fillDragging) return;
     const hit = this.hitTest(ev as unknown as MouseEvent);
     if (!hit) return;
-    if (hit.rowId === '__all__' && hit.colKey === '__all__') return;
-    if (hit.colKey === '__all__') return;
+    if (hit.rowId === "__all__" && hit.colKey === "__all__") return;
+    if (hit.colKey === "__all__") return;
 
     // Fill handle drag starts only when the pointer is down on the handle area.
     const fillSrc = getFillHandleSource(this.dataModel, this.selectionRanges);
@@ -412,16 +495,20 @@ export class SelectionManager {
         const cellRect =
           this.findHtmlCellElement(handleRow.id, handleCol.key)?.getBoundingClientRect() ??
           this.computeCanvasCellRect(handleRow.id, handleCol.key);
-        if (cellRect && shouldShowFillHandle(this.dataModel, this.selectionRanges, this.activeCell.colKey)) {
+        if (
+          cellRect &&
+          shouldShowFillHandle(this.dataModel, this.selectionRanges, this.activeCell.colKey)
+        ) {
           const handleRect = getFillHandleRect(cellRect, FILL_HANDLE_HIT_SIZE_PX);
           if (isPointInRect(ev.clientX, ev.clientY, handleRect)) {
             ev.preventDefault();
             this.fillDragging = true;
             this.fillSource = fillSrc;
             this.fillEndRowIndex = fillSrc.endRowIndex;
-            this.root.dataset.extableFillDragging = '1';
-            if (this.rootCursorBackup === null) this.rootCursorBackup = this.root.style.cursor || '';
-            this.root.style.cursor = 'crosshair';
+            this.root.dataset.extableFillDragging = "1";
+            if (this.rootCursorBackup === null)
+              this.rootCursorBackup = this.root.style.cursor || "";
+            this.root.style.cursor = "crosshair";
             this.lastPointerClient = { x: ev.clientX, y: ev.clientY };
             this.dragging = false;
             this.dragStart = null;
@@ -434,12 +521,12 @@ export class SelectionManager {
             // Expand selection to include filled range preview (start with source).
             this.selectionRanges = [
               {
-                kind: 'cells',
+                kind: "cells",
                 startRow: fillSrc.startRowIndex,
                 endRow: fillSrc.endRowIndex,
                 startCol: fillSrc.colIndex,
-                endCol: fillSrc.colIndex
-              }
+                endCol: fillSrc.colIndex,
+              },
             ];
             this.onSelectionChange(this.selectionRanges);
             this.startAutoScroll();
@@ -452,11 +539,16 @@ export class SelectionManager {
     const schema = this.dataModel.getSchema();
     const rowIndex = this.dataModel.getRowIndex(hit.rowId);
     const colIndex =
-      hit.colKey === '__row__' ? 0 : schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
+      hit.colKey === "__row__"
+        ? 0
+        : schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
     if (rowIndex < 0 || colIndex < 0) return;
 
-    const kind: 'cells' | 'rows' = hit.colKey === '__row__' ? 'rows' : 'cells';
+    const kind: "cells" | "rows" = hit.colKey === "__row__" ? "rows" : "cells";
     this.dragging = true;
+    this.pointerDownClient = { x: ev.clientX, y: ev.clientY };
+    this.dragMoved = false;
+    this.dragSelectionChanged = false;
     this.dragStart = { rowIndex, colIndex, kind };
     this.suppressNextClick = false;
     this.selectionMode = true;
@@ -473,23 +565,39 @@ export class SelectionManager {
 
   private getHitAtClientPoint(clientX: number, clientY: number) {
     // Prefer coordinate-based hit-test for auto-scroll ticks (no real event.target).
+    if (typeof document.elementFromPoint !== "function") return null;
     const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
     if (el && this.root.contains(el)) {
-      const corner = el.closest<HTMLElement>('th.extable-corner');
+      const corner = el.closest<HTMLElement>("th.extable-corner");
       if (corner) {
-        return { rowId: '__all__', colKey: '__all__', element: corner, rect: corner.getBoundingClientRect() };
+        return {
+          rowId: "__all__",
+          colKey: "__all__",
+          element: corner,
+          rect: corner.getBoundingClientRect(),
+        };
       }
-      const rowHeader = el.closest<HTMLElement>('th.extable-row-header:not(.extable-corner)');
+      const rowHeader = el.closest<HTMLElement>("th.extable-row-header:not(.extable-corner)");
       if (rowHeader) {
-        const row = rowHeader.closest<HTMLElement>('tr[data-row-id]');
+        const row = rowHeader.closest<HTMLElement>("tr[data-row-id]");
         if (row) {
-          return { rowId: row.dataset.rowId!, colKey: '__row__', element: rowHeader, rect: rowHeader.getBoundingClientRect() };
+          return {
+            rowId: row.dataset.rowId!,
+            colKey: "__row__",
+            element: rowHeader,
+            rect: rowHeader.getBoundingClientRect(),
+          };
         }
       }
-      const cell = el.closest<HTMLElement>('td[data-col-key]');
-      const row = cell?.closest<HTMLElement>('tr[data-row-id]');
+      const cell = el.closest<HTMLElement>("td[data-col-key]");
+      const row = cell?.closest<HTMLElement>("tr[data-row-id]");
       if (cell && row) {
-        return { rowId: row.dataset.rowId!, colKey: cell.dataset.colKey!, element: cell, rect: cell.getBoundingClientRect() };
+        return {
+          rowId: row.dataset.rowId!,
+          colKey: cell.dataset.colKey!,
+          element: cell,
+          rect: cell.getBoundingClientRect(),
+        };
       }
     }
     // Canvas renderer hitTest does not rely on target; a minimal shape is enough.
@@ -500,46 +608,49 @@ export class SelectionManager {
     if (!this.dragging || !this.dragStart) return;
     const hit = this.getHitAtClientPoint(clientX, clientY);
     if (!hit) return;
-    if (hit.colKey === '__all__' || (this.dragStart.kind === 'cells' && hit.colKey === '__row__')) return;
+    if (hit.colKey === "__all__" || (this.dragStart.kind === "cells" && hit.colKey === "__row__"))
+      return;
 
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
     const endRowIndex = this.dataModel.getRowIndex(hit.rowId);
     if (endRowIndex < 0) return;
     const endColIndex =
-      this.dragStart.kind === 'rows'
+      this.dragStart.kind === "rows"
         ? schema.columns.length - 1
         : schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
     if (endColIndex < 0) return;
 
     const startRow = this.dragStart.rowIndex;
-    const startCol = this.dragStart.kind === 'rows' ? 0 : this.dragStart.colIndex;
-    const endCol = this.dragStart.kind === 'rows' ? schema.columns.length - 1 : endColIndex;
+    const startCol = this.dragStart.kind === "rows" ? 0 : this.dragStart.colIndex;
+    const endCol = this.dragStart.kind === "rows" ? schema.columns.length - 1 : endColIndex;
+    if (endRowIndex !== startRow || endCol !== startCol) {
+      this.dragSelectionChanged = true;
+    }
     const nextRange: SelectionRange = {
       kind: this.dragStart.kind,
       startRow,
       endRow: endRowIndex,
       startCol,
-      endCol
+      endCol,
     };
     this.selectionRanges = [nextRange];
     const activeRowId = rows[endRowIndex]?.id ?? hit.rowId;
     const activeColKey =
-      this.dragStart.kind === 'rows'
-        ? schema.columns[0]?.key ?? hit.colKey
-        : schema.columns[endColIndex]?.key ?? hit.colKey;
+      this.dragStart.kind === "rows"
+        ? (schema.columns[0]?.key ?? hit.colKey)
+        : (schema.columns[endColIndex]?.key ?? hit.colKey);
     this.activeCell = { rowId: activeRowId, colKey: activeColKey };
     this.onActiveChange(activeRowId, activeColKey);
     this.onSelectionChange(this.selectionRanges);
     this.updateFillHandleFlag();
-    this.suppressNextClick = true;
   }
 
   private updateFillDragFromClientPoint(clientX: number, clientY: number) {
     if (!this.fillDragging || !this.fillSource) return;
     const hit = this.getHitAtClientPoint(clientX, clientY);
     if (!hit) return;
-    if (hit.colKey === '__all__' || hit.colKey === '__row__') return;
+    if (hit.colKey === "__all__" || hit.colKey === "__row__") return;
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
     const endRowIndex = this.dataModel.getRowIndex(hit.rowId);
@@ -557,12 +668,12 @@ export class SelectionManager {
       this.onActiveChange(activeRowId, colKey);
       this.selectionRanges = [
         {
-          kind: 'cells',
+          kind: "cells",
           startRow: this.fillSource.startRowIndex,
           endRow: nextEnd,
           startCol: this.fillSource.colIndex,
-          endCol: this.fillSource.colIndex
-        }
+          endCol: this.fillSource.colIndex,
+        },
       ];
       this.onSelectionChange(this.selectionRanges);
     }
@@ -609,10 +720,14 @@ export class SelectionManager {
         if (this.fillDragging) this.updateFillDragFromClientPoint(p.x, p.y);
         else this.updateDragFromClientPoint(p.x, p.y);
       }
-      const raf = window.requestAnimationFrame ?? ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16) as any);
+      const raf =
+        window.requestAnimationFrame ??
+        ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16) as any);
       this.autoScrollRaf = raf(tick);
     };
-    const raf = window.requestAnimationFrame ?? ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16) as any);
+    const raf =
+      window.requestAnimationFrame ??
+      ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16) as any);
     this.autoScrollRaf = raf(tick);
   }
 
@@ -628,22 +743,33 @@ export class SelectionManager {
 
   private handlePointerMove = (ev: PointerEvent) => {
     this.lastPointerClient = { x: ev.clientX, y: ev.clientY };
+    if (this.dragging || this.fillDragging) {
+      this.debugLog("pointermove", { clientX: ev.clientX, clientY: ev.clientY });
+    }
     if (this.fillDragging && this.fillSource) {
       this.updateFillDragFromClientPoint(ev.clientX, ev.clientY);
       return;
     }
     if (!this.dragging || !this.dragStart) return;
+    if (!this.dragMoved && this.pointerDownClient) {
+      const dx = ev.clientX - this.pointerDownClient.x;
+      const dy = ev.clientY - this.pointerDownClient.y;
+      // Ignore tiny pointer jitter so clicks aren't suppressed.
+      if (dx * dx + dy * dy < 9) return;
+      this.dragMoved = true;
+    }
     this.updateDragFromClientPoint(ev.clientX, ev.clientY);
   };
 
   private handlePointerUp = (ev: PointerEvent) => {
+    this.debugLog("pointerup", { clientX: ev.clientX, clientY: ev.clientY });
     if (this.fillDragging && this.fillSource) {
       const src = this.fillSource;
       const endRowIndex = this.fillEndRowIndex ?? src.endRowIndex;
       this.fillDragging = false;
       this.fillSource = null;
       this.fillEndRowIndex = null;
-      this.root.dataset.extableFillDragging = '';
+      this.root.dataset.extableFillDragging = "";
       if (this.rootCursorBackup !== null) {
         this.root.style.cursor = this.rootCursorBackup;
         this.rootCursorBackup = null;
@@ -661,12 +787,17 @@ export class SelectionManager {
     if (!this.dragging) return;
     this.dragging = false;
     this.dragStart = null;
+    const suppressTrailingClick = this.dragSelectionChanged;
+    this.pointerDownClient = null;
+    this.dragMoved = false;
+    this.dragSelectionChanged = false;
     this.stopAutoScroll();
     try {
       (ev.target as Element | null)?.releasePointerCapture?.(ev.pointerId);
     } catch {
       // ignore
     }
+    if (suppressTrailingClick) this.suppressNextClick = true;
     if (this.suppressNextClick) {
       // Keep selection mode focus; prevent the trailing click from opening edit.
       if (this.activeCell) {
@@ -676,7 +807,7 @@ export class SelectionManager {
     }
   };
 
-  private commitFill(source: import('./fillHandle').FillHandleSource, endRowIndex: number) {
+  private commitFill(source: import("./fillHandle").FillHandleSource, endRowIndex: number) {
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
     const col = schema.columns[source.colIndex];
@@ -686,7 +817,7 @@ export class SelectionManager {
     const getValue = makeFillValueGetter(this.dataModel, source);
     if (!getValue) return;
 
-    const commitNow = this.editMode === 'direct';
+    const commitNow = this.editMode === "direct";
     const batchId = `fill:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     for (let r = source.endRowIndex + 1; r <= endRowIndex; r += 1) {
       const row = rows[r];
@@ -694,7 +825,13 @@ export class SelectionManager {
       if (this.dataModel.isReadonly(row.id, col.key)) continue;
       const offset = r - source.endRowIndex;
       const next = getValue(offset);
-      const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next, payload: { batchId } };
+      const cmd: Command = {
+        kind: "edit",
+        rowId: row.id,
+        colKey: col.key,
+        next,
+        payload: { batchId },
+      };
       this.onEdit(cmd, commitNow);
     }
 
@@ -703,12 +840,12 @@ export class SelectionManager {
     if (!endRow) return;
     this.selectionRanges = [
       {
-        kind: 'cells',
+        kind: "cells",
         startRow: source.startRowIndex,
         endRow: endRowIndex,
         startCol: source.colIndex,
-        endCol: source.colIndex
-      }
+        endCol: source.colIndex,
+      },
     ];
     this.activeCell = { rowId: endRow.id, colKey: col.key };
     this.onActiveChange(endRow.id, col.key);
@@ -720,16 +857,17 @@ export class SelectionManager {
   }
 
   private teardownSelectionInput() {
-    if (!this.selectionInput) return;
-    this.selectionInput.removeEventListener('keydown', this.handleSelectionKeydown);
-    this.selectionInput.removeEventListener('compositionstart', this.handleSelectionCompositionStart);
-    this.selectionInput.removeEventListener('copy', this.handleSelectionCopy);
-    this.selectionInput.removeEventListener('cut', this.handleSelectionCut);
-    this.selectionInput.removeEventListener('paste', this.handleSelectionPaste);
-    if (this.selectionInput.parentElement) {
-      this.selectionInput.parentElement.removeChild(this.selectionInput);
-    }
+    const input = this.selectionInput;
+    if (!input) return;
+    // Avoid re-entrancy via blur fired during DOM removal.
     this.selectionInput = null;
+    input.removeEventListener("keydown", this.handleSelectionKeydown);
+    input.removeEventListener("compositionstart", this.handleSelectionCompositionStart);
+    input.removeEventListener("copy", this.handleSelectionCopy);
+    input.removeEventListener("cut", this.handleSelectionCut);
+    input.removeEventListener("paste", this.handleSelectionPaste);
+    input.removeEventListener("blur", this.handleSelectionBlur);
+    removeFromParent(input);
   }
 
   private handleSelectionCopy = (ev: ClipboardEvent) => {
@@ -737,10 +875,10 @@ export class SelectionManager {
     const payload = this.buildSelectionClipboardPayload();
     if (!payload) return;
     ev.preventDefault();
-    ev.clipboardData?.setData('text/plain', payload.text);
-    ev.clipboardData?.setData('text/tab-separated-values', payload.text);
-    ev.clipboardData?.setData('text/html', payload.html);
-    this.showCopyToast(`Copied ${payload.cellCount} cells`, 'info');
+    ev.clipboardData?.setData("text/plain", payload.text);
+    ev.clipboardData?.setData("text/tab-separated-values", payload.text);
+    ev.clipboardData?.setData("text/html", payload.html);
+    this.showCopyToast(`Copied ${payload.cellCount} cells`, "info");
   };
 
   private handleSelectionCut = (ev: ClipboardEvent) => {
@@ -748,18 +886,18 @@ export class SelectionManager {
     const payload = this.buildSelectionClipboardPayload();
     if (!payload) return;
     ev.preventDefault();
-    ev.clipboardData?.setData('text/plain', payload.text);
-    ev.clipboardData?.setData('text/tab-separated-values', payload.text);
-    ev.clipboardData?.setData('text/html', payload.html);
+    ev.clipboardData?.setData("text/plain", payload.text);
+    ev.clipboardData?.setData("text/tab-separated-values", payload.text);
+    ev.clipboardData?.setData("text/html", payload.html);
     this.clearSelectionValues();
   };
 
   private handleSelectionPaste = (ev: ClipboardEvent) => {
     if (!this.selectionMode) return;
     ev.preventDefault();
-    const html = ev.clipboardData?.getData('text/html') ?? '';
-    const tsv = ev.clipboardData?.getData('text/tab-separated-values') ?? '';
-    const text = ev.clipboardData?.getData('text/plain') ?? '';
+    const html = ev.clipboardData?.getData("text/html") ?? "";
+    const tsv = ev.clipboardData?.getData("text/tab-separated-values") ?? "";
+    const text = ev.clipboardData?.getData("text/plain") ?? "";
     const grid = this.parseClipboardGrid({ html, tsv, text });
     if (!grid) return;
     this.applyClipboardGrid(grid);
@@ -779,56 +917,56 @@ export class SelectionManager {
 
     // Ignore modifier-only keys in selection mode (do not enter edit mode).
     if (
-      ev.key === 'Shift' ||
-      ev.key === 'Control' ||
-      ev.key === 'Alt' ||
-      ev.key === 'Meta' ||
-      ev.key === 'CapsLock' ||
-      ev.key === 'NumLock' ||
-      ev.key === 'ScrollLock'
+      ev.key === "Shift" ||
+      ev.key === "Control" ||
+      ev.key === "Alt" ||
+      ev.key === "Meta" ||
+      ev.key === "CapsLock" ||
+      ev.key === "NumLock" ||
+      ev.key === "ScrollLock"
     ) {
       return;
     }
 
-    const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
+    const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
     const accel = isMac ? ev.metaKey : ev.ctrlKey;
     if (accel) {
       const key = ev.key.toLowerCase();
-      if (key === 'z') {
+      if (key === "z") {
         ev.preventDefault();
         if (isMac && ev.shiftKey) this.onRedo();
         else this.onUndo();
         this.selectionAnchor = null;
         return;
       }
-      if (key === 'y') {
+      if (key === "y") {
         ev.preventDefault();
         this.onRedo();
         this.selectionAnchor = null;
         return;
       }
-      if (key === 'c') {
+      if (key === "c") {
         ev.preventDefault();
-        document.execCommand('copy');
+        document.execCommand("copy");
         this.selectionAnchor = null;
         return;
       }
-      if (key === 'x') {
+      if (key === "x") {
         ev.preventDefault();
-        document.execCommand('cut');
+        document.execCommand("cut");
         this.selectionAnchor = null;
         return;
       }
-      if (key === 'v') {
+      if (key === "v") {
         // Let the paste event fire; it will be handled on the input.
         this.selectionAnchor = null;
         return;
       }
     }
 
-    if (ev.key === ' ') {
+    if (ev.key === " ") {
       const col = this.findColumn(this.activeCell.colKey);
-      if (col?.type === 'boolean') {
+      if (col?.type === "boolean") {
         ev.preventDefault();
         this.toggleBoolean(this.activeCell.rowId, this.activeCell.colKey);
       }
@@ -836,10 +974,13 @@ export class SelectionManager {
       return;
     }
 
-    const isTab = ev.key === 'Tab';
-    const isEnter = ev.key === 'Enter';
+    const isTab = ev.key === "Tab";
+    const isEnter = ev.key === "Enter";
     const isArrow =
-      ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'ArrowUp' || ev.key === 'ArrowDown';
+      ev.key === "ArrowLeft" ||
+      ev.key === "ArrowRight" ||
+      ev.key === "ArrowUp" ||
+      ev.key === "ArrowDown";
     if (isTab || isEnter || isArrow) {
       ev.preventDefault();
       this.teardownSelectionInput();
@@ -852,14 +993,15 @@ export class SelectionManager {
         return;
       }
       const extend = ev.shiftKey;
-      if (ev.key === 'ArrowLeft') this.moveActiveCell(0, -1, extend);
-      else if (ev.key === 'ArrowRight') this.moveActiveCell(0, 1, extend);
-      else if (ev.key === 'ArrowUp') this.moveActiveCell(-1, 0, extend);
-      else if (ev.key === 'ArrowDown') this.moveActiveCell(1, 0, extend);
+      if (ev.key === "ArrowLeft") this.moveActiveCell(0, -1, extend);
+      else if (ev.key === "ArrowRight") this.moveActiveCell(0, 1, extend);
+      else if (ev.key === "ArrowUp") this.moveActiveCell(-1, 0, extend);
+      else if (ev.key === "ArrowDown") this.moveActiveCell(1, 0, extend);
       return;
     }
 
-    const isPrintable = ev.key.length === 1 && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.repeat;
+    const isPrintable =
+      ev.key.length === 1 && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.repeat;
     this.selectionMode = false;
     this.selectionAnchor = null;
     this.teardownSelectionInput();
@@ -873,7 +1015,9 @@ export class SelectionManager {
     const fallback = { rowIndex: 0, colIndex: 0 };
     if (!this.activeCell) return fallback;
     const rowIndex = rows.findIndex((r) => r.id === this.activeCell!.rowId);
-    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(this.activeCell!.colKey));
+    const colIndex = schema.columns.findIndex(
+      (c) => String(c.key) === String(this.activeCell!.colKey),
+    );
     return { rowIndex: rowIndex >= 0 ? rowIndex : 0, colIndex: colIndex >= 0 ? colIndex : 0 };
   }
 
@@ -883,7 +1027,7 @@ export class SelectionManager {
       startRow: Math.min(range.startRow, range.endRow),
       endRow: Math.max(range.startRow, range.endRow),
       startCol: Math.min(range.startCol, range.endCol),
-      endCol: Math.max(range.startCol, range.endCol)
+      endCol: Math.max(range.startCol, range.endCol),
     };
   }
 
@@ -894,44 +1038,50 @@ export class SelectionManager {
     }
     if (!this.activeCell) return null;
     const rowIdx = this.dataModel.getRowIndex(this.activeCell.rowId);
-    const colIdx = schema.columns.findIndex((c) => String(c.key) === String(this.activeCell!.colKey));
+    const colIdx = schema.columns.findIndex(
+      (c) => String(c.key) === String(this.activeCell!.colKey),
+    );
     if (rowIdx < 0 || colIdx < 0) return null;
-    return { kind: 'cells', startRow: rowIdx, endRow: rowIdx, startCol: colIdx, endCol: colIdx };
+    return { kind: "cells", startRow: rowIdx, endRow: rowIdx, startCol: colIdx, endCol: colIdx };
   }
 
   private cellToClipboardString(value: unknown): string {
-    if (value === null || value === undefined) return '';
+    if (value === null || value === undefined) return "";
     if (value instanceof Date) return value.toISOString();
-    if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
-    if (typeof value === 'number') return String(value);
-    if (typeof value === 'object') {
+    if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+    if (typeof value === "number") return String(value);
+    if (typeof value === "object") {
       const maybe = value as any;
-      if (maybe.kind === 'enum' && typeof maybe.value === 'string') return maybe.value;
-      if (maybe.kind === 'tags' && Array.isArray(maybe.values)) return maybe.values.join(', ');
+      if (maybe.kind === "enum" && typeof maybe.value === "string") return maybe.value;
+      if (maybe.kind === "tags" && Array.isArray(maybe.values)) return maybe.values.join(", ");
     }
     return String(value);
   }
 
   private escapeHtml(text: string) {
     return text
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
   }
 
-  private buildSelectionClipboardPayload(): { text: string; html: string; cellCount: number } | null {
+  private buildSelectionClipboardPayload(): {
+    text: string;
+    html: string;
+    cellCount: number;
+  } | null {
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
     const range = this.getCopyRange();
     if (!range) return null;
-    if (range.kind !== 'cells') return null;
+    if (range.kind !== "cells") return null;
 
     const out: string[] = [];
     const htmlRows: string[] = [];
-    const tableStyle = 'border-collapse:collapse;border-spacing:0;';
-    const cellStyle = 'border:1px solid #d0d7de;padding:4px 6px;vertical-align:top;';
+    const tableStyle = "border-collapse:collapse;border-spacing:0;";
+    const cellStyle = "border:1px solid #d0d7de;padding:4px 6px;vertical-align:top;";
     let cellCount = 0;
     for (let r = range.startRow; r <= range.endRow; r += 1) {
       const row = rows[r];
@@ -947,11 +1097,11 @@ export class SelectionManager {
         htmlCells.push(`<td style="${cellStyle}">${this.escapeHtml(s)}</td>`);
         cellCount += 1;
       }
-      out.push(line.join('\t'));
-      htmlRows.push(`<tr>${htmlCells.join('')}</tr>`);
+      out.push(line.join("\t"));
+      htmlRows.push(`<tr>${htmlCells.join("")}</tr>`);
     }
-    const text = out.join('\r\n');
-    const html = `<table style="${tableStyle}"><tbody>${htmlRows.join('')}</tbody></table>`;
+    const text = out.join("\r\n");
+    const html = `<table style="${tableStyle}"><tbody>${htmlRows.join("")}</tbody></table>`;
     return { text, html, cellCount };
   }
 
@@ -959,8 +1109,8 @@ export class SelectionManager {
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
     const range = this.getCopyRange();
-    if (!range || range.kind !== 'cells') return;
-    const commitNow = this.editMode === 'direct';
+    if (!range || range.kind !== "cells") return;
+    const commitNow = this.editMode === "direct";
     const batchId = `cut:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     for (let r = range.startRow; r <= range.endRow; r += 1) {
       const row = rows[r];
@@ -969,14 +1119,22 @@ export class SelectionManager {
         const col = schema.columns[c];
         if (!col) continue;
         if (this.dataModel.isReadonly(row.id, col.key)) continue;
-        const next = col.type === 'boolean' ? false : '';
-        const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next, payload: { batchId } };
+        const next = col.type === "boolean" ? false : "";
+        const cmd: Command = {
+          kind: "edit",
+          rowId: row.id,
+          colKey: col.key,
+          next,
+          payload: { batchId },
+        };
         this.onEdit(cmd, commitNow);
       }
     }
   }
 
-  private parseClipboardGrid(payload: { html: string; tsv: string; text: string }): string[][] | null {
+  private parseClipboardGrid(payload: { html: string; tsv: string; text: string }):
+    | string[][]
+    | null {
     const fromHtml = this.parseHtmlTable(payload.html);
     if (fromHtml) return fromHtml;
     const raw = payload.tsv || payload.text;
@@ -984,28 +1142,33 @@ export class SelectionManager {
   }
 
   private parseTsv(text: string): string[][] | null {
-    const trimmed = text.replace(/\r\n$/, '').replace(/\n$/, '');
+    const trimmed = text.replace(/\r\n$/, "").replace(/\n$/, "");
     if (!trimmed) return null;
     const rows = trimmed.split(/\r\n|\n/);
-    return rows.map((r) => r.split('\t'));
+    return rows.map((r) => r.split("\t"));
   }
 
   private parseHtmlTable(html: string): string[][] | null {
     if (!html) return null;
     try {
       const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      const table = doc.querySelector('table');
+      const doc = parser.parseFromString(html, "text/html");
+      const table = doc.querySelector("table");
       if (!table) return null;
-      const trs = Array.from(table.querySelectorAll('tr'));
+      const trs = Array.from(table.querySelectorAll("tr"));
       if (trs.length === 0) return null;
       const grid: string[][] = [];
       for (const tr of trs) {
-        const cells = Array.from(tr.querySelectorAll('th,td'));
-        if (cells.some((c) => (c as HTMLTableCellElement).rowSpan > 1 || (c as HTMLTableCellElement).colSpan > 1)) {
+        const cells = Array.from(tr.querySelectorAll("th,td"));
+        if (
+          cells.some(
+            (c) =>
+              (c as HTMLTableCellElement).rowSpan > 1 || (c as HTMLTableCellElement).colSpan > 1,
+          )
+        ) {
           return null;
         }
-        grid.push(cells.map((c) => (c.textContent ?? '').trim()));
+        grid.push(cells.map((c) => (c.textContent ?? "").trim()));
       }
       return grid.length ? grid : null;
     } catch {
@@ -1016,15 +1179,15 @@ export class SelectionManager {
   private coerceCellValue(raw: string, colKey: string | number): unknown {
     const col = this.findColumn(colKey);
     if (!col) return raw;
-    if (raw === '') return '';
-    if (col.type === 'number') {
+    if (raw === "") return "";
+    if (col.type === "number") {
       const n = Number(raw);
       return Number.isFinite(n) ? n : raw;
     }
-    if (col.type === 'boolean') {
+    if (col.type === "boolean") {
       const v = raw.trim().toLowerCase();
-      if (v === 'true' || v === '1' || v === 'yes') return true;
-      if (v === 'false' || v === '0' || v === 'no') return false;
+      if (v === "true" || v === "1" || v === "yes") return true;
+      if (v === "false" || v === "0" || v === "no") return false;
       return raw;
     }
     return raw;
@@ -1034,7 +1197,7 @@ export class SelectionManager {
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
     const { rowIndex: startRow, colIndex: startCol } = this.getActiveIndices();
-    const commitNow = this.editMode === 'direct';
+    const commitNow = this.editMode === "direct";
     const batchId = `paste:${Date.now()}:${Math.random().toString(16).slice(2)}`;
     for (let r = 0; r < grid.length; r += 1) {
       const row = rows[startRow + r];
@@ -1044,8 +1207,14 @@ export class SelectionManager {
         const col = schema.columns[startCol + c];
         if (!col) break;
         if (this.dataModel.isReadonly(row.id, col.key)) continue;
-        const next = this.coerceCellValue(line[c] ?? '', col.key);
-        const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next, payload: { batchId } };
+        const next = this.coerceCellValue(line[c] ?? "", col.key);
+        const cmd: Command = {
+          kind: "edit",
+          rowId: row.id,
+          colKey: col.key,
+          next,
+          payload: { batchId },
+        };
         this.onEdit(cmd, commitNow);
       }
     }
@@ -1053,47 +1222,48 @@ export class SelectionManager {
 
   private createEditor(colKey: string | number, initial: string) {
     const col = this.findColumn(colKey);
-    const needsTextarea = col?.wrapText || initial.includes('\n');
+    const needsTextarea = col?.wrapText || initial.includes("\n");
     if (needsTextarea) {
-      const ta = document.createElement('textarea');
+      const ta = document.createElement("textarea");
       ta.value = initial;
-      ta.style.resize = 'none';
-      ta.style.whiteSpace = 'pre-wrap';
-      ta.style.overflowWrap = 'anywhere';
-      ta.style.overflow = 'hidden';
+      ta.style.resize = "none";
+      ta.style.whiteSpace = "pre-wrap";
+      ta.style.overflowWrap = "anywhere";
+      ta.style.overflow = "hidden";
       this.autosize(ta);
-      ta.addEventListener('input', () => this.autosize(ta));
+      ta.addEventListener("input", () => this.autosize(ta));
       return { control: ta, value: initial };
     }
-    if (col?.type === 'boolean') {
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.checked = initial === 'true' || initial === '1' || initial === 'on';
+    if (col?.type === "boolean") {
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.checked = initial === "true" || initial === "1" || initial === "on";
       return { control: input, value: initial };
     }
-    if (col?.type === 'number') {
-      const input = document.createElement('input');
-      input.type = 'number';
+    if (col?.type === "number") {
+      const input = document.createElement("input");
+      input.type = "number";
       input.value = initial;
       return { control: input, value: initial };
     }
-    if (col?.type === 'date' || col?.type === 'time' || col?.type === 'datetime') {
-      const input = document.createElement('input');
-      input.type = col.type === 'date' ? 'date' : col.type === 'time' ? 'time' : 'datetime-local';
-      input.value = initial;
-      return { control: input, value: initial };
+    if (col?.type === "date" || col?.type === "time" || col?.type === "datetime") {
+      const input = document.createElement("input");
+      input.type = col.type === "date" ? "date" : col.type === "time" ? "time" : "datetime-local";
+      const normalized = this.normalizeTemporalInitialValue(col.type, initial);
+      input.value = normalized;
+      return { control: input, value: normalized };
     }
-    if (col?.type === 'enum' || col?.type === 'tags') {
+    if (col?.type === "enum" || col?.type === "tags") {
       const allowCustom = col.enum?.allowCustom ?? col.tags?.allowCustom;
       const options = col.enum?.options ?? col.tags?.options ?? [];
       if (allowCustom === false) {
-        const select = document.createElement('select');
-        const empty = document.createElement('option');
-        empty.value = '';
-        empty.textContent = '';
+        const select = document.createElement("select");
+        const empty = document.createElement("option");
+        empty.value = "";
+        empty.textContent = "";
         select.appendChild(empty);
         for (const opt of options) {
-          const op = document.createElement('option');
+          const op = document.createElement("option");
           op.value = opt;
           op.textContent = opt;
           if (initial === opt) op.selected = true;
@@ -1101,17 +1271,17 @@ export class SelectionManager {
         }
         return { control: select, value: initial };
       }
-      const input = document.createElement('input');
-      input.type = 'text';
+      const input = document.createElement("input");
+      input.type = "text";
       const listId = `extable-datalist-${String(colKey)}`;
-      input.setAttribute('list', listId);
+      input.setAttribute("list", listId);
       input.value = initial;
       let datalist = document.getElementById(listId) as HTMLDataListElement | null;
       if (!datalist) {
-        datalist = document.createElement('datalist');
+        datalist = document.createElement("datalist");
         datalist.id = listId;
         for (const opt of options) {
-          const op = document.createElement('option');
+          const op = document.createElement("option");
           op.value = opt;
           datalist.appendChild(op);
         }
@@ -1119,8 +1289,8 @@ export class SelectionManager {
       }
       return { control: input, value: initial, datalistId: listId };
     }
-    const input = document.createElement('input');
-    input.type = 'text';
+    const input = document.createElement("input");
+    input.type = "text";
     input.value = initial;
     return { control: input, value: initial };
   }
@@ -1135,7 +1305,10 @@ export class SelectionManager {
     ta.style.minHeight = `${lineHeight}px`;
   }
 
-  private positionFloatingContentBox(box: { left: number; top: number; width: number; height: number }, wrapper: HTMLDivElement) {
+  private positionFloatingContentBox(
+    box: { left: number; top: number; width: number; height: number },
+    wrapper: HTMLDivElement,
+  ) {
     const inset = 2;
     wrapper.style.left = `${box.left + inset}px`;
     wrapper.style.top = `${box.top + inset}px`;
@@ -1147,7 +1320,16 @@ export class SelectionManager {
     if (ev.button !== 0) {
       return; // only left click starts edit/selection; right-click is handled by contextmenu
     }
+    this.debugLog("click:start", {
+      clientX: ev.clientX,
+      clientY: ev.clientY,
+      shiftKey: ev.shiftKey,
+      metaKey: ev.metaKey,
+      ctrlKey: ev.ctrlKey,
+      target: (ev.target as any)?.tagName,
+    });
     if (this.suppressNextClick) {
+      this.debugLog("click:suppressed");
       this.suppressNextClick = false;
       return;
     }
@@ -1161,7 +1343,11 @@ export class SelectionManager {
       this.onMove(rowId);
       this.teardownInput(false);
     }
-    const hit = this.hitTest(ev);
+    const hit =
+      typeof document.elementFromPoint === "function"
+        ? this.getHitAtClientPoint(ev.clientX, ev.clientY)
+        : this.hitTest(ev);
+    this.debugLog("click:hit", { hit });
     if (!hit) return;
     const wasSameCell =
       this.selectionMode &&
@@ -1170,16 +1356,16 @@ export class SelectionManager {
       !ev.ctrlKey &&
       this.activeCell?.rowId === hit.rowId &&
       String(this.activeCell?.colKey) === String(hit.colKey);
-    if (hit.rowId === '__all__' && hit.colKey === '__all__') {
+    if (hit.rowId === "__all__" && hit.colKey === "__all__") {
       this.teardownInput(false);
       this.activeCell = null;
-      this.onActiveChange('__all__', '__all__');
+      this.onActiveChange("__all__", "__all__");
       this.selectionAnchor = null;
       return;
     }
     this.onRowSelect(hit.rowId);
     this.applySelectionFromHit(ev, hit);
-    if (hit.colKey === '__row__' || hit.colKey === '__all__') {
+    if (hit.colKey === "__row__" || hit.colKey === "__all__") {
       return;
     }
     if (this.dataModel.isReadonly(hit.rowId, hit.colKey)) {
@@ -1190,10 +1376,11 @@ export class SelectionManager {
       return;
     }
     const col = this.findColumn(hit.colKey);
-    const isBoolean = col?.type === 'boolean';
+    const isBoolean = col?.type === "boolean";
     if (isBoolean) {
       const isSecondClick =
-        this.lastBooleanCell?.rowId === hit.rowId && String(this.lastBooleanCell?.colKey) === String(hit.colKey);
+        this.lastBooleanCell?.rowId === hit.rowId &&
+        String(this.lastBooleanCell?.colKey) === String(hit.colKey);
       this.lastBooleanCell = { rowId: hit.rowId, colKey: hit.colKey };
       this.selectionMode = true;
       this.selectionAnchor = null;
@@ -1202,11 +1389,11 @@ export class SelectionManager {
       if (isSecondClick) {
         this.toggleBoolean(hit.rowId, hit.colKey);
         // Keep focus on the hidden selection input so Space does not scroll the container/page.
-        this.focusSelectionInput('');
+        this.focusSelectionInput("");
         return;
       }
       // Keep focus on the hidden selection input so Space can toggle.
-      this.focusSelectionInput('');
+      this.focusSelectionInput("");
       return;
     }
     this.lastBooleanCell = null;
@@ -1218,32 +1405,23 @@ export class SelectionManager {
     if (wasSameCell) {
       this.selectionMode = false;
       this.teardownSelectionInput();
+      this.debugLog("click:openEditor");
       this.openEditorAtActiveCell();
     }
   };
 
   private toggleBoolean(rowId: string, colKey: string | number) {
     const current = this.dataModel.getCell(rowId, colKey);
-    const currentBool = current === true || current === 'true' || current === '1' || current === 1;
+    const currentBool = current === true || current === "true" || current === "1" || current === 1;
     const next = !currentBool;
-    const cmd: Command = { kind: 'edit', rowId, colKey, next };
-    const commitNow = this.editMode === 'direct';
+    const cmd: Command = { kind: "edit", rowId, colKey, next };
+    const commitNow = this.editMode === "direct";
     this.onEdit(cmd, commitNow);
     this.onMove(rowId);
   }
 
   private handleContextMenu = (ev: MouseEvent) => {
     const target = ev.target as Node | null;
-    if (this.debug) {
-      // eslint-disable-next-line no-console
-      console.log('[extable ctx] contextmenu event', {
-        inRoot: !!(target && this.root.contains(target)),
-        targetTag: (target as HTMLElement | null)?.tagName,
-        x: ev.clientX,
-        y: ev.clientY,
-        ctrl: ev.ctrlKey
-      });
-    }
     if (ev.ctrlKey) {
       ev.preventDefault();
       return;
@@ -1252,10 +1430,6 @@ export class SelectionManager {
     ev.preventDefault();
     ev.stopPropagation();
     const hit = this.hitTest(ev);
-    if (this.debug) {
-      // eslint-disable-next-line no-console
-      console.log('[extable ctx] hit', hit);
-    }
     const rowId = hit?.rowId ?? null;
     const colKey = hit?.colKey ?? null;
     this.onContextMenu(rowId, colKey, ev.clientX, ev.clientY);
@@ -1265,22 +1439,42 @@ export class SelectionManager {
     const schema = this.dataModel.getSchema();
     const rowIdx = this.dataModel.getRowIndex(hit.rowId);
     const colIdx = schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
-    const isRow = hit.colKey === '__row__';
+    const isRow = hit.colKey === "__row__";
     const targetRange: SelectionRange = isRow
-      ? { kind: 'rows', startRow: rowIdx, endRow: rowIdx, startCol: 0, endCol: schema.columns.length - 1 }
-      : { kind: 'cells', startRow: rowIdx, endRow: rowIdx, startCol: Math.max(0, colIdx), endCol: Math.max(0, colIdx) };
+      ? {
+          kind: "rows",
+          startRow: rowIdx,
+          endRow: rowIdx,
+          startCol: 0,
+          endCol: schema.columns.length - 1,
+        }
+      : {
+          kind: "cells",
+          startRow: rowIdx,
+          endRow: rowIdx,
+          startCol: Math.max(0, colIdx),
+          endCol: Math.max(0, colIdx),
+        };
     let nextRanges: SelectionRange[] = [];
     if (ev.shiftKey && this.activeCell) {
       const anchorRow = this.dataModel.getRowIndex(this.activeCell.rowId);
-      const anchorCol = schema.columns.findIndex((c) => String(c.key) === String(this.activeCell!.colKey));
+      const anchorCol = schema.columns.findIndex(
+        (c) => String(c.key) === String(this.activeCell!.colKey),
+      );
       const anchorRange: SelectionRange = isRow
-        ? { kind: 'rows', startRow: anchorRow, endRow: rowIdx, startCol: 0, endCol: schema.columns.length - 1 }
+        ? {
+            kind: "rows",
+            startRow: anchorRow,
+            endRow: rowIdx,
+            startCol: 0,
+            endCol: schema.columns.length - 1,
+          }
         : {
-            kind: 'cells',
+            kind: "cells",
             startRow: anchorRow,
             endRow: rowIdx,
             startCol: Math.max(0, anchorCol),
-            endCol: Math.max(0, colIdx)
+            endCol: Math.max(0, colIdx),
           };
       nextRanges = [anchorRange];
     } else if (ev.metaKey || ev.ctrlKey) {
@@ -1290,7 +1484,7 @@ export class SelectionManager {
     }
     this.selectionRanges = this.mergeRanges(nextRanges);
     const anchorCell =
-      targetRange.kind === 'rows'
+      targetRange.kind === "rows"
         ? { rowId: hit.rowId, colKey: schema.columns[0]?.key ?? null }
         : { rowId: hit.rowId, colKey: hit.colKey };
     this.activeCell = anchorCell;
@@ -1302,7 +1496,7 @@ export class SelectionManager {
   private mergeRanges(ranges: SelectionRange[]) {
     const merged: SelectionRange[] = [];
     const sorted = [...ranges].sort((a, b) => {
-      if (a.kind !== b.kind) return a.kind === 'rows' ? -1 : 1;
+      if (a.kind !== b.kind) return a.kind === "rows" ? -1 : 1;
       if (a.startRow !== b.startRow) return a.startRow - b.startRow;
       if (a.startCol !== b.startCol) return a.startCol - b.startCol;
       if (a.endRow !== b.endRow) return a.endRow - b.endRow;
@@ -1318,7 +1512,7 @@ export class SelectionManager {
         merged.push({ ...r });
         continue;
       }
-      if (r.kind === 'rows') {
+      if (r.kind === "rows") {
         const canMerge =
           last.startCol === r.startCol &&
           last.endCol === r.endCol &&
@@ -1354,48 +1548,51 @@ export class SelectionManager {
     cell: HTMLElement,
     rowId: string,
     colKey: string | number,
-    options?: { initialValueOverride?: string; placeCursorAtEnd?: boolean }
+    options?: { initialValueOverride?: string; placeCursorAtEnd?: boolean },
   ) {
     this.teardownInput();
     this.activeCell = { rowId, colKey };
     this.activeHost = cell;
-    this.activeHostOriginalText = cell.textContent ?? '';
+    this.activeHostOriginalText = cell.textContent ?? "";
     const current = this.dataModel.getCell(rowId, colKey);
     const initialValue =
-      options?.initialValueOverride ?? (current === null || current === undefined ? '' : String(current));
+      options?.initialValueOverride ??
+      (current === null || current === undefined ? "" : String(current));
     const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
-    input.style.width = 'calc(100% - 4px)';
-    input.style.boxSizing = 'border-box';
-    input.style.margin = '2px';
-    input.style.padding = '4px 6px';
-    input.style.border = 'none';
-    input.style.borderRadius = '0';
-    input.style.boxShadow = 'none';
-    input.style.background = '#fff';
-    input.style.outline = 'none';
-    input.style.fontSize = '14px';
-    input.style.fontFamily = 'inherit';
-    input.style.lineHeight = '1.2';
-    input.style.fontWeight = 'inherit';
+    input.style.width = "calc(100% - 4px)";
+    input.style.boxSizing = "border-box";
+    input.style.margin = "2px";
+    input.style.padding = "4px 6px";
+    input.style.border = "none";
+    input.style.borderRadius = "0";
+    input.style.boxShadow = "none";
+    input.style.background = "#fff";
+    input.style.outline = "none";
+    input.style.fontSize = "14px";
+    input.style.fontFamily = "inherit";
+    input.style.lineHeight = "1.2";
+    input.style.fontWeight = "inherit";
     const col = this.findColumn(colKey);
-    input.style.textAlign = col?.format?.align ?? (col?.type === 'number' ? 'right' : 'left');
-    input.addEventListener('keydown', (e) => this.handleKey(e as KeyboardEvent, cell));
-    input.addEventListener('focus', () => {
+    input.style.textAlign = col?.format?.align ?? (col?.type === "number" ? "right" : "left");
+    input.addEventListener("keydown", (e) => this.handleKey(e as KeyboardEvent, cell));
+    input.addEventListener("focus", () => {
       if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) input.select();
     });
     this.bindImmediateCommit(input, cell);
-    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) this.attachInputDebug(input);
-    cell.textContent = '';
+    cell.textContent = "";
     cell.appendChild(input);
-    if (input.tagName.toLowerCase() === 'textarea') {
+    if (input.tagName.toLowerCase() === "textarea") {
       requestAnimationFrame(() => {
         if (input instanceof HTMLTextAreaElement) this.autosize(input);
       });
     }
     input.focus({ preventScroll: true });
-    if (options?.placeCursorAtEnd && (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+    if (
+      options?.placeCursorAtEnd &&
+      (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)
+    ) {
       const end = input.value.length;
       input.setSelectionRange(end, end);
     }
@@ -1406,55 +1603,55 @@ export class SelectionManager {
     rect: DOMRect,
     rowId: string,
     colKey: string | number,
-    options?: { initialValueOverride?: string; placeCursorAtEnd?: boolean }
+    options?: { initialValueOverride?: string; placeCursorAtEnd?: boolean },
   ) {
     this.teardownInput();
     this.activeCell = { rowId, colKey };
     void rect;
     const box = this.computeCanvasCellBoxContent(rowId, colKey);
     if (!box) return;
-    const wrapper = document.createElement('div');
+    const wrapper = document.createElement("div");
     this.activeHost = wrapper;
     this.activeHostOriginalText = null;
-    wrapper.style.position = 'absolute';
-    wrapper.dataset.extableFloating = 'fixed';
-    wrapper.style.pointerEvents = 'auto';
-    wrapper.style.padding = '0';
-    wrapper.style.zIndex = '10';
+    wrapper.style.position = "absolute";
+    wrapper.dataset.extableFloating = "fixed";
+    wrapper.style.pointerEvents = "auto";
+    wrapper.style.padding = "0";
+    wrapper.style.zIndex = "10";
     const current = this.dataModel.getCell(rowId, colKey);
     const initialValue =
-      options?.initialValueOverride ?? (current === null || current === undefined ? '' : String(current));
+      options?.initialValueOverride ??
+      (current === null || current === undefined ? "" : String(current));
     const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
-    input.style.width = 'calc(100% - 4px)';
-    input.style.height = 'calc(100% - 4px)';
-    input.style.boxSizing = 'border-box';
-    input.style.margin = '2px';
-    input.style.padding = '4px 6px';
-    input.style.border = 'none';
-    input.style.borderRadius = '0';
-    input.style.boxShadow = 'none';
-    input.style.background = '#fff';
-    input.style.outline = 'none';
-    input.style.fontSize = '14px';
-    input.style.fontFamily = 'inherit';
-    input.style.lineHeight = '1.2';
-    input.style.fontWeight = 'inherit';
+    input.style.width = "calc(100% - 4px)";
+    input.style.height = "calc(100% - 4px)";
+    input.style.boxSizing = "border-box";
+    input.style.margin = "2px";
+    input.style.padding = "4px 6px";
+    input.style.border = "none";
+    input.style.borderRadius = "0";
+    input.style.boxShadow = "none";
+    input.style.background = "#fff";
+    input.style.outline = "none";
+    input.style.fontSize = "14px";
+    input.style.fontFamily = "inherit";
+    input.style.lineHeight = "1.2";
+    input.style.fontWeight = "inherit";
     const col = this.findColumn(colKey);
-    input.style.textAlign = col?.format?.align ?? (col?.type === 'number' ? 'right' : 'left');
-    input.style.pointerEvents = 'auto';
-    input.addEventListener('keydown', (e) => this.handleKey(e as KeyboardEvent, wrapper));
-    input.addEventListener('focus', () => {
+    input.style.textAlign = col?.format?.align ?? (col?.type === "number" ? "right" : "left");
+    input.style.pointerEvents = "auto";
+    input.addEventListener("keydown", (e) => this.handleKey(e as KeyboardEvent, wrapper));
+    input.addEventListener("focus", () => {
       if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) input.select();
     });
     this.bindImmediateCommit(input, wrapper);
-    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) this.attachInputDebug(input);
     wrapper.appendChild(input);
     if (input instanceof HTMLSelectElement) {
       // No auto focus/click for select; standard focus will allow selection on first interaction
     }
-    if (input.tagName.toLowerCase() === 'textarea') {
+    if (input.tagName.toLowerCase() === "textarea") {
       requestAnimationFrame(() => {
         if (input instanceof HTMLTextAreaElement) this.autosize(input);
       });
@@ -1462,7 +1659,10 @@ export class SelectionManager {
     this.root.appendChild(wrapper);
     this.positionFloatingContentBox(box, wrapper);
     input.focus({ preventScroll: true });
-    if (options?.placeCursorAtEnd && (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+    if (
+      options?.placeCursorAtEnd &&
+      (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)
+    ) {
       const end = input.value.length;
       input.setSelectionRange(end, end);
     }
@@ -1476,8 +1676,8 @@ export class SelectionManager {
     if (e.isComposing || this.composing) return; // IME composing; ignore control keys
     if (now - this.lastCompositionEnd < 24) return; // absorb trailing key events right after IME commit
     const { rowId, colKey } = this.activeCell;
-    const isTextarea = this.inputEl.tagName.toLowerCase() === 'textarea';
-    const isAltEnter = e.key === 'Enter' && e.altKey;
+    const isTextarea = this.inputEl.tagName.toLowerCase() === "textarea";
+    const isAltEnter = e.key === "Enter" && e.altKey;
     const commitAndMove = (deltaRow: number, deltaCol: number) => {
       const value = this.readActiveValue();
       this.commitEdit(rowId, colKey, value);
@@ -1486,12 +1686,12 @@ export class SelectionManager {
       this.moveActiveCell(deltaRow, deltaCol);
     };
 
-    if (e.key === 'Tab') {
+    if (e.key === "Tab") {
       e.preventDefault();
       commitAndMove(0, e.shiftKey ? -1 : 1);
       return;
     }
-    if (e.key === 'Enter') {
+    if (e.key === "Enter") {
       if (isTextarea && isAltEnter) {
         // allow newline insertion (Excel-like Alt+Enter)
         return;
@@ -1499,7 +1699,7 @@ export class SelectionManager {
       e.preventDefault();
       commitAndMove(e.shiftKey ? -1 : 1, 0);
       return;
-    } else if (e.key === 'Escape') {
+    } else if (e.key === "Escape") {
       e.preventDefault();
       this.cancelEdit(cell);
       this.onMove();
@@ -1508,9 +1708,9 @@ export class SelectionManager {
         const currentText = this.cellToClipboardString(current);
         this.focusSelectionInput(currentText);
       }
-    } else if (e.key === 'Backspace' && this.inputEl.value === '') {
+    } else if (e.key === "Backspace" && this.inputEl.value === "") {
       e.preventDefault();
-      this.commitEdit(rowId, colKey, '');
+      this.commitEdit(rowId, colKey, "");
       this.onMove(rowId);
       this.teardownInput(false);
       this.moveActiveCell(0, 0);
@@ -1519,25 +1719,25 @@ export class SelectionManager {
 
   private commitEdit(rowId: string, colKey: string | number, value: unknown) {
     const cmd: Command = {
-      kind: 'edit',
+      kind: "edit",
       rowId,
       colKey,
-      next: value
+      next: value,
     };
-    const commitNow = this.editMode === 'direct';
+    const commitNow = this.editMode === "direct";
     this.onEdit(cmd, commitNow);
   }
 
   private readActiveValue() {
-    if (!this.inputEl || !this.activeCell) return this.inputEl?.value ?? '';
+    if (!this.inputEl || !this.activeCell) return this.inputEl?.value ?? "";
     if (this.inputEl instanceof HTMLInputElement) {
-      if (this.inputEl.type === 'checkbox') {
+      if (this.inputEl.type === "checkbox") {
         return this.inputEl.checked;
       }
-      if (this.inputEl.type === 'number') {
-        if (this.inputEl.value === '') return '';
+      if (this.inputEl.type === "number") {
+        if (this.inputEl.value === "") return "";
         const parsed = Number(this.inputEl.value);
-        return Number.isNaN(parsed) ? '' : parsed;
+        return Number.isNaN(parsed) ? "" : parsed;
       }
       return this.inputEl.value;
     }
@@ -1551,10 +1751,14 @@ export class SelectionManager {
     if (!this.activeCell) return;
     const isInstant =
       control instanceof HTMLInputElement
-        ? control.type === 'checkbox' || control.type === 'number' || control.type === 'date' || control.type === 'time' || control.type === 'datetime-local'
+        ? control.type === "checkbox" ||
+          control.type === "number" ||
+          control.type === "date" ||
+          control.type === "time" ||
+          control.type === "datetime-local"
         : control instanceof HTMLSelectElement;
     if (!isInstant) return;
-    control.addEventListener('change', () => {
+    control.addEventListener("change", () => {
       const { rowId, colKey } = this.activeCell!;
       const value = this.readActiveValue();
       this.commitEdit(rowId, colKey, value);
@@ -1571,31 +1775,27 @@ export class SelectionManager {
         cell.dataset?.value ??
         (() => {
           const v = this.dataModel.getCell(rowId, colKey);
-          return v === null || v === undefined ? '' : String(v);
+          return v === null || v === undefined ? "" : String(v);
         })();
       const cmd: Command = {
-        kind: 'edit',
+        kind: "edit",
         rowId,
         colKey,
         next: prev,
-        prev
+        prev,
       };
       this.onEdit(cmd, true);
     }
     this.teardownInput(false);
     if (cell.dataset?.original !== undefined || cell.dataset?.value !== undefined) {
-      cell.textContent = cell.dataset.original ?? cell.dataset.value ?? '';
+      cell.textContent = cell.dataset.original ?? cell.dataset.value ?? "";
     }
     cell.blur();
   }
 
   private teardownInput(clearActive = false) {
-    if (this.inputEl && this.inputEl.parentElement) {
-      this.inputEl.parentElement.removeChild(this.inputEl);
-    }
-    if (this.floatingInputWrapper && this.floatingInputWrapper.parentElement) {
-      this.floatingInputWrapper.parentElement.removeChild(this.floatingInputWrapper);
-    }
+    removeFromParent(this.inputEl);
+    removeFromParent(this.floatingInputWrapper);
     if (this.activeHost && this.activeHostOriginalText !== null) {
       this.activeHost.textContent = this.activeHostOriginalText;
     }
@@ -1603,39 +1803,9 @@ export class SelectionManager {
     this.floatingInputWrapper = null;
     this.activeHost = null;
     this.activeHostOriginalText = null;
-    this.floatingMeta = null;
     if (clearActive) {
       this.activeCell = null;
       this.onActiveChange(null, null);
-    }
-  }
-
-  private attachInputDebug(input: HTMLInputElement | HTMLTextAreaElement) {
-    const events = [
-      'keydown',
-      'keyup',
-      'keypress',
-      'input',
-      'change',
-      'compositionstart',
-      'compositionupdate',
-      'compositionend'
-    ];
-    for (const ev of events) {
-      input.addEventListener(ev, (e) => {
-        const ke = e as KeyboardEvent;
-        if (ev === 'compositionstart') this.composing = true;
-        if (ev === 'compositionend') {
-          this.composing = false;
-          this.lastCompositionEnd = Date.now();
-        }
-        // eslint-disable-next-line no-console
-        console.log('[extable-input]', ev, {
-          key: 'key' in ke ? ke.key : undefined,
-          isComposing: 'isComposing' in ke ? ke.isComposing : undefined,
-          value: input.value
-        });
-      });
     }
   }
 }

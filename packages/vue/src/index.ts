@@ -1,5 +1,5 @@
 import { CoreOptions, TableConfig, createTablePlaceholder, mountTable } from '@extable/core';
-import { PropType, defineComponent, h, onMounted, ref } from 'vue';
+import { PropType, defineComponent, h, onBeforeUnmount, onMounted, ref } from 'vue';
 
 export const Extable = defineComponent({
   name: 'Extable',
@@ -15,11 +15,17 @@ export const Extable = defineComponent({
   },
   setup(props) {
     const root = ref<HTMLElement | null>(null);
+    let core: ReturnType<typeof createTablePlaceholder> | null = null;
 
     onMounted(() => {
       if (!root.value) return;
-      const table = createTablePlaceholder(props.config, props.options);
-      mountTable(root.value, table);
+      core = createTablePlaceholder(props.config, props.options);
+      mountTable(root.value, core);
+    });
+
+    onBeforeUnmount(() => {
+      core?.destroy();
+      core = null;
     });
 
     return () =>

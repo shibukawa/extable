@@ -114,15 +114,15 @@
 		}
 	}
 
-	.extable-readonly {
-		background: #f3f4f6 !important;
-		color: #94a3b8 !important;
-		cursor: not-allowed;
-	}
+		.extable-readonly {
+			background: #f3f4f6 !important;
+			color: #94a3b8 !important;
+		}
 
-	.extable-editable {
-		cursor: text;
-	}
+		/* Active boolean cell should not look text-editable. */
+		td.extable-active-cell.extable-boolean {
+			cursor: default;
+		}
 
 	th {
 		position: relative;
@@ -143,15 +143,16 @@
 		}
 	}
 
-	td {
-		border: 1px solid #d0d7de;
-		padding: 4px 6px;
-		min-width: 80px;
+		td {
+			border: 1px solid #d0d7de;
+			padding: 4px 6px;
+			min-width: 80px;
+			cursor: cell;
 
-		&:focus-within {
-			outline: 2px solid #2b7fff;
-			outline-offset: -1px;
-		}
+			&:focus-within {
+				outline: 2px solid #2b7fff;
+				outline-offset: -1px;
+			}
 
 		&.pending {
 			color: #b91c1c;

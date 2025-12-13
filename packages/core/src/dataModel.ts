@@ -1,5 +1,5 @@
-import { generateId } from './utils';
-import type { ColumnSchema, DataSet, InternalRow, Schema, View } from './types';
+import { generateId } from "./utils";
+import type { ColumnSchema, DataSet, InternalRow, Schema, View } from "./types";
 
 export class DataModel {
   private schema: Schema;
@@ -22,7 +22,7 @@ export class DataModel {
       return {
         id,
         raw: row,
-        displayIndex: idx + 1
+        displayIndex: idx + 1,
       };
     });
   }
@@ -47,6 +47,14 @@ export class DataModel {
     return this.rows;
   }
 
+  private findRow(rowId: string): { row: InternalRow; index: number } | null {
+    const index = this.rows.findIndex((r) => r.id === rowId);
+    if (index < 0) return null;
+    const row = this.rows[index];
+    if (!row) return null;
+    return { row, index };
+  }
+
   public getRowHeight(rowId: string) {
     return this.view.rowHeights?.[rowId];
   }
@@ -57,8 +65,9 @@ export class DataModel {
   }
 
   public getCell(rowId: string, key: string | number) {
-    const row = this.rows.find((r) => r.id === rowId);
-    if (!row) return undefined;
+    const found = this.findRow(rowId);
+    if (!found) return undefined;
+    const row = found.row;
     const pendingRow = this.pending.get(rowId);
     if (pendingRow && key in pendingRow) return pendingRow[key];
     if (Array.isArray(row.raw)) {
@@ -68,8 +77,9 @@ export class DataModel {
   }
 
   public getRawCell(rowId: string, key: string | number) {
-    const row = this.rows.find((r) => r.id === rowId);
-    if (!row) return undefined;
+    const found = this.findRow(rowId);
+    if (!found) return undefined;
+    const row = found.row;
     if (Array.isArray(row.raw)) {
       return row.raw[Number(key)];
     }
@@ -77,8 +87,9 @@ export class DataModel {
   }
 
   public isRowReadonly(rowId: string) {
-    const row = this.rows.find((r) => r.id === rowId);
-    if (!row) return false;
+    const found = this.findRow(rowId);
+    if (!found) return false;
+    const row = found.row;
     if (Array.isArray(row.raw)) return false;
     return Boolean((row.raw as Record<string, unknown>)._readonly);
   }
@@ -93,8 +104,9 @@ export class DataModel {
   }
 
   public setCell(rowId: string, key: string | number, value: unknown, committed: boolean) {
-    const row = this.rows.find((r) => r.id === rowId);
-    if (!row) return;
+    const found = this.findRow(rowId);
+    if (!found) return;
+    const row = found.row;
     const bumpVersion = () => {
       const prev = this.rowVersion.get(rowId) ?? 0;
       this.rowVersion.set(rowId, prev + 1);
@@ -128,8 +140,9 @@ export class DataModel {
   public applyPending(rowId: string) {
     const pendingRow = this.pending.get(rowId);
     if (!pendingRow) return;
-    const row = this.rows.find((r) => r.id === rowId);
-    if (!row) return;
+    const found = this.findRow(rowId);
+    if (!found) return;
+    const row = found.row;
     for (const [key, val] of Object.entries(pendingRow)) {
       if (Array.isArray(row.raw)) {
         row.raw[Number(key)] = val as any;
@@ -154,11 +167,11 @@ export class DataModel {
     return key in p;
   }
 
-  public insertRow(rowData: InternalRow['raw']) {
+  public insertRow(rowData: InternalRow["raw"]) {
     return this.insertRowAt(rowData, this.rows.length);
   }
 
-  public insertRowAt(rowData: InternalRow['raw'], index: number, forcedId?: string) {
+  public insertRowAt(rowData: InternalRow["raw"], index: number, forcedId?: string) {
     const id = forcedId ?? generateId();
     const clamped = Math.max(0, Math.min(index, this.rows.length));
     this.rows.splice(clamped, 0, { id, raw: rowData, displayIndex: 0 });
@@ -168,26 +181,22 @@ export class DataModel {
   }
 
   public removeRow(rowId: string): { row: InternalRow; index: number } | null {
-    const idx = this.rows.findIndex((r) => r.id === rowId);
-    if (idx < 0) return null;
-    const removed = this.rows.splice(idx, 1)[0];
+    const found = this.findRow(rowId);
+    if (!found) return null;
+    const removed = this.rows.splice(found.index, 1)[0];
     if (!removed) return null;
     this.pending.delete(rowId);
     this.rowVersion.delete(rowId);
     this.reindexRows();
-    return { row: removed, index: idx };
-  }
-
-  public deleteRow(rowId: string) {
-    void this.removeRow(rowId);
+    return { row: removed, index: found.index };
   }
 
   public getDisplayIndex(rowId: string) {
-    return this.rows.find((r) => r.id === rowId)?.displayIndex;
+    return this.findRow(rowId)?.row.displayIndex;
   }
 
   public getRowIndex(rowId: string) {
-    return this.rows.findIndex((r) => r.id === rowId);
+    return this.findRow(rowId)?.index ?? -1;
   }
 
   public getColumns(): ColumnSchema[] {
