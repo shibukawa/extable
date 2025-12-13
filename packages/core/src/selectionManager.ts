@@ -22,17 +22,14 @@ export class SelectionManager {
   private selectionRanges: SelectionRange[] = [];
   private inputEl: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null = null;
   private floatingInputWrapper: HTMLDivElement | null = null;
+  private selectionInput: HTMLInputElement | null = null;
+  private selectionMode = true;
+  private lastBooleanCell: { rowId: string; colKey: string | number } | null = null;
+  private selectionAnchor: { rowIndex: number; colIndex: number } | null = null;
   private activeCell: { rowId: string; colKey: string | number } | null = null;
   private activeHost: HTMLElement | null = null;
   private activeHostOriginalText: string | null = null;
-  private floatingMeta: {
-    screenLeft: number; // rect.left in viewport coords
-    screenTop: number; // rect.top in viewport coords
-    width: number;
-    height: number;
-    scrollLeft0: number;
-    scrollTop0: number;
-  } | null = null;
+  private floatingMeta: null = null;
   private composing = false;
   private lastCompositionEnd = 0;
 
@@ -72,16 +69,13 @@ export class SelectionManager {
       document.removeEventListener('contextmenu', this.handleDocumentContextMenu, true);
     }
     this.teardownInput(true);
+    this.teardownSelectionInput();
   }
 
   onScroll(scrollTop: number, scrollLeft: number) {
-    if (this.floatingInputWrapper && this.floatingMeta) {
-      if (this.debug) {
-        // eslint-disable-next-line no-console
-        console.log('[extable input] onScroll', { scrollTop, scrollLeft });
-      }
-      this.positionFloating(this.floatingMeta, scrollTop, scrollLeft);
-    }
+    // Editors are positioned in scroll-container content coordinates and follow scroll automatically.
+    void scrollTop;
+    void scrollLeft;
   }
 
   private bind() {
@@ -95,6 +89,500 @@ export class SelectionManager {
   private findColumn(colKey: string | number) {
     const schema = this.dataModel.getSchema();
     return schema.columns.find((c) => c.key === colKey);
+  }
+
+  private ensureSelectionInput() {
+    if (this.selectionInput) return this.selectionInput;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.setAttribute('aria-hidden', 'true');
+    input.style.position = 'absolute';
+    input.style.left = '0';
+    input.style.top = '0';
+    // Avoid affecting scroll extents in the scroll container.
+    input.style.transform = 'translate(-10000px, 0)';
+    input.style.width = '1px';
+    input.style.height = '1px';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    input.addEventListener('keydown', this.handleSelectionKeydown);
+    input.addEventListener('compositionstart', this.handleSelectionCompositionStart);
+    input.addEventListener('copy', this.handleSelectionCopy);
+    input.addEventListener('cut', this.handleSelectionCut);
+    input.addEventListener('paste', this.handleSelectionPaste);
+    input.addEventListener('blur', () => this.teardownSelectionInput());
+    // Keep the selection input inside the table container (root), but offscreen.
+    this.root.appendChild(input);
+    this.selectionInput = input;
+    return input;
+  }
+
+  private focusSelectionInput(valueForSelection: string) {
+    const input = this.ensureSelectionInput();
+    input.value = valueForSelection;
+    this.selectionMode = true;
+    input.focus({ preventScroll: true });
+    input.select();
+  }
+
+  private openEditorAtActiveCell(options?: { initialValueOverride?: string; placeCursorAtEnd?: boolean }) {
+    if (!this.activeCell) return;
+    const { rowId, colKey } = this.activeCell;
+    const cell = this.findHtmlCellElement(rowId, colKey);
+    if (cell) {
+      this.activateCellElement(cell, rowId, colKey, options);
+      return;
+    }
+    const rect = this.computeCanvasCellRect(rowId, colKey);
+    if (rect) {
+      this.activateFloating(rect, rowId, colKey, options);
+    }
+  }
+
+  private findHtmlCellElement(rowId: string, colKey: string | number) {
+    const key = String(colKey);
+    return (
+      this.root.querySelector<HTMLElement>(
+        `tr[data-row-id="${CSS.escape(rowId)}"] td[data-col-key="${CSS.escape(key)}"]`
+      ) ?? null
+    );
+  }
+
+  private computeCanvasCellRect(rowId: string, colKey: string | number) {
+    const box = this.computeCanvasCellBoxContent(rowId, colKey);
+    if (!box) return null;
+    const rootRect = this.root.getBoundingClientRect();
+    return new DOMRect(
+      rootRect.left + box.left - this.root.scrollLeft,
+      rootRect.top + box.top - this.root.scrollTop,
+      box.width,
+      box.height
+    );
+  }
+
+  private computeCanvasCellBoxContent(rowId: string, colKey: string | number) {
+    const canvas = this.root.querySelector<HTMLCanvasElement>('canvas[data-extable-renderer="canvas"]');
+    if (!canvas) return null;
+    const schema = this.dataModel.getSchema();
+    const view = this.dataModel.getView();
+    const rows = this.dataModel.listRows();
+    const rowIndex = rows.findIndex((r) => r.id === rowId);
+    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
+    if (rowIndex < 0 || colIndex < 0) return null;
+
+    const headerHeight = 24;
+    const rowHeaderWidth = 48;
+    const defaultRowHeight = 24;
+    const colWidths = schema.columns.map((c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100);
+
+    let left = rowHeaderWidth;
+    for (let i = 0; i < colIndex; i += 1) left += colWidths[i] ?? 100;
+
+    let top = headerHeight;
+    for (let i = 0; i < rowIndex; i += 1) {
+      const h = this.dataModel.getRowHeight(rows[i]!.id) ?? defaultRowHeight;
+      top += h;
+    }
+    const height = this.dataModel.getRowHeight(rowId) ?? defaultRowHeight;
+    const width = colWidths[colIndex] ?? 100;
+    return { left, top, width, height };
+  }
+
+  private ensureVisibleCell(rowId: string, colKey: string | number) {
+    const htmlCell = this.findHtmlCellElement(rowId, colKey);
+    if (htmlCell) {
+      htmlCell.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      return;
+    }
+    const schema = this.dataModel.getSchema();
+    const view = this.dataModel.getView();
+    const rows = this.dataModel.listRows();
+    const rowIndex = rows.findIndex((r) => r.id === rowId);
+    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
+    if (rowIndex < 0 || colIndex < 0) return;
+
+    const headerHeight = 24;
+    const rowHeaderWidth = 48;
+    const defaultRowHeight = 24;
+    const colWidths = schema.columns.map((c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100);
+
+    let xStart = rowHeaderWidth;
+    for (let i = 0; i < colIndex; i += 1) xStart += colWidths[i] ?? 100;
+    const cellW = colWidths[colIndex] ?? 100;
+    const xEnd = xStart + cellW;
+
+    let yStart = headerHeight;
+    for (let i = 0; i < rowIndex; i += 1) {
+      const h = this.dataModel.getRowHeight(rows[i]!.id) ?? defaultRowHeight;
+      yStart += h;
+    }
+    const cellH = this.dataModel.getRowHeight(rowId) ?? defaultRowHeight;
+    const yEnd = yStart + cellH;
+
+    const leftVis = this.root.scrollLeft;
+    const rightVis = this.root.scrollLeft + this.root.clientWidth;
+    const topVis = this.root.scrollTop;
+    const bottomVis = this.root.scrollTop + this.root.clientHeight;
+
+    if (xStart < leftVis) this.root.scrollLeft = Math.max(0, xStart);
+    else if (xEnd > rightVis) this.root.scrollLeft = Math.max(0, xEnd - this.root.clientWidth);
+
+    if (yStart < topVis) this.root.scrollTop = Math.max(0, yStart);
+    else if (yEnd > bottomVis) this.root.scrollTop = Math.max(0, yEnd - this.root.clientHeight);
+  }
+
+  private moveActiveCell(deltaRow: number, deltaCol: number, extendSelection = false) {
+    const schema = this.dataModel.getSchema();
+    const rows = this.dataModel.listRows();
+    if (!rows.length || !schema.columns.length) return;
+    const { rowIndex, colIndex } = this.getActiveIndices();
+    if (!extendSelection) this.selectionAnchor = null;
+    const anchor =
+      extendSelection && this.selectionAnchor ? this.selectionAnchor : extendSelection ? { rowIndex, colIndex } : null;
+    if (extendSelection && !this.selectionAnchor) this.selectionAnchor = { rowIndex, colIndex };
+    const nextRowIndex = Math.max(0, Math.min(rows.length - 1, rowIndex + deltaRow));
+    const nextColIndex = Math.max(0, Math.min(schema.columns.length - 1, colIndex + deltaCol));
+    const rowId = rows[nextRowIndex]!.id;
+    const colKey = schema.columns[nextColIndex]!.key;
+
+    const nextRange: SelectionRange = anchor
+      ? {
+          kind: 'cells',
+          startRow: anchor.rowIndex,
+          endRow: nextRowIndex,
+          startCol: anchor.colIndex,
+          endCol: nextColIndex
+        }
+      : {
+          kind: 'cells',
+          startRow: nextRowIndex,
+          endRow: nextRowIndex,
+          startCol: nextColIndex,
+          endCol: nextColIndex
+        };
+    this.selectionRanges = [nextRange];
+    this.activeCell = { rowId, colKey };
+    this.onActiveChange(rowId, colKey);
+    this.onSelectionChange(this.selectionRanges);
+    this.ensureVisibleCell(rowId, colKey);
+
+    const current = this.dataModel.getCell(rowId, colKey);
+    const currentText = this.cellToClipboardString(current);
+    this.focusSelectionInput(currentText);
+  }
+
+  private teardownSelectionInput() {
+    if (!this.selectionInput) return;
+    this.selectionInput.removeEventListener('keydown', this.handleSelectionKeydown);
+    this.selectionInput.removeEventListener('compositionstart', this.handleSelectionCompositionStart);
+    this.selectionInput.removeEventListener('copy', this.handleSelectionCopy);
+    this.selectionInput.removeEventListener('cut', this.handleSelectionCut);
+    this.selectionInput.removeEventListener('paste', this.handleSelectionPaste);
+    if (this.selectionInput.parentElement) {
+      this.selectionInput.parentElement.removeChild(this.selectionInput);
+    }
+    this.selectionInput = null;
+  }
+
+  private handleSelectionCopy = (ev: ClipboardEvent) => {
+    if (!this.selectionMode) return;
+    const payload = this.buildSelectionClipboardPayload();
+    if (!payload) return;
+    ev.preventDefault();
+    ev.clipboardData?.setData('text/plain', payload.text);
+    ev.clipboardData?.setData('text/tab-separated-values', payload.text);
+    ev.clipboardData?.setData('text/html', payload.html);
+  };
+
+  private handleSelectionCut = (ev: ClipboardEvent) => {
+    if (!this.selectionMode) return;
+    const payload = this.buildSelectionClipboardPayload();
+    if (!payload) return;
+    ev.preventDefault();
+    ev.clipboardData?.setData('text/plain', payload.text);
+    ev.clipboardData?.setData('text/tab-separated-values', payload.text);
+    ev.clipboardData?.setData('text/html', payload.html);
+    this.clearSelectionValues();
+  };
+
+  private handleSelectionPaste = (ev: ClipboardEvent) => {
+    if (!this.selectionMode) return;
+    ev.preventDefault();
+    const html = ev.clipboardData?.getData('text/html') ?? '';
+    const tsv = ev.clipboardData?.getData('text/tab-separated-values') ?? '';
+    const text = ev.clipboardData?.getData('text/plain') ?? '';
+    const grid = this.parseClipboardGrid({ html, tsv, text });
+    if (!grid) return;
+    this.applyClipboardGrid(grid);
+  };
+
+  private handleSelectionCompositionStart = () => {
+    if (!this.selectionMode) return;
+    this.selectionMode = false;
+    this.teardownSelectionInput();
+    this.openEditorAtActiveCell();
+  };
+
+  private handleSelectionKeydown = (ev: KeyboardEvent) => {
+    if (!this.selectionMode) return;
+    if (!this.activeCell) return;
+    if (ev.isComposing || this.composing) return;
+
+    // Ignore modifier-only keys in selection mode (do not enter edit mode).
+    if (
+      ev.key === 'Shift' ||
+      ev.key === 'Control' ||
+      ev.key === 'Alt' ||
+      ev.key === 'Meta' ||
+      ev.key === 'CapsLock' ||
+      ev.key === 'NumLock' ||
+      ev.key === 'ScrollLock'
+    ) {
+      return;
+    }
+
+    const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
+    const accel = isMac ? ev.metaKey : ev.ctrlKey;
+    if (accel) {
+      const key = ev.key.toLowerCase();
+      if (key === 'c') {
+        ev.preventDefault();
+        document.execCommand('copy');
+        this.selectionAnchor = null;
+        return;
+      }
+      if (key === 'x') {
+        ev.preventDefault();
+        document.execCommand('cut');
+        this.selectionAnchor = null;
+        return;
+      }
+      if (key === 'v') {
+        // Let the paste event fire; it will be handled on the input.
+        this.selectionAnchor = null;
+        return;
+      }
+    }
+
+    if (ev.key === ' ') {
+      const col = this.findColumn(this.activeCell.colKey);
+      if (col?.type === 'boolean') {
+        ev.preventDefault();
+        this.toggleBoolean(this.activeCell.rowId, this.activeCell.colKey);
+      }
+      this.selectionAnchor = null;
+      return;
+    }
+
+    const isTab = ev.key === 'Tab';
+    const isEnter = ev.key === 'Enter';
+    const isArrow =
+      ev.key === 'ArrowLeft' || ev.key === 'ArrowRight' || ev.key === 'ArrowUp' || ev.key === 'ArrowDown';
+    if (isTab || isEnter || isArrow) {
+      ev.preventDefault();
+      this.teardownSelectionInput();
+      if (isTab) {
+        this.moveActiveCell(0, ev.shiftKey ? -1 : 1, false);
+        return;
+      }
+      if (isEnter) {
+        this.moveActiveCell(ev.shiftKey ? -1 : 1, 0, false);
+        return;
+      }
+      const extend = ev.shiftKey;
+      if (ev.key === 'ArrowLeft') this.moveActiveCell(0, -1, extend);
+      else if (ev.key === 'ArrowRight') this.moveActiveCell(0, 1, extend);
+      else if (ev.key === 'ArrowUp') this.moveActiveCell(-1, 0, extend);
+      else if (ev.key === 'ArrowDown') this.moveActiveCell(1, 0, extend);
+      return;
+    }
+
+    const isPrintable = ev.key.length === 1 && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.repeat;
+    this.selectionMode = false;
+    this.selectionAnchor = null;
+    this.teardownSelectionInput();
+    // Let the original keydown insert the character into the now-focused editor naturally.
+    this.openEditorAtActiveCell();
+  };
+
+  private getActiveIndices() {
+    const schema = this.dataModel.getSchema();
+    const rows = this.dataModel.listRows();
+    const fallback = { rowIndex: 0, colIndex: 0 };
+    if (!this.activeCell) return fallback;
+    const rowIndex = rows.findIndex((r) => r.id === this.activeCell!.rowId);
+    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(this.activeCell!.colKey));
+    return { rowIndex: rowIndex >= 0 ? rowIndex : 0, colIndex: colIndex >= 0 ? colIndex : 0 };
+  }
+
+  private normalizeRange(range: SelectionRange): SelectionRange {
+    return {
+      ...range,
+      startRow: Math.min(range.startRow, range.endRow),
+      endRow: Math.max(range.startRow, range.endRow),
+      startCol: Math.min(range.startCol, range.endCol),
+      endCol: Math.max(range.startCol, range.endCol)
+    };
+  }
+
+  private getCopyRange(): SelectionRange | null {
+    const schema = this.dataModel.getSchema();
+    if (this.selectionRanges.length > 0) {
+      return this.normalizeRange(this.selectionRanges[0]!);
+    }
+    if (!this.activeCell) return null;
+    const rowIdx = this.dataModel.getRowIndex(this.activeCell.rowId);
+    const colIdx = schema.columns.findIndex((c) => String(c.key) === String(this.activeCell!.colKey));
+    if (rowIdx < 0 || colIdx < 0) return null;
+    return { kind: 'cells', startRow: rowIdx, endRow: rowIdx, startCol: colIdx, endCol: colIdx };
+  }
+
+  private cellToClipboardString(value: unknown): string {
+    if (value === null || value === undefined) return '';
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
+    if (typeof value === 'number') return String(value);
+    if (typeof value === 'object') {
+      const maybe = value as any;
+      if (maybe.kind === 'enum' && typeof maybe.value === 'string') return maybe.value;
+      if (maybe.kind === 'tags' && Array.isArray(maybe.values)) return maybe.values.join(', ');
+    }
+    return String(value);
+  }
+
+  private escapeHtml(text: string) {
+    return text
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  private buildSelectionClipboardPayload(): { text: string; html: string } | null {
+    const schema = this.dataModel.getSchema();
+    const rows = this.dataModel.listRows();
+    const range = this.getCopyRange();
+    if (!range) return null;
+    if (range.kind !== 'cells') return null;
+
+    const out: string[] = [];
+    const htmlRows: string[] = [];
+    for (let r = range.startRow; r <= range.endRow; r += 1) {
+      const row = rows[r];
+      if (!row) continue;
+      const line: string[] = [];
+      const htmlCells: string[] = [];
+      for (let c = range.startCol; c <= range.endCol; c += 1) {
+        const col = schema.columns[c];
+        if (!col) continue;
+        const v = this.dataModel.getCell(row.id, col.key);
+        const s = this.cellToClipboardString(v);
+        line.push(s);
+        htmlCells.push(`<td>${this.escapeHtml(s)}</td>`);
+      }
+      out.push(line.join('\t'));
+      htmlRows.push(`<tr>${htmlCells.join('')}</tr>`);
+    }
+    const text = out.join('\r\n');
+    const html = `<table><tbody>${htmlRows.join('')}</tbody></table>`;
+    return { text, html };
+  }
+
+  private clearSelectionValues() {
+    const schema = this.dataModel.getSchema();
+    const rows = this.dataModel.listRows();
+    const range = this.getCopyRange();
+    if (!range || range.kind !== 'cells') return;
+    const commitNow = this.editMode === 'direct';
+    for (let r = range.startRow; r <= range.endRow; r += 1) {
+      const row = rows[r];
+      if (!row) continue;
+      for (let c = range.startCol; c <= range.endCol; c += 1) {
+        const col = schema.columns[c];
+        if (!col) continue;
+        if (this.dataModel.isReadonly(row.id, col.key)) continue;
+        const next = col.type === 'boolean' ? false : '';
+        const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next };
+        this.onEdit(cmd, commitNow);
+      }
+    }
+  }
+
+  private parseClipboardGrid(payload: { html: string; tsv: string; text: string }): string[][] | null {
+    const fromHtml = this.parseHtmlTable(payload.html);
+    if (fromHtml) return fromHtml;
+    const raw = payload.tsv || payload.text;
+    return this.parseTsv(raw);
+  }
+
+  private parseTsv(text: string): string[][] | null {
+    const trimmed = text.replace(/\r\n$/, '').replace(/\n$/, '');
+    if (!trimmed) return null;
+    const rows = trimmed.split(/\r\n|\n/);
+    return rows.map((r) => r.split('\t'));
+  }
+
+  private parseHtmlTable(html: string): string[][] | null {
+    if (!html) return null;
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      const table = doc.querySelector('table');
+      if (!table) return null;
+      const trs = Array.from(table.querySelectorAll('tr'));
+      if (trs.length === 0) return null;
+      const grid: string[][] = [];
+      for (const tr of trs) {
+        const cells = Array.from(tr.querySelectorAll('th,td'));
+        if (cells.some((c) => (c as HTMLTableCellElement).rowSpan > 1 || (c as HTMLTableCellElement).colSpan > 1)) {
+          return null;
+        }
+        grid.push(cells.map((c) => (c.textContent ?? '').trim()));
+      }
+      return grid.length ? grid : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private coerceCellValue(raw: string, colKey: string | number): unknown {
+    const col = this.findColumn(colKey);
+    if (!col) return raw;
+    if (raw === '') return '';
+    if (col.type === 'number') {
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : raw;
+    }
+    if (col.type === 'boolean') {
+      const v = raw.trim().toLowerCase();
+      if (v === 'true' || v === '1' || v === 'yes') return true;
+      if (v === 'false' || v === '0' || v === 'no') return false;
+      return raw;
+    }
+    return raw;
+  }
+
+  private applyClipboardGrid(grid: string[][]) {
+    const schema = this.dataModel.getSchema();
+    const rows = this.dataModel.listRows();
+    const { rowIndex: startRow, colIndex: startCol } = this.getActiveIndices();
+    const commitNow = this.editMode === 'direct';
+    for (let r = 0; r < grid.length; r += 1) {
+      const row = rows[startRow + r];
+      if (!row) break;
+      const line = grid[r] ?? [];
+      for (let c = 0; c < line.length; c += 1) {
+        const col = schema.columns[startCol + c];
+        if (!col) break;
+        if (this.dataModel.isReadonly(row.id, col.key)) continue;
+        const next = this.coerceCellValue(line[c] ?? '', col.key);
+        const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next };
+        this.onEdit(cmd, commitNow);
+      }
+    }
   }
 
   private createEditor(colKey: string | number, initial: string) {
@@ -181,38 +669,12 @@ export class SelectionManager {
     ta.style.minHeight = `${lineHeight}px`;
   }
 
-  private positionFloating(
-    meta: { screenLeft: number; screenTop: number; width: number; height: number; scrollLeft0: number; scrollTop0: number },
-    scrollTop: number,
-    scrollLeft: number,
-    wrapper?: HTMLDivElement
-  ) {
-    const host = wrapper ?? this.floatingInputWrapper;
-    if (!host) return;
-    const screenLeft = meta.screenLeft + (meta.scrollLeft0 - scrollLeft);
-    const screenTop = meta.screenTop + (meta.scrollTop0 - scrollTop);
-    const leftPx = screenLeft;
-    const topPx = screenTop;
-    if (this.debug) {
-      // eslint-disable-next-line no-console
-      console.log('[extable input] positionFloating', {
-        screenLeft,
-        screenTop,
-        leftPx,
-        topPx,
-        width: meta.width,
-        height: meta.height,
-        scrollLeft0: meta.scrollLeft0,
-        scrollTop0: meta.scrollTop0,
-        scrollLeft,
-        scrollTop
-      });
-    }
-    host.style.left = `${leftPx}px`;
-    host.style.top = `${topPx}px`;
-    host.style.width = `${meta.width}px`;
-    host.style.height = `${meta.height}px`;
-    host.style.pointerEvents = 'none';
+  private positionFloatingContentBox(box: { left: number; top: number; width: number; height: number }, wrapper: HTMLDivElement) {
+    const inset = 2;
+    wrapper.style.left = `${box.left + inset}px`;
+    wrapper.style.top = `${box.top + inset}px`;
+    wrapper.style.width = `${Math.max(8, box.width - inset * 2)}px`;
+    wrapper.style.height = `${Math.max(8, box.height - inset * 2)}px`;
   }
 
   private handleClick = (ev: MouseEvent) => {
@@ -222,18 +684,27 @@ export class SelectionManager {
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) {
       return;
     }
-    if (this.inputEl && this.activeHost) {
-      // restore previous cell text if editing was abandoned
-      const val = (this.activeHost.dataset && this.activeHost.dataset.value) ?? this.inputEl.value;
-      this.activeHost.textContent = val;
+    if (this.inputEl && this.activeCell) {
+      const { rowId, colKey } = this.activeCell;
+      const value = this.readActiveValue();
+      this.commitEdit(rowId, colKey, value);
+      this.onMove(rowId);
       this.teardownInput(false);
     }
     const hit = this.hitTest(ev);
     if (!hit) return;
+    const wasSameCell =
+      this.selectionMode &&
+      !ev.shiftKey &&
+      !ev.metaKey &&
+      !ev.ctrlKey &&
+      this.activeCell?.rowId === hit.rowId &&
+      String(this.activeCell?.colKey) === String(hit.colKey);
     if (hit.rowId === '__all__' && hit.colKey === '__all__') {
       this.teardownInput(false);
       this.activeCell = null;
       this.onActiveChange('__all__', '__all__');
+      this.selectionAnchor = null;
       return;
     }
     this.onRowSelect(hit.rowId);
@@ -241,25 +712,55 @@ export class SelectionManager {
     if (hit.colKey === '__row__' || hit.colKey === '__all__') {
       return;
     }
-    if (this.dataModel.isReadonly(hit.rowId, hit.colKey)) return;
+    if (this.dataModel.isReadonly(hit.rowId, hit.colKey)) {
+      this.selectionMode = true;
+      this.selectionAnchor = null;
+      this.teardownInput(false);
+      this.teardownSelectionInput();
+      return;
+    }
     const col = this.findColumn(hit.colKey);
     const isBoolean = col?.type === 'boolean';
     if (isBoolean) {
-      const current = this.dataModel.getCell(hit.rowId, hit.colKey);
-      const currentBool = current === true || current === 'true' || current === '1' || current === 1;
-      const next = !currentBool;
-      const cmd: Command = { kind: 'edit', rowId: hit.rowId, colKey: hit.colKey, next };
-      const commitNow = this.editMode === 'direct';
-      this.onEdit(cmd, commitNow);
-      this.onMove(hit.rowId);
+      const isSecondClick =
+        this.lastBooleanCell?.rowId === hit.rowId && String(this.lastBooleanCell?.colKey) === String(hit.colKey);
+      this.lastBooleanCell = { rowId: hit.rowId, colKey: hit.colKey };
+      this.selectionMode = true;
+      this.selectionAnchor = null;
+      this.teardownInput(false);
+      this.teardownSelectionInput();
+      if (isSecondClick) {
+        this.toggleBoolean(hit.rowId, hit.colKey);
+        // Keep focus on the hidden selection input so Space does not scroll the container/page.
+        this.focusSelectionInput('');
+        return;
+      }
+      // Keep focus on the hidden selection input so Space can toggle.
+      this.focusSelectionInput('');
       return;
     }
-    if (hit.element) {
-      this.activateCellElement(hit.element, hit.rowId, hit.colKey);
-    } else {
-      this.activateFloating(hit.rect, hit.rowId, hit.colKey);
+    this.lastBooleanCell = null;
+    this.selectionAnchor = null;
+    this.teardownInput(false);
+    const current = this.dataModel.getCell(hit.rowId, hit.colKey);
+    const currentText = this.cellToClipboardString(current);
+    this.focusSelectionInput(currentText);
+    if (wasSameCell) {
+      this.selectionMode = false;
+      this.teardownSelectionInput();
+      this.openEditorAtActiveCell();
     }
   };
+
+  private toggleBoolean(rowId: string, colKey: string | number) {
+    const current = this.dataModel.getCell(rowId, colKey);
+    const currentBool = current === true || current === 'true' || current === '1' || current === 1;
+    const next = !currentBool;
+    const cmd: Command = { kind: 'edit', rowId, colKey, next };
+    const commitNow = this.editMode === 'direct';
+    this.onEdit(cmd, commitNow);
+    this.onMove(rowId);
+  }
 
   private handleContextMenu = (ev: MouseEvent) => {
     const target = ev.target as Node | null;
@@ -378,13 +879,19 @@ export class SelectionManager {
     return merged;
   }
 
-  private activateCellElement(cell: HTMLElement, rowId: string, colKey: string | number) {
+  private activateCellElement(
+    cell: HTMLElement,
+    rowId: string,
+    colKey: string | number,
+    options?: { initialValueOverride?: string; placeCursorAtEnd?: boolean }
+  ) {
     this.teardownInput();
     this.activeCell = { rowId, colKey };
     this.activeHost = cell;
     this.activeHostOriginalText = cell.textContent ?? '';
     const current = this.dataModel.getCell(rowId, colKey);
-    const initialValue = current === null || current === undefined ? '' : String(current);
+    const initialValue =
+      options?.initialValueOverride ?? (current === null || current === undefined ? '' : String(current));
     const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
@@ -416,23 +923,36 @@ export class SelectionManager {
         if (input instanceof HTMLTextAreaElement) this.autosize(input);
       });
     }
-    input.focus();
+    input.focus({ preventScroll: true });
+    if (options?.placeCursorAtEnd && (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
+    }
     this.inputEl = input;
   }
 
-  private activateFloating(rect: DOMRect, rowId: string, colKey: string | number) {
+  private activateFloating(
+    rect: DOMRect,
+    rowId: string,
+    colKey: string | number,
+    options?: { initialValueOverride?: string; placeCursorAtEnd?: boolean }
+  ) {
     this.teardownInput();
     this.activeCell = { rowId, colKey };
+    void rect;
+    const box = this.computeCanvasCellBoxContent(rowId, colKey);
+    if (!box) return;
     const wrapper = document.createElement('div');
     this.activeHost = wrapper;
     this.activeHostOriginalText = null;
-    wrapper.style.position = 'fixed';
+    wrapper.style.position = 'absolute';
     wrapper.dataset.extableFloating = 'fixed';
     wrapper.style.pointerEvents = 'auto';
     wrapper.style.padding = '0';
-    wrapper.style.zIndex = '2';
+    wrapper.style.zIndex = '10';
     const current = this.dataModel.getCell(rowId, colKey);
-    const initialValue = current === null || current === undefined ? '' : String(current);
+    const initialValue =
+      options?.initialValueOverride ?? (current === null || current === undefined ? '' : String(current));
     const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
@@ -460,13 +980,6 @@ export class SelectionManager {
     this.bindImmediateCommit(input, wrapper);
     if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) this.attachInputDebug(input);
     wrapper.appendChild(input);
-    const forwardWheel = (e: Event) => {
-      const evt = e as WheelEvent;
-      e.preventDefault();
-      this.root.scrollBy(evt.deltaX, evt.deltaY);
-    };
-    wrapper.addEventListener('wheel', forwardWheel, { passive: false });
-    input.addEventListener('wheel', forwardWheel, { passive: false });
     if (input instanceof HTMLSelectElement) {
       // No auto focus/click for select; standard focus will allow selection on first interaction
     }
@@ -475,22 +988,13 @@ export class SelectionManager {
         if (input instanceof HTMLTextAreaElement) this.autosize(input);
       });
     }
-    document.body.appendChild(wrapper);
-    const inset = 2;
-    this.floatingMeta = {
-      screenLeft: rect.left + inset,
-      screenTop: rect.top + inset,
-      width: Math.max(8, rect.width - inset * 2),
-      height: Math.max(8, rect.height - inset * 2),
-      scrollLeft0: this.root.scrollLeft,
-      scrollTop0: this.root.scrollTop
-    };
-    this.positionFloating(this.floatingMeta, this.root.scrollTop, this.root.scrollLeft, wrapper);
-    if (this.debug) {
-      // eslint-disable-next-line no-console
-      console.log('[extable input] activateFloating meta', this.floatingMeta);
+    this.root.appendChild(wrapper);
+    this.positionFloatingContentBox(box, wrapper);
+    input.focus({ preventScroll: true });
+    if (options?.placeCursorAtEnd && (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+      const end = input.value.length;
+      input.setSelectionRange(end, end);
     }
-    input.focus();
     this.inputEl = input;
     this.floatingInputWrapper = wrapper;
   }
@@ -502,32 +1006,43 @@ export class SelectionManager {
     if (now - this.lastCompositionEnd < 24) return; // absorb trailing key events right after IME commit
     const { rowId, colKey } = this.activeCell;
     const isTextarea = this.inputEl.tagName.toLowerCase() === 'textarea';
-    const isAltEnter = e.key === 'Enter' && (e.altKey || e.shiftKey || e.metaKey || e.ctrlKey);
-    if (!isTextarea && (e.key === 'Enter' || e.key === 'Tab')) {
-      e.preventDefault();
+    const isAltEnter = e.key === 'Enter' && e.altKey;
+    const commitAndMove = (deltaRow: number, deltaCol: number) => {
       const value = this.readActiveValue();
       this.commitEdit(rowId, colKey, value);
       this.onMove(rowId);
       this.teardownInput(false);
-    } else if (isTextarea && e.key === 'Enter') {
-      if (isAltEnter) {
-        // allow newline insertion
+      this.moveActiveCell(deltaRow, deltaCol);
+    };
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      commitAndMove(0, e.shiftKey ? -1 : 1);
+      return;
+    }
+    if (e.key === 'Enter') {
+      if (isTextarea && isAltEnter) {
+        // allow newline insertion (Excel-like Alt+Enter)
         return;
       }
       e.preventDefault();
-      const value = this.readActiveValue();
-      this.commitEdit(rowId, colKey, value);
-      this.onMove(rowId);
-      this.teardownInput(false);
+      commitAndMove(e.shiftKey ? -1 : 1, 0);
+      return;
     } else if (e.key === 'Escape') {
       e.preventDefault();
       this.cancelEdit(cell);
       this.onMove();
+      if (this.activeCell) {
+        const current = this.dataModel.getCell(this.activeCell.rowId, this.activeCell.colKey);
+        const currentText = this.cellToClipboardString(current);
+        this.focusSelectionInput(currentText);
+      }
     } else if (e.key === 'Backspace' && this.inputEl.value === '') {
       e.preventDefault();
       this.commitEdit(rowId, colKey, '');
       this.onMove(rowId);
       this.teardownInput(false);
+      this.moveActiveCell(0, 0);
     }
   }
 
