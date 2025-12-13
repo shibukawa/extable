@@ -197,20 +197,6 @@ export class SelectionManager {
     return "";
   }
 
-  private debugLog(event: string, detail?: Record<string, unknown>) {
-    const active = this.activeCell ? { ...this.activeCell } : null;
-    // eslint-disable-next-line no-console
-    console.log(`[extable debug] ${event}`, {
-      selectionMode: this.selectionMode,
-      suppressNextClick: this.suppressNextClick,
-      dragging: this.dragging,
-      dragMoved: this.dragMoved,
-      fillDragging: this.fillDragging,
-      activeCell: active,
-      ...detail,
-    });
-  }
-
   private ensureCopyToast() {
     if (this.copyToastEl) return this.copyToastEl;
     // Ensure a positioning context for the toast.
@@ -465,7 +451,6 @@ export class SelectionManager {
 
   private handlePointerDown = (ev: PointerEvent) => {
     if (ev.button !== 0) return;
-    this.debugLog("pointerdown", { clientX: ev.clientX, clientY: ev.clientY, target: (ev.target as any)?.tagName });
     // Avoid starting a drag from inside an active editor.
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) return;
     // Commit current editor before starting a drag/select operation.
@@ -743,9 +728,6 @@ export class SelectionManager {
 
   private handlePointerMove = (ev: PointerEvent) => {
     this.lastPointerClient = { x: ev.clientX, y: ev.clientY };
-    if (this.dragging || this.fillDragging) {
-      this.debugLog("pointermove", { clientX: ev.clientX, clientY: ev.clientY });
-    }
     if (this.fillDragging && this.fillSource) {
       this.updateFillDragFromClientPoint(ev.clientX, ev.clientY);
       return;
@@ -762,7 +744,6 @@ export class SelectionManager {
   };
 
   private handlePointerUp = (ev: PointerEvent) => {
-    this.debugLog("pointerup", { clientX: ev.clientX, clientY: ev.clientY });
     if (this.fillDragging && this.fillSource) {
       const src = this.fillSource;
       const endRowIndex = this.fillEndRowIndex ?? src.endRowIndex;
@@ -1320,16 +1301,7 @@ export class SelectionManager {
     if (ev.button !== 0) {
       return; // only left click starts edit/selection; right-click is handled by contextmenu
     }
-    this.debugLog("click:start", {
-      clientX: ev.clientX,
-      clientY: ev.clientY,
-      shiftKey: ev.shiftKey,
-      metaKey: ev.metaKey,
-      ctrlKey: ev.ctrlKey,
-      target: (ev.target as any)?.tagName,
-    });
     if (this.suppressNextClick) {
-      this.debugLog("click:suppressed");
       this.suppressNextClick = false;
       return;
     }
@@ -1347,7 +1319,6 @@ export class SelectionManager {
       typeof document.elementFromPoint === "function"
         ? this.getHitAtClientPoint(ev.clientX, ev.clientY)
         : this.hitTest(ev);
-    this.debugLog("click:hit", { hit });
     if (!hit) return;
     const wasSameCell =
       this.selectionMode &&
@@ -1405,7 +1376,6 @@ export class SelectionManager {
     if (wasSameCell) {
       this.selectionMode = false;
       this.teardownSelectionInput();
-      this.debugLog("click:openEditor");
       this.openEditorAtActiveCell();
     }
   };
