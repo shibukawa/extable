@@ -1,6 +1,13 @@
 import type { DataModel } from "./dataModel";
 import type { InternalRow, Schema, ColumnSchema, SelectionRange } from "./types";
 import { format as formatDate, parseISO } from "date-fns";
+import {
+  FILL_HANDLE_HIT_SIZE_PX,
+  FILL_HANDLE_VISUAL_SIZE_PX,
+  getFillHandleRect,
+  isPointInRect,
+  shouldShowFillHandle,
+} from "./fillHandle";
 
 const DAY_MS = 86_400_000;
 
@@ -435,6 +442,8 @@ export class CanvasRenderer implements Renderer {
   private dateParseCache = new Map<string, Date>();
   private textMeasureCache = new Map<string, { lines: string[]; frame: number }>();
   private frame = 0;
+  private cursorTimer: number | null = null;
+  private pendingCursorPoint: { x: number; y: number } | null = null;
 
   constructor(dataModel: DataModel) {
     this.dataModel = dataModel;
@@ -454,6 +463,9 @@ export class CanvasRenderer implements Renderer {
     this.canvas.style.top = "0";
     this.canvas.style.left = "0";
     this.canvas.style.zIndex = "1";
+    this.canvas.style.cursor = "cell";
+    this.canvas.addEventListener("pointermove", this.handlePointerMove);
+    this.canvas.addEventListener("pointerleave", this.handlePointerLeave);
     this.spacer = document.createElement("div");
     this.spacer.style.width = "1px";
     root.innerHTML = "";
@@ -586,6 +598,15 @@ export class CanvasRenderer implements Renderer {
           ctx.lineWidth = 2;
           ctx.strokeRect(x + 1, yCursor + 1, w - 2, rowH - 2);
           ctx.lineWidth = 1;
+          if (shouldShowFillHandle(this.dataModel, this.selection, this.activeColKey)) {
+            const size = FILL_HANDLE_VISUAL_SIZE_PX;
+            const left = x + w - size - 1;
+            const top = yCursor + rowH - size - 1;
+            ctx.fillStyle = "#3b82f6";
+            ctx.fillRect(left, top, size, size);
+            ctx.strokeStyle = "#ffffff";
+            ctx.strokeRect(left + 0.5, top + 0.5, size - 1, size - 1);
+          }
         }
         ctx.fillStyle = this.dataModel.hasPending(row.id, c.key)
           ? "#b91c1c"
@@ -709,6 +730,15 @@ export class CanvasRenderer implements Renderer {
   }
 
   destroy() {
+    if (this.canvas) {
+      this.canvas.removeEventListener("pointermove", this.handlePointerMove);
+      this.canvas.removeEventListener("pointerleave", this.handlePointerLeave);
+    }
+    if (this.cursorTimer) {
+      window.clearTimeout(this.cursorTimer);
+      this.cursorTimer = null;
+    }
+    this.pendingCursorPoint = null;
     if (this.canvas && this.canvas.parentElement) {
       this.canvas.parentElement.removeChild(this.canvas);
     }
@@ -809,6 +839,123 @@ export class CanvasRenderer implements Renderer {
       this.dataModel.getRowHeight(row.id) ?? this.rowHeight,
     );
     return { rowId: row.id, colKey: col.key, rect: cellRect };
+  }
+
+  private isPointInSelection(rowId: string, colKey: string | number) {
+    if (!this.selection.length) return false;
+    const schema = this.dataModel.getSchema();
+    const rowIndex = this.dataModel.getRowIndex(rowId);
+    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
+    if (rowIndex < 0 || colIndex < 0) return false;
+    for (const range of this.selection) {
+      if (range.kind !== "cells") continue;
+      const startRow = Math.min(range.startRow, range.endRow);
+      const endRow = Math.max(range.startRow, range.endRow);
+      const startCol = Math.min(range.startCol, range.endCol);
+      const endCol = Math.max(range.startCol, range.endCol);
+      if (rowIndex >= startRow && rowIndex <= endRow && colIndex >= startCol && colIndex <= endCol) return true;
+    }
+    return false;
+  }
+
+  private handlePointerMove = (ev: PointerEvent) => {
+    this.pendingCursorPoint = { x: ev.clientX, y: ev.clientY };
+    if (this.cursorTimer) return;
+    this.cursorTimer = window.setTimeout(() => {
+      this.cursorTimer = null;
+      const p = this.pendingCursorPoint;
+      if (!p) return;
+      this.updateCanvasCursor(p.x, p.y);
+    }, 50);
+  };
+
+  private handlePointerLeave = () => {
+    if (!this.canvas) return;
+    this.canvas.style.cursor = "cell";
+  };
+
+  private getCellRect(rowId: string, colKey: string | number): DOMRect | null {
+    if (!this.root || !this.canvas) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    const schema = this.dataModel.getSchema();
+    const view = this.dataModel.getView();
+    const rows = this.dataModel.listRows();
+    const rowIndex = this.dataModel.getRowIndex(rowId);
+    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
+    if (rowIndex < 0 || colIndex < 0) return null;
+    const colWidths = schema.columns.map(
+      (c) => view.columnWidths?.[String(c.key)] ?? c.width ?? 100,
+    );
+    let accumHeight = 0;
+    for (let i = 0; i < rowIndex; i += 1) {
+      const r = rows[i];
+      if (!r) break;
+      accumHeight += this.dataModel.getRowHeight(r.id) ?? this.rowHeight;
+    }
+    let xCursor = this.rowHeaderWidth;
+    for (let i = 0; i < colIndex; i += 1) {
+      xCursor += colWidths[i] ?? 100;
+    }
+    return new DOMRect(
+      rect.left + xCursor - this.root.scrollLeft,
+      rect.top + this.headerHeight + accumHeight - this.root.scrollTop,
+      colWidths[colIndex] ?? 100,
+      this.dataModel.getRowHeight(rowId) ?? this.rowHeight,
+    );
+  }
+
+  private updateCanvasCursor(clientX: number, clientY: number) {
+    if (!this.root || !this.canvas) return;
+    if (this.root.dataset.extableFillDragging === "1") {
+      this.canvas.style.cursor = "crosshair";
+      return;
+    }
+    // Cursor spec:
+    // - No selection or outside selection: cell
+    // - Inside selection & on fill handle: crosshair
+    // - Inside selection & readonly/boolean: default
+    // - Inside selection & others: text
+    let cursor = "cell";
+
+    const hit = this.hitTest(new MouseEvent("mousemove", { clientX, clientY }));
+    if (!hit) {
+      this.canvas.style.cursor = cursor;
+      return;
+    }
+    if (hit.colKey === "__all__" || hit.colKey === "__row__") {
+      this.canvas.style.cursor = "cell";
+      return;
+    }
+
+    if (!this.isPointInSelection(hit.rowId, hit.colKey)) {
+      this.canvas.style.cursor = "cell";
+      return;
+    }
+
+    // Fill handle hover is only considered inside the active cell and when fill handle is shown.
+    if (
+      this.activeRowId &&
+      this.activeColKey !== null &&
+      this.activeRowId !== "__all__" &&
+      this.activeColKey !== "__all__" &&
+      this.activeColKey !== "__row__" &&
+      shouldShowFillHandle(this.dataModel, this.selection, this.activeColKey)
+    ) {
+      const cellRect = this.getCellRect(this.activeRowId, this.activeColKey);
+      if (cellRect) {
+        const handleRect = getFillHandleRect(cellRect, FILL_HANDLE_HIT_SIZE_PX);
+        if (isPointInRect(clientX, clientY, handleRect)) {
+          this.canvas.style.cursor = "crosshair";
+          return;
+        }
+      }
+    }
+
+    const col = this.dataModel.getSchema().columns.find((c) => String(c.key) === String(hit.colKey));
+    const readOnly = this.dataModel.isReadonly(hit.rowId, hit.colKey);
+    if (readOnly || col?.type === "boolean") cursor = "default";
+    else cursor = "text";
+    this.canvas.style.cursor = cursor;
   }
 
   private computeRowHeight(

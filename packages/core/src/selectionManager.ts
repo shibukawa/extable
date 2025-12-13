@@ -1,5 +1,13 @@
 import type { Command, EditMode, SelectionRange } from './types';
 import type { DataModel } from './dataModel';
+import {
+  FILL_HANDLE_HIT_SIZE_PX,
+  getFillHandleRect,
+  getFillHandleSource,
+  isPointInRect,
+  makeFillValueGetter,
+  shouldShowFillHandle
+} from './fillHandle';
 
 type EditHandler = (cmd: Command, commit: boolean) => void;
 type RowSelectHandler = (rowId: string) => void;
@@ -31,6 +39,10 @@ export class SelectionManager {
   private dragging = false;
   private dragStart: { rowIndex: number; colIndex: number; kind: 'cells' | 'rows' } | null = null;
   private suppressNextClick = false;
+  private fillDragging = false;
+  private fillSource: import('./fillHandle').FillHandleSource | null = null;
+  private fillEndRowIndex: number | null = null;
+  private rootCursorBackup: string | null = null;
   private activeCell: { rowId: string; colKey: string | number } | null = null;
   private activeHost: HTMLElement | null = null;
   private activeHostOriginalText: string | null = null;
@@ -99,6 +111,13 @@ export class SelectionManager {
     document.addEventListener('contextmenu', this.handleDocumentContextMenu, { capture: true });
     // eslint-disable-next-line no-console
     console.log('[extable ctx] document contextmenu listener attached');
+  }
+
+  private updateFillHandleFlag() {
+    const activeColKey = this.activeCell?.colKey ?? null;
+    this.root.dataset.extableFillHandle = shouldShowFillHandle(this.dataModel, this.selectionRanges, activeColKey)
+      ? '1'
+      : '';
   }
 
   private findColumn(colKey: string | number) {
@@ -351,16 +370,74 @@ export class SelectionManager {
     const current = this.dataModel.getCell(rowId, colKey);
     const currentText = this.cellToClipboardString(current);
     this.focusSelectionInput(currentText);
+    this.updateFillHandleFlag();
   }
 
   private handlePointerDown = (ev: PointerEvent) => {
     if (ev.button !== 0) return;
     // Avoid starting a drag from inside an active editor.
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) return;
+    // Commit current editor before starting a drag/select operation.
+    if (this.inputEl && this.activeCell) {
+      const { rowId, colKey } = this.activeCell;
+      const value = this.readActiveValue();
+      this.commitEdit(rowId, colKey, value);
+      this.onMove(rowId);
+      this.teardownInput(false);
+    }
+    if (this.fillDragging) return;
     const hit = this.hitTest(ev as unknown as MouseEvent);
     if (!hit) return;
     if (hit.rowId === '__all__' && hit.colKey === '__all__') return;
     if (hit.colKey === '__all__') return;
+
+    // Fill handle drag starts only when the pointer is down on the handle area.
+    const fillSrc = getFillHandleSource(this.dataModel, this.selectionRanges);
+    if (fillSrc && this.activeCell) {
+      const schema = this.dataModel.getSchema();
+      const rows = this.dataModel.listRows();
+      const handleRowIndex = fillSrc.endRowIndex;
+      const handleColIndex = fillSrc.colIndex;
+      const handleRow = rows[handleRowIndex];
+      const handleCol = schema.columns[handleColIndex];
+      if (handleRow && handleCol) {
+        const cellRect =
+          this.findHtmlCellElement(handleRow.id, handleCol.key)?.getBoundingClientRect() ??
+          this.computeCanvasCellRect(handleRow.id, handleCol.key);
+        if (cellRect && shouldShowFillHandle(this.dataModel, this.selectionRanges, this.activeCell.colKey)) {
+          const handleRect = getFillHandleRect(cellRect, FILL_HANDLE_HIT_SIZE_PX);
+          if (isPointInRect(ev.clientX, ev.clientY, handleRect)) {
+            ev.preventDefault();
+            this.fillDragging = true;
+            this.fillSource = fillSrc;
+            this.fillEndRowIndex = fillSrc.endRowIndex;
+            this.root.dataset.extableFillDragging = '1';
+            if (this.rootCursorBackup === null) this.rootCursorBackup = this.root.style.cursor || '';
+            this.root.style.cursor = 'crosshair';
+            this.dragging = false;
+            this.dragStart = null;
+            this.suppressNextClick = true;
+            try {
+              (ev.target as Element | null)?.setPointerCapture?.(ev.pointerId);
+            } catch {
+              // ignore
+            }
+            // Expand selection to include filled range preview (start with source).
+            this.selectionRanges = [
+              {
+                kind: 'cells',
+                startRow: fillSrc.startRowIndex,
+                endRow: fillSrc.endRowIndex,
+                startCol: fillSrc.colIndex,
+                endCol: fillSrc.colIndex
+              }
+            ];
+            this.onSelectionChange(this.selectionRanges);
+            return;
+          }
+        }
+      }
+    }
 
     const schema = this.dataModel.getSchema();
     const rowIndex = this.dataModel.getRowIndex(hit.rowId);
@@ -375,26 +452,6 @@ export class SelectionManager {
     this.selectionMode = true;
     this.selectionAnchor = null;
 
-    // Set initial selection on pointer down.
-    const endCol = kind === 'rows' ? schema.columns.length - 1 : colIndex;
-    const nextRange: SelectionRange = {
-      kind,
-      startRow: rowIndex,
-      endRow: rowIndex,
-      startCol: kind === 'rows' ? 0 : colIndex,
-      endCol
-    };
-    this.selectionRanges = [nextRange];
-    const activeColKey = kind === 'rows' ? schema.columns[0]?.key ?? hit.colKey : hit.colKey;
-    this.activeCell = { rowId: hit.rowId, colKey: activeColKey };
-    this.onActiveChange(hit.rowId, activeColKey);
-    this.onSelectionChange(this.selectionRanges);
-    this.onRowSelect(hit.rowId);
-    this.teardownInput(false);
-    this.teardownSelectionInput();
-    const current = this.dataModel.getCell(hit.rowId, activeColKey);
-    this.focusSelectionInput(this.cellToClipboardString(current));
-
     try {
       (ev.target as Element | null)?.setPointerCapture?.(ev.pointerId);
     } catch {
@@ -403,6 +460,39 @@ export class SelectionManager {
   };
 
   private handlePointerMove = (ev: PointerEvent) => {
+    if (this.fillDragging && this.fillSource) {
+      const hit = this.hitTest(ev as unknown as MouseEvent);
+      if (!hit) return;
+      if (hit.colKey === '__all__' || hit.colKey === '__row__') return;
+      const schema = this.dataModel.getSchema();
+      const rows = this.dataModel.listRows();
+      const endRowIndex = this.dataModel.getRowIndex(hit.rowId);
+      if (endRowIndex < 0) return;
+      const colIndex = schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
+      if (colIndex !== this.fillSource.colIndex) return;
+
+      // Vertical fill only; allow dragging downwards from the source end.
+      const nextEnd = Math.max(this.fillSource.endRowIndex, endRowIndex);
+      if (this.fillEndRowIndex !== nextEnd) {
+        this.fillEndRowIndex = nextEnd;
+        const activeRowId = rows[nextEnd]?.id ?? hit.rowId;
+        const colKey = schema.columns[this.fillSource.colIndex]!.key;
+        this.activeCell = { rowId: activeRowId, colKey };
+        this.onActiveChange(activeRowId, colKey);
+        this.selectionRanges = [
+          {
+            kind: 'cells',
+            startRow: this.fillSource.startRowIndex,
+            endRow: nextEnd,
+            startCol: this.fillSource.colIndex,
+            endCol: this.fillSource.colIndex
+          }
+        ];
+        this.onSelectionChange(this.selectionRanges);
+      }
+      this.suppressNextClick = true;
+      return;
+    }
     if (!this.dragging || !this.dragStart) return;
     const hit = this.hitTest(ev as unknown as MouseEvent);
     if (!hit) return;
@@ -435,10 +525,31 @@ export class SelectionManager {
     this.activeCell = { rowId: activeRowId, colKey: activeColKey };
     this.onActiveChange(activeRowId, activeColKey);
     this.onSelectionChange(this.selectionRanges);
+    this.updateFillHandleFlag();
     this.suppressNextClick = true;
   };
 
   private handlePointerUp = (ev: PointerEvent) => {
+    if (this.fillDragging && this.fillSource) {
+      const src = this.fillSource;
+      const endRowIndex = this.fillEndRowIndex ?? src.endRowIndex;
+      this.fillDragging = false;
+      this.fillSource = null;
+      this.fillEndRowIndex = null;
+      this.root.dataset.extableFillDragging = '';
+      if (this.rootCursorBackup !== null) {
+        this.root.style.cursor = this.rootCursorBackup;
+        this.rootCursorBackup = null;
+      }
+      try {
+        (ev.target as Element | null)?.releasePointerCapture?.(ev.pointerId);
+      } catch {
+        // ignore
+      }
+      this.commitFill(src, endRowIndex);
+      this.suppressNextClick = true;
+      return;
+    }
     if (!this.dragging) return;
     this.dragging = false;
     this.dragStart = null;
@@ -455,6 +566,48 @@ export class SelectionManager {
       }
     }
   };
+
+  private commitFill(source: import('./fillHandle').FillHandleSource, endRowIndex: number) {
+    const schema = this.dataModel.getSchema();
+    const rows = this.dataModel.listRows();
+    const col = schema.columns[source.colIndex];
+    if (!col) return;
+    if (endRowIndex <= source.endRowIndex) return;
+
+    const getValue = makeFillValueGetter(this.dataModel, source);
+    if (!getValue) return;
+
+    const commitNow = this.editMode === 'direct';
+    for (let r = source.endRowIndex + 1; r <= endRowIndex; r += 1) {
+      const row = rows[r];
+      if (!row) break;
+      if (this.dataModel.isReadonly(row.id, col.key)) continue;
+      const offset = r - source.endRowIndex;
+      const next = getValue(offset);
+      const cmd: Command = { kind: 'edit', rowId: row.id, colKey: col.key, next };
+      this.onEdit(cmd, commitNow);
+    }
+
+    // Select the filled range after commit and focus selection mode.
+    const endRow = rows[endRowIndex];
+    if (!endRow) return;
+    this.selectionRanges = [
+      {
+        kind: 'cells',
+        startRow: source.startRowIndex,
+        endRow: endRowIndex,
+        startCol: source.colIndex,
+        endCol: source.colIndex
+      }
+    ];
+    this.activeCell = { rowId: endRow.id, colKey: col.key };
+    this.onActiveChange(endRow.id, col.key);
+    this.onSelectionChange(this.selectionRanges);
+    this.updateFillHandleFlag();
+    this.ensureVisibleCell(endRow.id, col.key);
+    const current = this.dataModel.getCell(endRow.id, col.key);
+    this.focusSelectionInput(this.cellToClipboardString(current));
+  }
 
   private teardownSelectionInput() {
     if (!this.selectionInput) return;
@@ -1018,6 +1171,7 @@ export class SelectionManager {
     this.activeCell = anchorCell;
     this.onActiveChange(anchorCell.rowId, anchorCell.colKey);
     this.onSelectionChange(this.selectionRanges);
+    this.updateFillHandleFlag();
   }
 
   private mergeRanges(ranges: SelectionRange[]) {
