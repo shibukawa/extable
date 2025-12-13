@@ -551,7 +551,7 @@ export class CanvasRenderer implements Renderer {
         ctx.fillRect(0, yCursor, this.rowHeaderWidth, rowH);
       }
       ctx.fillStyle = "#0f172a";
-      ctx.font = "14px sans-serif";
+      ctx.font = "bold 14px sans-serif";
       ctx.fillText(String(idxText), 8, yCursor + this.lineHeight);
 
       ctx.save();
@@ -656,7 +656,7 @@ export class CanvasRenderer implements Renderer {
       ctx.strokeStyle = "#d0d7de";
       ctx.strokeRect(xHeader, 0, w, this.headerHeight);
       ctx.fillStyle = "#0f172a";
-      ctx.font = "14px sans-serif";
+      ctx.font = "bold 14px sans-serif";
       ctx.fillText(c.header ?? String(c.key), xHeader + 8, this.headerHeight - 8);
       xHeader += w;
     }
