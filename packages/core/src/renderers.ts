@@ -932,6 +932,16 @@ export class CanvasRenderer implements Renderer {
       return;
     }
 
+    // Only the active cell shows edit-mode cursor affordances. Other selected cells stay `cell`.
+    const isActiveCell =
+      this.activeRowId === hit.rowId &&
+      this.activeColKey !== null &&
+      String(this.activeColKey) === String(hit.colKey);
+    if (!isActiveCell) {
+      this.canvas.style.cursor = "cell";
+      return;
+    }
+
     // Fill handle hover is only considered inside the active cell and when fill handle is shown.
     if (
       this.activeRowId &&

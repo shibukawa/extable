@@ -43,6 +43,10 @@ export class SelectionManager {
   private fillSource: import('./fillHandle').FillHandleSource | null = null;
   private fillEndRowIndex: number | null = null;
   private rootCursorBackup: string | null = null;
+  private lastPointerClient: { x: number; y: number } | null = null;
+  private autoScrollRaf: number | null = null;
+  private autoScrollActive = false;
+  private autoScrollDelta: { dx: number; dy: number } = { dx: 0, dy: 0 };
   private activeCell: { rowId: string; colKey: string | number } | null = null;
   private activeHost: HTMLElement | null = null;
   private activeHostOriginalText: string | null = null;
@@ -92,6 +96,7 @@ export class SelectionManager {
     this.teardownInput(true);
     this.teardownSelectionInput();
     this.teardownCopyToast();
+    this.stopAutoScroll();
   }
 
   onScroll(scrollTop: number, scrollLeft: number) {
@@ -414,6 +419,7 @@ export class SelectionManager {
             this.root.dataset.extableFillDragging = '1';
             if (this.rootCursorBackup === null) this.rootCursorBackup = this.root.style.cursor || '';
             this.root.style.cursor = 'crosshair';
+            this.lastPointerClient = { x: ev.clientX, y: ev.clientY };
             this.dragging = false;
             this.dragStart = null;
             this.suppressNextClick = true;
@@ -433,6 +439,7 @@ export class SelectionManager {
               }
             ];
             this.onSelectionChange(this.selectionRanges);
+            this.startAutoScroll();
             return;
           }
         }
@@ -451,50 +458,44 @@ export class SelectionManager {
     this.suppressNextClick = false;
     this.selectionMode = true;
     this.selectionAnchor = null;
+    this.lastPointerClient = { x: ev.clientX, y: ev.clientY };
 
     try {
       (ev.target as Element | null)?.setPointerCapture?.(ev.pointerId);
     } catch {
       // ignore
     }
+    this.startAutoScroll();
   };
 
-  private handlePointerMove = (ev: PointerEvent) => {
-    if (this.fillDragging && this.fillSource) {
-      const hit = this.hitTest(ev as unknown as MouseEvent);
-      if (!hit) return;
-      if (hit.colKey === '__all__' || hit.colKey === '__row__') return;
-      const schema = this.dataModel.getSchema();
-      const rows = this.dataModel.listRows();
-      const endRowIndex = this.dataModel.getRowIndex(hit.rowId);
-      if (endRowIndex < 0) return;
-      const colIndex = schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
-      if (colIndex !== this.fillSource.colIndex) return;
-
-      // Vertical fill only; allow dragging downwards from the source end.
-      const nextEnd = Math.max(this.fillSource.endRowIndex, endRowIndex);
-      if (this.fillEndRowIndex !== nextEnd) {
-        this.fillEndRowIndex = nextEnd;
-        const activeRowId = rows[nextEnd]?.id ?? hit.rowId;
-        const colKey = schema.columns[this.fillSource.colIndex]!.key;
-        this.activeCell = { rowId: activeRowId, colKey };
-        this.onActiveChange(activeRowId, colKey);
-        this.selectionRanges = [
-          {
-            kind: 'cells',
-            startRow: this.fillSource.startRowIndex,
-            endRow: nextEnd,
-            startCol: this.fillSource.colIndex,
-            endCol: this.fillSource.colIndex
-          }
-        ];
-        this.onSelectionChange(this.selectionRanges);
+  private getHitAtClientPoint(clientX: number, clientY: number) {
+    // Prefer coordinate-based hit-test for auto-scroll ticks (no real event.target).
+    const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    if (el && this.root.contains(el)) {
+      const corner = el.closest<HTMLElement>('th.extable-corner');
+      if (corner) {
+        return { rowId: '__all__', colKey: '__all__', element: corner, rect: corner.getBoundingClientRect() };
       }
-      this.suppressNextClick = true;
-      return;
+      const rowHeader = el.closest<HTMLElement>('th.extable-row-header:not(.extable-corner)');
+      if (rowHeader) {
+        const row = rowHeader.closest<HTMLElement>('tr[data-row-id]');
+        if (row) {
+          return { rowId: row.dataset.rowId!, colKey: '__row__', element: rowHeader, rect: rowHeader.getBoundingClientRect() };
+        }
+      }
+      const cell = el.closest<HTMLElement>('td[data-col-key]');
+      const row = cell?.closest<HTMLElement>('tr[data-row-id]');
+      if (cell && row) {
+        return { rowId: row.dataset.rowId!, colKey: cell.dataset.colKey!, element: cell, rect: cell.getBoundingClientRect() };
+      }
     }
+    // Canvas renderer hitTest does not rely on target; a minimal shape is enough.
+    return this.hitTest({ clientX, clientY } as any as MouseEvent);
+  }
+
+  private updateDragFromClientPoint(clientX: number, clientY: number) {
     if (!this.dragging || !this.dragStart) return;
-    const hit = this.hitTest(ev as unknown as MouseEvent);
+    const hit = this.getHitAtClientPoint(clientX, clientY);
     if (!hit) return;
     if (hit.colKey === '__all__' || (this.dragStart.kind === 'cells' && hit.colKey === '__row__')) return;
 
@@ -521,12 +522,115 @@ export class SelectionManager {
     this.selectionRanges = [nextRange];
     const activeRowId = rows[endRowIndex]?.id ?? hit.rowId;
     const activeColKey =
-      this.dragStart.kind === 'rows' ? schema.columns[0]?.key ?? hit.colKey : schema.columns[endColIndex]?.key ?? hit.colKey;
+      this.dragStart.kind === 'rows'
+        ? schema.columns[0]?.key ?? hit.colKey
+        : schema.columns[endColIndex]?.key ?? hit.colKey;
     this.activeCell = { rowId: activeRowId, colKey: activeColKey };
     this.onActiveChange(activeRowId, activeColKey);
     this.onSelectionChange(this.selectionRanges);
     this.updateFillHandleFlag();
     this.suppressNextClick = true;
+  }
+
+  private updateFillDragFromClientPoint(clientX: number, clientY: number) {
+    if (!this.fillDragging || !this.fillSource) return;
+    const hit = this.getHitAtClientPoint(clientX, clientY);
+    if (!hit) return;
+    if (hit.colKey === '__all__' || hit.colKey === '__row__') return;
+    const schema = this.dataModel.getSchema();
+    const rows = this.dataModel.listRows();
+    const endRowIndex = this.dataModel.getRowIndex(hit.rowId);
+    if (endRowIndex < 0) return;
+    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
+    if (colIndex !== this.fillSource.colIndex) return;
+
+    // Vertical fill only; allow dragging downwards from the source end.
+    const nextEnd = Math.max(this.fillSource.endRowIndex, endRowIndex);
+    if (this.fillEndRowIndex !== nextEnd) {
+      this.fillEndRowIndex = nextEnd;
+      const activeRowId = rows[nextEnd]?.id ?? hit.rowId;
+      const colKey = schema.columns[this.fillSource.colIndex]!.key;
+      this.activeCell = { rowId: activeRowId, colKey };
+      this.onActiveChange(activeRowId, colKey);
+      this.selectionRanges = [
+        {
+          kind: 'cells',
+          startRow: this.fillSource.startRowIndex,
+          endRow: nextEnd,
+          startCol: this.fillSource.colIndex,
+          endCol: this.fillSource.colIndex
+        }
+      ];
+      this.onSelectionChange(this.selectionRanges);
+    }
+    this.suppressNextClick = true;
+  }
+
+  private computeAutoScrollDelta(clientX: number, clientY: number) {
+    const rect = this.root.getBoundingClientRect();
+    const threshold = 24;
+    const maxStep = 18;
+    let dx = 0;
+    let dy = 0;
+    if (clientX < rect.left + threshold) {
+      dx = -Math.ceil(((rect.left + threshold - clientX) / threshold) * maxStep);
+    } else if (clientX > rect.right - threshold) {
+      dx = Math.ceil(((clientX - (rect.right - threshold)) / threshold) * maxStep);
+    }
+    if (clientY < rect.top + threshold) {
+      dy = -Math.ceil(((rect.top + threshold - clientY) / threshold) * maxStep);
+    } else if (clientY > rect.bottom - threshold) {
+      dy = Math.ceil(((clientY - (rect.bottom - threshold)) / threshold) * maxStep);
+    }
+    return { dx, dy };
+  }
+
+  private startAutoScroll() {
+    if (this.autoScrollActive) return;
+    this.autoScrollActive = true;
+    const tick = () => {
+      if (!this.autoScrollActive) return;
+      const p = this.lastPointerClient;
+      if (!p || (!this.dragging && !this.fillDragging)) {
+        this.stopAutoScroll();
+        return;
+      }
+      const { dx, dy } = this.computeAutoScrollDelta(p.x, p.y);
+      this.autoScrollDelta = { dx, dy };
+      if (dx !== 0 || dy !== 0) {
+        const prevTop = this.root.scrollTop;
+        const prevLeft = this.root.scrollLeft;
+        this.root.scrollTop = Math.max(0, prevTop + dy);
+        this.root.scrollLeft = Math.max(0, prevLeft + dx);
+        // While scrolling, keep updating selection/fill based on the latest pointer position.
+        if (this.fillDragging) this.updateFillDragFromClientPoint(p.x, p.y);
+        else this.updateDragFromClientPoint(p.x, p.y);
+      }
+      const raf = window.requestAnimationFrame ?? ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16) as any);
+      this.autoScrollRaf = raf(tick);
+    };
+    const raf = window.requestAnimationFrame ?? ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16) as any);
+    this.autoScrollRaf = raf(tick);
+  }
+
+  private stopAutoScroll() {
+    this.autoScrollActive = false;
+    if (this.autoScrollRaf !== null) {
+      const caf = window.cancelAnimationFrame ?? ((id: number) => window.clearTimeout(id));
+      caf(this.autoScrollRaf as any);
+      this.autoScrollRaf = null;
+    }
+    this.autoScrollDelta = { dx: 0, dy: 0 };
+  }
+
+  private handlePointerMove = (ev: PointerEvent) => {
+    this.lastPointerClient = { x: ev.clientX, y: ev.clientY };
+    if (this.fillDragging && this.fillSource) {
+      this.updateFillDragFromClientPoint(ev.clientX, ev.clientY);
+      return;
+    }
+    if (!this.dragging || !this.dragStart) return;
+    this.updateDragFromClientPoint(ev.clientX, ev.clientY);
   };
 
   private handlePointerUp = (ev: PointerEvent) => {
@@ -541,6 +645,7 @@ export class SelectionManager {
         this.root.style.cursor = this.rootCursorBackup;
         this.rootCursorBackup = null;
       }
+      this.stopAutoScroll();
       try {
         (ev.target as Element | null)?.releasePointerCapture?.(ev.pointerId);
       } catch {
@@ -553,6 +658,7 @@ export class SelectionManager {
     if (!this.dragging) return;
     this.dragging = false;
     this.dragStart = null;
+    this.stopAutoScroll();
     try {
       (ev.target as Element | null)?.releasePointerCapture?.(ev.pointerId);
     } catch {

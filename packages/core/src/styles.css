@@ -65,9 +65,24 @@
     background: rgba(59, 130, 246, 0.16);
   }
 
-  .extable-selected {
-    background: rgba(59, 130, 246, 0.12);
-  }
+	.extable-selected {
+		background: rgba(59, 130, 246, 0.12);
+	}
+
+	/* Selected but non-active cells keep spreadsheet-like cursor (cell). */
+	td.extable-selected {
+		cursor: cell;
+	}
+
+	/* Active editable cell shows text cursor, even when selected. */
+	td.extable-active-cell.extable-editable {
+		cursor: text;
+	}
+
+	/* Active readonly/boolean cells should not look editable. */
+	td.extable-active-cell.extable-readonly {
+		cursor: default;
+	}
 
   .extable-all-selected td,
   .extable-all-selected th {
