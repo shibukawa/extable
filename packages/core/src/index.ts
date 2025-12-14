@@ -1,6 +1,7 @@
 import "./styles.css";
 import { CommandQueue } from "./commandQueue";
 import { DataModel } from "./dataModel";
+import { FindReplaceController, type FindReplaceMode } from "./findReplace";
 import { LockManager } from "./lockManager";
 import { CanvasRenderer, HTMLRenderer, type Renderer, type ViewportState } from "./renderers";
 import { SelectionManager } from "./selectionManager";
@@ -22,6 +23,8 @@ import type {
 } from "./types";
 
 export * from "./types";
+export type { FindReplaceMatch, FindReplaceMode, FindReplaceOptions, FindReplaceState } from "./findReplace";
+export { FindReplaceController } from "./findReplace";
 
 export interface CoreInit {
   root: HTMLElement;
@@ -33,6 +36,8 @@ export interface CoreInit {
 
 export class ExtableCore {
   private root: HTMLElement;
+  private shell: HTMLDivElement | null = null;
+  private viewportEl: HTMLDivElement | null = null;
   private dataModel: DataModel;
   private commandQueue: CommandQueue;
   private lockManager: LockManager;
@@ -54,12 +59,23 @@ export class ExtableCore {
   private handleGlobalPointer: ((ev: MouseEvent | PointerEvent) => void) | null = null;
   private toast: HTMLDivElement | null = null;
   private toastTimer: number | null = null;
+  private findReplace: FindReplaceController | null = null;
+  private findReplaceSidebar: HTMLElement | null = null;
+  private findReplaceSidebarUnsub: (() => void) | null = null;
+  private findReplaceKeydown: ((ev: KeyboardEvent) => void) | null = null;
+  private findReplaceEnabled = true;
+  private findReplaceUiEnabled = true;
+  private findReplaceEnableSearch = false;
 
   constructor(init: CoreInit) {
     this.root = init.root;
     this.renderMode = init.options?.renderMode ?? "auto";
     this.editMode = init.options?.editMode ?? "direct";
     this.lockMode = init.options?.lockMode ?? "none";
+    this.findReplaceEnabled = init.options?.findReplace?.enabled ?? true;
+    this.findReplaceUiEnabled =
+      init.options?.findReplace?.sidebar ?? init.options?.findReplace?.dialog ?? true;
+    this.findReplaceEnableSearch = init.options?.findReplace?.enableSearch ?? true;
     this.server = init.options?.server;
     this.user = init.options?.user;
     this.dataModel = new DataModel(init.defaultData, init.schema, init.defaultView);
@@ -113,13 +129,32 @@ export class ExtableCore {
     return mode === "html" ? new HTMLRenderer(this.dataModel) : new CanvasRenderer(this.dataModel);
   }
 
+  private ensureShell() {
+    if (this.shell && this.viewportEl && this.shell.parentElement === this.root) return;
+    this.root.innerHTML = "";
+    const shell = document.createElement("div");
+    shell.className = "extable-shell";
+    const viewport = document.createElement("div");
+    viewport.className = "extable-viewport";
+    shell.appendChild(viewport);
+    this.root.appendChild(shell);
+    this.shell = shell;
+    this.viewportEl = viewport;
+  }
+
+  private getScrollHost() {
+    return this.viewportEl ?? this.root;
+  }
+
   private mount() {
-    this.renderer.mount(this.root);
+    this.ensureShell();
+    const host = this.viewportEl ?? this.root;
+    this.renderer.mount(host);
     this.ensureContextMenu();
     this.ensureToast();
     this.initViewportState();
     this.selectionManager = new SelectionManager(
-      this.root,
+      host,
       this.editMode,
       (cmd, commitNow) => this.handleEdit(cmd, commitNow),
       (rowId) => void this.lockManager.selectRow(rowId),
@@ -134,12 +169,14 @@ export class ExtableCore {
     );
     this.root.dataset.extable = "ready";
     this.bindViewport();
+    this.ensureFindReplace();
     if (this.server) {
       this.unsubscribe = this.server.subscribe((event) => this.handleServerEvent(event));
     }
   }
 
   destroy() {
+    this.teardownFindReplace();
     this.selectionManager?.destroy();
     this.renderer.destroy();
     this.unsubscribe?.();
@@ -489,7 +526,7 @@ export class ExtableCore {
   private bindViewport() {
     this.resizeHandler = () => this.updateViewportFromRoot();
     this.scrollHandler = () => this.updateViewportFromRoot();
-    this.root.addEventListener("scroll", this.scrollHandler, { passive: true });
+    this.getScrollHost().addEventListener("scroll", this.scrollHandler, { passive: true });
     window.addEventListener("resize", this.resizeHandler);
     this.handleGlobalPointer = (ev: MouseEvent | PointerEvent) => {
       if (this.contextMenu && !this.contextMenu.contains(ev.target as Node)) {
@@ -502,7 +539,7 @@ export class ExtableCore {
 
   private unbindViewport() {
     if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
-    if (this.scrollHandler) this.root.removeEventListener("scroll", this.scrollHandler);
+    if (this.scrollHandler) this.getScrollHost().removeEventListener("scroll", this.scrollHandler);
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId);
       this.rafId = null;
@@ -527,19 +564,261 @@ export class ExtableCore {
 
   remount(target: HTMLElement) {
     this.unbindViewport();
+    this.teardownFindReplace();
     this.selectionManager?.destroy();
     this.renderer.destroy();
     this.root = target;
+    this.shell = null;
+    this.viewportEl = null;
     this.renderer = this.chooseRenderer(this.renderMode);
     this.mount();
   }
 
+  getFindReplaceController() {
+    this.ensureFindReplace();
+    return this.findReplace;
+  }
+
+  showSearchPanel(mode: FindReplaceMode = "find") {
+    if (!this.findReplaceEnabled || !this.findReplaceUiEnabled) return;
+    this.ensureFindReplace();
+    if (!this.findReplace || !this.findReplaceSidebar) return;
+    this.findReplace.setMode(mode);
+    this.findReplaceSidebar.style.display = "flex";
+    this.root.classList.toggle("extable-search-open", true);
+    this.updateViewportFromRoot();
+    this.renderer.render(this.viewportState ?? undefined);
+    const input = this.findReplaceSidebar.querySelector<HTMLInputElement>('input[data-extable-fr="query"]');
+    input?.focus({ preventScroll: true });
+    input?.select();
+  }
+
+  hideSearchPanel() {
+    if (!this.findReplaceSidebar) return;
+    this.findReplaceSidebar.style.display = "none";
+    this.root.classList.toggle("extable-search-open", false);
+    this.updateViewportFromRoot();
+    this.renderer.render(this.viewportState ?? undefined);
+    // Restore focus to table selection.
+    (this.root.querySelector('input[data-extable-selection="1"]') as HTMLInputElement | null)?.focus?.({
+      preventScroll: true,
+    });
+  }
+
+  // Backward compatible aliases.
+  openFindReplaceDialog(mode: FindReplaceMode = "find") {
+    this.showSearchPanel(mode);
+  }
+
+  closeFindReplaceDialog() {
+    this.hideSearchPanel();
+  }
+
+  private ensureFindReplace() {
+    if (!this.findReplaceEnabled) return;
+    if (!this.findReplace) {
+      this.findReplace = new FindReplaceController(
+        this.dataModel,
+        (rowId, colKey) => this.selectionManager?.navigateToCell(rowId, colKey),
+        (rowId, colKey, next) =>
+          this.handleEdit({ kind: "edit", rowId, colKey, next }, this.editMode === "direct"),
+        (rowId, colKey) => !this.dataModel.isReadonly(rowId, colKey),
+      );
+    }
+    if (this.findReplaceUiEnabled) {
+      this.ensureFindReplaceSidebar();
+      this.ensureFindReplaceShortcuts();
+    }
+  }
+
+  private ensureFindReplaceShortcuts() {
+    if (this.findReplaceKeydown) return;
+    this.findReplaceKeydown = (ev: KeyboardEvent) => {
+      if (!this.findReplaceEnabled || !this.findReplaceUiEnabled) return;
+      const key = ev.key.toLowerCase();
+      const isMod = ev.metaKey || ev.ctrlKey;
+      if (!isMod) return;
+      if (key !== "f" && key !== "r") return;
+      // Toggle close on Ctrl/Cmd+F when sidebar is already visible.
+      if (key === "f" && this.findReplaceSidebar && this.findReplaceSidebar.style.display !== "none") {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.hideSearchPanel();
+        return;
+      }
+      if (!this.findReplaceEnableSearch) {
+        const target = ev.target as Node | null;
+        const active = (typeof document !== "undefined" && document.activeElement) as Element | null;
+        const isActive =
+          (target && this.root.contains(target)) || (active && this.root.contains(active));
+        if (!isActive) return;
+      }
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.showSearchPanel(key === "r" ? "replace" : "find");
+    };
+    document.addEventListener("keydown", this.findReplaceKeydown, true);
+  }
+
+  private ensureFindReplaceSidebar() {
+    if (this.findReplaceSidebar) return;
+    this.ensureShell();
+    const shell = this.shell ?? this.root;
+
+    const aside = document.createElement("aside");
+    aside.className = "extable-search-sidebar";
+    aside.style.display = "none";
+    aside.innerHTML = `
+      <div class="extable-search-header">
+        <div class="extable-search-row">
+          <label class="extable-search-label">
+            Find
+            <input data-extable-fr="query" type="text" />
+          </label>
+          <button type="button" data-extable-fr="close" class="extable-search-close">×</button>
+        </div>
+        <div class="extable-search-row">
+          <label><input data-extable-fr="case" type="checkbox" /> Case</label>
+          <label><input data-extable-fr="regex" type="checkbox" /> Regex</label>
+          <label><input data-extable-fr="replace-toggle" type="checkbox" /> Replace</label>
+        </div>
+        <div class="extable-search-row extable-search-replace-row" data-extable-fr="replace-row">
+          <label class="extable-search-label">
+            Replace
+            <input data-extable-fr="replace" type="text" />
+          </label>
+        </div>
+        <div class="extable-search-row extable-search-status">
+          <span data-extable-fr="status"></span>
+          <span data-extable-fr="error" class="extable-search-error"></span>
+        </div>
+      </div>
+      <div class="extable-search-body">
+        <div class="extable-search-actions">
+          <button type="button" data-extable-fr="prev">Prev</button>
+          <button type="button" data-extable-fr="next">Next</button>
+          <button type="button" data-extable-fr="replace-current" data-extable-fr-only="replace">Replace</button>
+          <button type="button" data-extable-fr="replace-all" data-extable-fr-only="replace">Replace All</button>
+        </div>
+        <div class="extable-search-results" data-extable-fr="results">
+          <table class="extable-search-table" data-extable-fr="results-table">
+            <thead>
+              <tr><th>Cell</th><th>Text</th></tr>
+            </thead>
+            <tbody data-extable-fr="results-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    `;
+
+    shell.appendChild(aside);
+    this.findReplaceSidebar = aside;
+
+    const query = aside.querySelector<HTMLInputElement>('input[data-extable-fr="query"]')!;
+    const replace = aside.querySelector<HTMLInputElement>('input[data-extable-fr="replace"]')!;
+    const toggleReplace = aside.querySelector<HTMLInputElement>('input[data-extable-fr="replace-toggle"]')!;
+    const caseCb = aside.querySelector<HTMLInputElement>('input[data-extable-fr="case"]')!;
+    const regexCb = aside.querySelector<HTMLInputElement>('input[data-extable-fr="regex"]')!;
+    const btnPrev = aside.querySelector<HTMLButtonElement>('button[data-extable-fr="prev"]')!;
+    const btnNext = aside.querySelector<HTMLButtonElement>('button[data-extable-fr="next"]')!;
+    const btnReplace = aside.querySelector<HTMLButtonElement>('button[data-extable-fr="replace-current"]')!;
+    const btnReplaceAll = aside.querySelector<HTMLButtonElement>('button[data-extable-fr="replace-all"]')!;
+    const btnClose = aside.querySelector<HTMLButtonElement>('button[data-extable-fr="close"]')!;
+    const tbody = aside.querySelector<HTMLElement>('[data-extable-fr="results-tbody"]')!;
+
+    query.addEventListener("input", () => this.findReplace?.setQuery(query.value));
+    replace.addEventListener("input", () => this.findReplace?.setReplace(replace.value));
+    caseCb.addEventListener("change", () => this.findReplace?.setOptions({ caseInsensitive: caseCb.checked }));
+    regexCb.addEventListener("change", () => this.findReplace?.setOptions({ regex: regexCb.checked }));
+    toggleReplace.addEventListener("change", () => {
+      this.findReplace?.setMode(toggleReplace.checked ? "replace" : "find");
+    });
+    btnPrev.addEventListener("click", () => this.findReplace?.prev());
+    btnNext.addEventListener("click", () => this.findReplace?.next());
+    btnReplace.addEventListener("click", () => this.findReplace?.replaceCurrent());
+    btnReplaceAll.addEventListener("click", () => this.findReplace?.replaceAll());
+    btnClose.addEventListener("click", () => this.hideSearchPanel());
+
+    const truncate = (text: string, max = 140) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+
+    tbody.addEventListener("click", (e) => {
+      const tr = (e.target as HTMLElement | null)?.closest<HTMLElement>("tr[data-index]");
+      const idx = tr ? Number(tr.dataset.index) : -1;
+      if (Number.isFinite(idx) && idx >= 0) this.findReplace?.activateIndex(idx);
+    });
+    tbody.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      const tr = (e.target as HTMLElement | null)?.closest<HTMLElement>("tr[data-index]");
+      const idx = tr ? Number(tr.dataset.index) : -1;
+      if (Number.isFinite(idx) && idx >= 0) this.findReplace?.activateIndex(idx);
+    });
+
+    this.findReplaceSidebarUnsub =
+      this.findReplace?.subscribe((state) => {
+        const replaceRow = aside.querySelector<HTMLElement>('[data-extable-fr="replace-row"]')!;
+        const status = aside.querySelector<HTMLElement>('[data-extable-fr="status"]')!;
+        const error = aside.querySelector<HTMLElement>('[data-extable-fr="error"]')!;
+
+        query.value = state.query;
+        replace.value = state.replace;
+        caseCb.checked = state.options.caseInsensitive;
+        regexCb.checked = state.options.regex;
+        toggleReplace.checked = state.mode === "replace";
+        replaceRow.style.display = state.mode === "replace" ? "block" : "none";
+        btnReplace.style.display = state.mode === "replace" ? "inline-block" : "none";
+        btnReplaceAll.style.display = state.mode === "replace" ? "inline-block" : "none";
+
+        status.textContent = `${state.matches.length} matches`;
+        error.textContent = state.error ?? "";
+
+        btnPrev.disabled = state.matches.length === 0;
+        btnNext.disabled = state.matches.length === 0;
+        btnReplace.disabled = state.matches.length === 0 || state.activeIndex < 0;
+        btnReplaceAll.disabled = state.matches.length === 0;
+
+        tbody.innerHTML = "";
+        for (let i = 0; i < state.matches.length; i += 1) {
+          const m = state.matches[i]!;
+          const tr = document.createElement("tr");
+          tr.dataset.index = String(i);
+          tr.tabIndex = 0;
+          tr.className = "extable-search-result-row";
+          if (i === state.activeIndex) tr.dataset.active = "1";
+          const cellTd = document.createElement("td");
+          cellTd.textContent = `R${m.rowIndex + 1}C${m.colIndex + 1}`;
+          const textTd = document.createElement("td");
+          const preview = truncate(m.text);
+          textTd.textContent = preview;
+          textTd.title = m.text;
+          tr.appendChild(cellTd);
+          tr.appendChild(textTd);
+          tbody.appendChild(tr);
+        }
+      }) ?? null;
+  }
+
+  private teardownFindReplace() {
+    this.findReplaceSidebarUnsub?.();
+    this.findReplaceSidebarUnsub = null;
+    if (this.findReplaceSidebar) {
+      removeFromParent(this.findReplaceSidebar);
+      this.findReplaceSidebar = null;
+    }
+    if (this.findReplaceKeydown) {
+      document.removeEventListener("keydown", this.findReplaceKeydown, true);
+      this.findReplaceKeydown = null;
+    }
+    this.findReplace?.destroy();
+    this.findReplace = null;
+  }
+
   private initViewportState() {
+    const host = this.getScrollHost();
     this.viewportState = {
-      scrollTop: this.root.scrollTop,
-      scrollLeft: this.root.scrollLeft,
-      clientWidth: this.root.clientWidth,
-      clientHeight: this.root.clientHeight,
+      scrollTop: host.scrollTop,
+      scrollLeft: host.scrollLeft,
+      clientWidth: host.clientWidth,
+      clientHeight: host.clientHeight,
       deltaX: 0,
       deltaY: 0,
       timestamp: performance.now(),
@@ -557,13 +836,14 @@ export class ExtableCore {
       deltaY: 0,
       timestamp: performance.now(),
     };
+    const host = this.getScrollHost();
     const next: ViewportState = {
-      scrollTop: this.root.scrollTop,
-      scrollLeft: this.root.scrollLeft,
-      clientWidth: this.root.clientWidth,
-      clientHeight: this.root.clientHeight,
-      deltaX: this.root.scrollLeft - prev.scrollLeft,
-      deltaY: this.root.scrollTop - prev.scrollTop,
+      scrollTop: host.scrollTop,
+      scrollLeft: host.scrollLeft,
+      clientWidth: host.clientWidth,
+      clientHeight: host.clientHeight,
+      deltaX: host.scrollLeft - prev.scrollLeft,
+      deltaY: host.scrollTop - prev.scrollTop,
       timestamp: performance.now(),
     };
     this.viewportState = next;

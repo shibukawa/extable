@@ -110,6 +110,23 @@ export interface CoreOptions {
   defaultStyle?: Partial<CSSStyleDeclaration>;
   server?: ServerAdapter;
   user?: UserInfo;
+  findReplace?: {
+    /** Enable Find/Replace feature (engine + integrations). Default: true */
+    enabled?: boolean;
+    /**
+     * Enable the default built-in UI and its shortcut bindings. Default: true
+     * Note: legacy name is `dialog`; `sidebar` is the preferred name.
+     */
+    sidebar?: boolean;
+    /** @deprecated Use `sidebar` instead. */
+    dialog?: boolean;
+    /**
+     * When true, always intercept `Ctrl/Cmd+F` and `Ctrl/Cmd+R` and show extable's search sidebar.
+     * Use this when the table is the primary focus of the page and browser Find/Reload should be overridden.
+     * Default: true (always intercept).
+     */
+    enableSearch?: boolean;
+  };
 }
 
 export interface TableConfig {

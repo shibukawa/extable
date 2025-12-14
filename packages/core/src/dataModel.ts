@@ -7,11 +7,21 @@ export class DataModel {
   private rows: InternalRow[] = [];
   private pending: Map<string, Record<string | number, unknown>> = new Map();
   private rowVersion: Map<string, number> = new Map();
+  private listeners = new Set<() => void>();
 
   constructor(dataset: DataSet, schema: Schema, view: View) {
     this.schema = schema;
     this.view = view;
     this.setData(dataset);
+  }
+
+  public subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private notify() {
+    for (const l of this.listeners) l();
   }
 
   public setData(dataset: DataSet) {
@@ -25,14 +35,17 @@ export class DataModel {
         displayIndex: idx + 1,
       };
     });
+    this.notify();
   }
 
   public setSchema(schema: Schema) {
     this.schema = schema;
+    this.notify();
   }
 
   public setView(view: View) {
     this.view = view;
+    this.notify();
   }
 
   public getSchema() {
@@ -62,6 +75,7 @@ export class DataModel {
   public setRowHeight(rowId: string, height: number) {
     if (!this.view.rowHeights) this.view.rowHeights = {};
     this.view.rowHeights[rowId] = height;
+    this.notify();
   }
 
   public getCell(rowId: string, key: string | number) {
@@ -135,6 +149,7 @@ export class DataModel {
       }
       bumpVersion();
     }
+    this.notify();
   }
 
   public applyPending(rowId: string) {
@@ -151,10 +166,12 @@ export class DataModel {
       }
     }
     this.pending.delete(rowId);
+    this.notify();
   }
 
   public clearPending(rowId: string) {
     this.pending.delete(rowId);
+    this.notify();
   }
 
   public getPending() {
@@ -177,6 +194,7 @@ export class DataModel {
     this.rows.splice(clamped, 0, { id, raw: rowData, displayIndex: 0 });
     this.reindexRows();
     this.rowVersion.set(id, 0);
+    this.notify();
     return id;
   }
 
@@ -188,6 +206,7 @@ export class DataModel {
     this.pending.delete(rowId);
     this.rowVersion.delete(rowId);
     this.reindexRows();
+    this.notify();
     return { row: removed, index: found.index };
   }
 

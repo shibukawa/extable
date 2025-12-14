@@ -94,6 +94,31 @@ export class SelectionManager {
     this.editMode = mode;
   }
 
+  navigateToCell(rowId: string, colKey: string | number) {
+    const schema = this.dataModel.getSchema();
+    const rowIndex = this.dataModel.getRowIndex(rowId);
+    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
+    if (rowIndex < 0 || colIndex < 0) return;
+    this.selectionAnchor = null;
+    this.lastBooleanCell = null;
+    this.teardownInput(false);
+    const nextRange: SelectionRange = {
+      kind: "cells",
+      startRow: rowIndex,
+      endRow: rowIndex,
+      startCol: colIndex,
+      endCol: colIndex,
+    };
+    this.selectionRanges = [nextRange];
+    this.activeCell = { rowId, colKey };
+    this.onActiveChange(rowId, colKey);
+    this.onSelectionChange(this.selectionRanges);
+    this.ensureVisibleCell(rowId, colKey);
+    const current = this.dataModel.getCell(rowId, colKey);
+    this.focusSelectionInput(this.cellToClipboardString(current));
+    this.updateFillHandleFlag();
+  }
+
   cancelEditing() {
     this.teardownInput(true);
   }

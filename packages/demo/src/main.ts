@@ -148,6 +148,8 @@ function main() {
       schema: config.schema,
       options: { ...options }
     });
+    // Expose the latest core instance for demos/e2e.
+    (window as any).__extableCore = core;
     const commitBtn = document.getElementById('commit-btn');
     if (commitBtn) {
       commitBtn.style.display = options.editMode === 'commit' ? 'inline-block' : 'none';
