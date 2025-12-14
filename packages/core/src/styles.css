@@ -259,16 +259,36 @@
 }
 
 .extable-search-sidebar {
-	flex: 0 0 340px;
-	width: 340px;
-	min-width: 280px;
-	border-left: 1px solid #e5e7eb;
+	flex: 0 0 0px;
+	width: 0px;
+	min-width: 0;
+	border-left: 0px solid #e5e7eb;
 	background: rgba(255, 255, 255, 0.98);
 	backdrop-filter: blur(6px);
 	display: flex;
 	flex-direction: column;
 	gap: 10px;
+	padding: 0px;
+	transform: translateX(12px);
+	opacity: 0;
+	pointer-events: none;
+	transition:
+		flex-basis 180ms ease-out,
+		width 180ms ease-out,
+		padding 180ms ease-out,
+		border-left-width 180ms ease-out,
+		opacity 180ms ease-out,
+		transform 180ms ease-out;
+}
+
+.extable-search-open .extable-search-sidebar {
+	flex-basis: 340px;
+	width: 340px;
 	padding: 12px;
+	border-left-width: 1px;
+	opacity: 1;
+	transform: translateX(0);
+	pointer-events: auto;
 }
 
 .extable-search-header {

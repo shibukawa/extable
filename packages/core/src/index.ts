@@ -38,6 +38,7 @@ export class ExtableCore {
   private root: HTMLElement;
   private shell: HTMLDivElement | null = null;
   private viewportEl: HTMLDivElement | null = null;
+  private viewportResizeObserver: ResizeObserver | null = null;
   private dataModel: DataModel;
   private commandQueue: CommandQueue;
   private lockManager: LockManager;
@@ -66,6 +67,10 @@ export class ExtableCore {
   private findReplaceEnabled = true;
   private findReplaceUiEnabled = true;
   private findReplaceEnableSearch = false;
+
+  private isSearchPanelVisible() {
+    return this.root.classList.contains("extable-search-open");
+  }
 
   constructor(init: CoreInit) {
     this.root = init.root;
@@ -140,6 +145,17 @@ export class ExtableCore {
     this.root.appendChild(shell);
     this.shell = shell;
     this.viewportEl = viewport;
+
+    this.viewportResizeObserver?.disconnect();
+    const anyRO = (globalThis as any).ResizeObserver as (typeof ResizeObserver) | undefined;
+    if (typeof anyRO === "function") {
+      this.viewportResizeObserver = new anyRO(() => {
+        this.updateViewportFromRoot();
+      });
+      this.viewportResizeObserver.observe(viewport);
+    } else {
+      this.viewportResizeObserver = null;
+    }
   }
 
   private getScrollHost() {
@@ -181,6 +197,8 @@ export class ExtableCore {
     this.renderer.destroy();
     this.unsubscribe?.();
     this.unbindViewport();
+    this.viewportResizeObserver?.disconnect();
+    this.viewportResizeObserver = null;
   }
 
   setRenderMode(mode: RenderMode) {
@@ -570,6 +588,8 @@ export class ExtableCore {
     this.root = target;
     this.shell = null;
     this.viewportEl = null;
+    this.viewportResizeObserver?.disconnect();
+    this.viewportResizeObserver = null;
     this.renderer = this.chooseRenderer(this.renderMode);
     this.mount();
   }
@@ -584,7 +604,6 @@ export class ExtableCore {
     this.ensureFindReplace();
     if (!this.findReplace || !this.findReplaceSidebar) return;
     this.findReplace.setMode(mode);
-    this.findReplaceSidebar.style.display = "flex";
     this.root.classList.toggle("extable-search-open", true);
     this.updateViewportFromRoot();
     this.renderer.render(this.viewportState ?? undefined);
@@ -595,12 +614,11 @@ export class ExtableCore {
 
   hideSearchPanel() {
     if (!this.findReplaceSidebar) return;
-    this.findReplaceSidebar.style.display = "none";
     this.root.classList.toggle("extable-search-open", false);
     this.updateViewportFromRoot();
     this.renderer.render(this.viewportState ?? undefined);
     // Restore focus to table selection.
-    (this.root.querySelector('input[data-extable-selection="1"]') as HTMLInputElement | null)?.focus?.({
+    (this.getScrollHost().querySelector('input[data-extable-selection="1"]') as HTMLInputElement | null)?.focus?.({
       preventScroll: true,
     });
   }
@@ -640,7 +658,7 @@ export class ExtableCore {
       if (!isMod) return;
       if (key !== "f" && key !== "r") return;
       // Toggle close on Ctrl/Cmd+F when sidebar is already visible.
-      if (key === "f" && this.findReplaceSidebar && this.findReplaceSidebar.style.display !== "none") {
+      if (key === "f" && this.isSearchPanelVisible()) {
         ev.preventDefault();
         ev.stopPropagation();
         this.hideSearchPanel();
@@ -667,7 +685,6 @@ export class ExtableCore {
 
     const aside = document.createElement("aside");
     aside.className = "extable-search-sidebar";
-    aside.style.display = "none";
     aside.innerHTML = `
       <div class="extable-search-header">
         <div class="extable-search-row">

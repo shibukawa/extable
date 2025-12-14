@@ -90,11 +90,11 @@ describe("find/replace", () => {
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true, bubbles: true }));
     const sidebar = document.querySelector(".extable-search-sidebar") as HTMLElement | null;
     expect(sidebar).toBeTruthy();
-    expect(sidebar!.style.display).not.toBe("none");
+    expect(root.classList.contains("extable-search-open")).toBe(true);
 
     // Toggle close via the same shortcut.
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true, bubbles: true }));
-    expect(sidebar!.style.display).toBe("none");
+    expect(root.classList.contains("extable-search-open")).toBe(false);
 
     core.destroy();
     root.remove();
