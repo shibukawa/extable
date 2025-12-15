@@ -11,6 +11,7 @@ import {
   shouldShowFillHandle,
 } from "./fillHandle";
 import { removeFromParent } from "./utils";
+import { columnFormatToStyle, mergeStyle, styleToCssText } from "./styleResolver";
 
 class ValueFormatCache {
   private numberFormatCache = new Map<string, Intl.NumberFormat>();
@@ -99,6 +100,8 @@ export class HTMLRenderer implements Renderer {
     const rows = this.dataModel.listRows();
     this.tableEl.innerHTML = "";
     const colWidths = getColumnWidths(schema, view);
+    const colBaseStyles = schema.columns.map((c) => columnFormatToStyle(c));
+    const colBaseCss = colBaseStyles.map((s) => styleToCssText(s));
     const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
     const colgroup = document.createElement("colgroup");
     const rowCol = document.createElement("col");
@@ -114,7 +117,7 @@ export class HTMLRenderer implements Renderer {
     this.tableEl.appendChild(this.renderHeader(schema, colWidths));
     const body = document.createElement("tbody");
     for (const row of rows) {
-      body.appendChild(this.renderRow(row, schema, colWidths));
+      body.appendChild(this.renderRow(row, schema, colWidths, colBaseStyles, colBaseCss));
     }
     this.tableEl.appendChild(body);
     this.updateActiveClasses();
@@ -198,7 +201,13 @@ export class HTMLRenderer implements Renderer {
     return thead;
   }
 
-  private renderRow(row: InternalRow, schema: Schema, colWidths: number[]) {
+  private renderRow(
+    row: InternalRow,
+    schema: Schema,
+    colWidths: number[],
+    colBaseStyles: ReturnType<typeof columnFormatToStyle>[],
+    colBaseCss: string[],
+  ) {
     const tr = document.createElement("tr");
     tr.dataset.rowId = row.id;
     const view = this.dataModel.getView();
@@ -216,6 +225,18 @@ export class HTMLRenderer implements Renderer {
       td.classList.add("extable-cell");
       td.dataset.colKey = String(col.key);
       if (col.type === "boolean") td.classList.add("extable-boolean");
+      const isPending = this.dataModel.hasPending(row.id, col.key);
+      const cellStyle = this.dataModel.getCellStyle(row.id, col.key);
+      if (!cellStyle && !isPending) {
+        const css = colBaseCss[idx] ?? "";
+        if (css) td.style.cssText = css;
+      } else {
+        const baseStyle = colBaseStyles[idx] ?? {};
+        const merged = cellStyle ? mergeStyle(baseStyle, cellStyle) : baseStyle;
+        const forCss = isPending ? { ...merged, textColor: undefined } : merged;
+        const css = styleToCssText(forCss);
+        if (css) td.style.cssText = css;
+      }
       const width = colWidths[idx] ?? (view.columnWidths?.[String(col.key)] ?? col.width);
       if (width) td.style.width = `${width}px`;
       const wrap = view.wrapText?.[String(col.key)] ?? col.wrapText;
@@ -223,7 +244,6 @@ export class HTMLRenderer implements Renderer {
       const raw = this.dataModel.getRawCell(row.id, col.key);
       const value = this.dataModel.getCell(row.id, col.key);
       const formatted = this.formatValue(value, col);
-      const isPending = this.dataModel.hasPending(row.id, col.key);
       td.textContent = formatted.text;
       if (formatted.color) td.style.color = formatted.color;
       const align = col.format?.align ?? (col.type === "number" ? "right" : "left");
@@ -478,6 +498,8 @@ export class CanvasRenderer implements Renderer {
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
     const colWidths = getColumnWidths(schema, view);
+    const colBaseStyles = schema.columns.map((c) => columnFormatToStyle(c));
+    const fontCache = new Map<string, string>();
     const rowHeights: number[] = [];
     for (const row of rows) {
       rowHeights.push(this.computeRowHeight(ctx, row, schema, colWidths));
@@ -557,12 +579,17 @@ export class CanvasRenderer implements Renderer {
       ctx.clip();
       ctx.translate(dataXOffset, 0);
       let x = 0;
+      let lastFontKey = "";
       for (let idx = 0; idx < schema.columns.length; idx += 1) {
         const c = schema.columns[idx];
         const w = colWidths[idx] ?? 100;
         const readOnly = this.dataModel.isReadonly(row.id, c.key);
         ctx.strokeStyle = "#d0d7de";
-        ctx.fillStyle = readOnly ? "#f3f4f6" : "#ffffff";
+        const cellStyle = this.dataModel.getCellStyle(row.id, c.key);
+        const baseStyle = colBaseStyles[idx] ?? {};
+        const mergedStyle = cellStyle ? mergeStyle(baseStyle, cellStyle) : baseStyle;
+        const bg = readOnly ? "#f3f4f6" : mergedStyle.background ?? "#ffffff";
+        ctx.fillStyle = bg;
         ctx.fillRect(x, yCursor, w, rowH);
         ctx.strokeRect(x, yCursor, w, rowH);
         const value = this.dataModel.getCell(row.id, c.key);
@@ -594,12 +621,30 @@ export class CanvasRenderer implements Renderer {
             ? formatted.color
             : readOnly
               ? "#94a3b8"
-              : "#0f172a";
+              : mergedStyle.textColor ?? "#0f172a";
         const wrap = view.wrapText?.[String(c.key)] ?? c.wrapText ?? false;
         const isBoolean =
           c.type === "boolean" && (!c.booleanDisplay || c.booleanDisplay === "checkbox");
         const isCustomBoolean =
           c.type === "boolean" && Boolean(c.booleanDisplay && c.booleanDisplay !== "checkbox");
+        if (!isBoolean) {
+          const fontKey = `${mergedStyle.italic ? "i" : ""}${mergedStyle.bold ? "b" : ""}`;
+          if (fontKey !== lastFontKey) {
+            const cached = fontCache.get(fontKey);
+            if (cached) ctx.font = cached;
+            else {
+              const weight = mergedStyle.bold ? "600 " : "";
+              const ital = mergedStyle.italic ? "italic " : "";
+              const f = `${ital}${weight}14px sans-serif`.trim();
+              fontCache.set(fontKey, f);
+              ctx.font = f;
+            }
+            lastFontKey = fontKey;
+          }
+        } else {
+          ctx.font = baseFont;
+          lastFontKey = "";
+        }
         this.drawCellText(
           ctx,
           text,
@@ -611,6 +656,7 @@ export class CanvasRenderer implements Renderer {
           align,
           isBoolean,
           isCustomBoolean,
+          { underline: Boolean(mergedStyle.underline), strike: Boolean(mergedStyle.strike) },
         );
         x += w;
       }
@@ -1000,6 +1046,7 @@ export class CanvasRenderer implements Renderer {
     align: "left" | "right" | "center" = "left",
     isBoolean = false,
     isCustomBoolean = false,
+    decorations?: { underline?: boolean; strike?: boolean },
   ) {
     ctx.save();
     ctx.beginPath();
@@ -1012,15 +1059,46 @@ export class CanvasRenderer implements Renderer {
       ctx.font = "14px sans-serif";
     }
     const renderLine = (ln: string, lineIdx: number) => {
+      const baseline = y + this.lineHeight * lineIdx;
+      let startX = x;
+      let endX = x;
       if (align === "right") {
         ctx.textAlign = "right";
-        ctx.fillText(ln, x + width, y + this.lineHeight * lineIdx);
+        endX = x + width;
+        startX = endX - ctx.measureText(ln).width;
+        ctx.fillText(ln, endX, baseline);
       } else if (align === "center") {
         ctx.textAlign = "center";
-        ctx.fillText(ln, x + width / 2, y + this.lineHeight * lineIdx);
+        const center = x + width / 2;
+        const w = ctx.measureText(ln).width;
+        startX = center - w / 2;
+        endX = center + w / 2;
+        ctx.fillText(ln, center, baseline);
       } else {
         ctx.textAlign = "left";
-        ctx.fillText(ln, x, y + this.lineHeight * lineIdx);
+        startX = x;
+        endX = x + ctx.measureText(ln).width;
+        ctx.fillText(ln, x, baseline);
+      }
+      if (decorations?.underline || decorations?.strike) {
+        const strokeBackup = ctx.strokeStyle;
+        const lineWidthBackup = ctx.lineWidth;
+        ctx.strokeStyle = ctx.fillStyle as any;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (decorations.underline) {
+          const yUnderline = baseline + 2;
+          ctx.moveTo(startX, yUnderline);
+          ctx.lineTo(endX, yUnderline);
+        }
+        if (decorations.strike) {
+          const yStrike = baseline - Math.floor(this.lineHeight / 2) + 2;
+          ctx.moveTo(startX, yStrike);
+          ctx.lineTo(endX, yStrike);
+        }
+        ctx.stroke();
+        ctx.strokeStyle = strokeBackup;
+        ctx.lineWidth = lineWidthBackup;
       }
     };
     if (wrap) {

@@ -1,5 +1,6 @@
 import { generateId } from "./utils";
-import type { ColumnSchema, DataSet, InternalRow, Schema, View } from "./types";
+import type { ColumnSchema, DataSet, InternalRow, Schema, View, StyleDelta } from "./types";
+import { validateCellValue } from "./validation";
 
 export class DataModel {
   private schema: Schema;
@@ -8,6 +9,13 @@ export class DataModel {
   private pending: Map<string, Record<string | number, unknown>> = new Map();
   private rowVersion: Map<string, number> = new Map();
   private listeners = new Set<() => void>();
+  private cellStyles = new Map<string, StyleDelta>();
+  private validationErrors = new Map<
+    string,
+    { rowId: string; colKey: string | number; message: string }
+  >();
+  private notifySuspended = false;
+  private notifyDirty = false;
 
   constructor(dataset: DataSet, schema: Schema, view: View) {
     this.schema = schema;
@@ -21,11 +29,30 @@ export class DataModel {
   }
 
   private notify() {
+    if (this.notifySuspended) {
+      this.notifyDirty = true;
+      return;
+    }
     for (const l of this.listeners) l();
+  }
+
+  public batchUpdate(run: () => void) {
+    this.notifySuspended = true;
+    try {
+      run();
+    } finally {
+      this.notifySuspended = false;
+      if (this.notifyDirty) {
+        this.notifyDirty = false;
+        this.notify();
+      }
+    }
   }
 
   public setData(dataset: DataSet) {
     this.pending.clear();
+    this.cellStyles.clear();
+    this.validationErrors.clear();
     this.rows = dataset.rows.map((row, idx) => {
       const id = generateId();
       this.rowVersion.set(id, 0);
@@ -35,11 +62,13 @@ export class DataModel {
         displayIndex: idx + 1,
       };
     });
+    this.recomputeValidationErrors();
     this.notify();
   }
 
   public setSchema(schema: Schema) {
     this.schema = schema;
+    this.recomputeValidationErrors();
     this.notify();
   }
 
@@ -149,6 +178,7 @@ export class DataModel {
       }
       bumpVersion();
     }
+    this.updateValidationForCell(rowId, key, this.getCell(rowId, key));
     this.notify();
   }
 
@@ -164,6 +194,7 @@ export class DataModel {
       } else {
         row.raw[key] = val as any;
       }
+      this.updateValidationForCell(rowId, key, val);
     }
     this.pending.delete(rowId);
     this.notify();
@@ -220,6 +251,77 @@ export class DataModel {
 
   public getColumns(): ColumnSchema[] {
     return this.schema.columns;
+  }
+
+  public getColumnIndex(colKey: string | number) {
+    return this.schema.columns.findIndex((c) => String(c.key) === String(colKey));
+  }
+
+  public getColumnByIndex(colIndex: number) {
+    return this.schema.columns[colIndex] ?? null;
+  }
+
+  public getRowByIndex(rowIndex: number) {
+    return this.rows[rowIndex] ?? null;
+  }
+
+  private cellStyleKey(rowId: string, colKey: string | number) {
+    return `${rowId}::${String(colKey)}`;
+  }
+
+  public getValidationErrors() {
+    const out = [...this.validationErrors.values()];
+    out.sort((a, b) => {
+      const ra = this.getRowIndex(a.rowId);
+      const rb = this.getRowIndex(b.rowId);
+      if (ra !== rb) return ra - rb;
+      const ca = this.getColumnIndex(a.colKey);
+      const cb = this.getColumnIndex(b.colKey);
+      return ca - cb;
+    });
+    return out;
+  }
+
+  private updateValidationForCell(rowId: string, colKey: string | number, value: unknown) {
+    const col = this.schema.columns.find((c) => String(c.key) === String(colKey));
+    if (!col) return;
+    const msg = validateCellValue(value, col);
+    const key = this.cellStyleKey(rowId, colKey);
+    if (!msg) this.validationErrors.delete(key);
+    else this.validationErrors.set(key, { rowId, colKey, message: msg });
+  }
+
+  private recomputeValidationErrors() {
+    this.validationErrors.clear();
+    for (const row of this.rows) {
+      for (const col of this.schema.columns) {
+        const v = this.getCell(row.id, col.key);
+        this.updateValidationForCell(row.id, col.key, v);
+      }
+    }
+  }
+
+  public getCellStyle(rowId: string, colKey: string | number): StyleDelta | null {
+    return this.cellStyles.get(this.cellStyleKey(rowId, colKey)) ?? null;
+  }
+
+  public setCellStyle(rowId: string, colKey: string | number, style: StyleDelta | null) {
+    const key = this.cellStyleKey(rowId, colKey);
+    if (!style || Object.keys(style).length === 0) this.cellStyles.delete(key);
+    else this.cellStyles.set(key, style);
+    this.notify();
+  }
+
+  public updateColumnFormat(
+    colKey: string | number,
+    updater: ColumnSchema["format"] | ((oldValue: ColumnSchema["format"] | undefined) => ColumnSchema["format"] | undefined),
+  ) {
+    const idx = this.getColumnIndex(colKey);
+    if (idx < 0) return;
+    const col = this.schema.columns[idx]!;
+    const next = typeof updater === "function" ? updater(col.format) : updater;
+    col.format = next;
+    this.notify();
   }
 
   private isEqual(a: unknown, b: unknown) {

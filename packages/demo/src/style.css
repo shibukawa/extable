@@ -26,6 +26,7 @@ main {
   background: #eef2f7;
   border: 1px solid #d0d7de;
   border-radius: 6px;
+  flex-wrap: wrap;
 }
 
 h1,
@@ -43,6 +44,47 @@ h2 {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.tool-btn {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #d0d7de;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.tool-btn.active {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.12);
+}
+
+.tool-btn.mixed {
+  border-color: #64748b;
+  background: rgba(100, 116, 139, 0.12);
+}
+
+.tool-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.color-label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.commit-state {
+  font-size: 12px;
+  color: #475569;
 }
 
 .layout {

@@ -66,7 +66,7 @@
   }
 
 	.extable-selected {
-		background: rgba(59, 130, 246, 0.12);
+		background: rgba(59, 130, 246, 0.12) !important;
 	}
 
 	/* Selected but non-active cells keep spreadsheet-like cursor (cell). */
@@ -86,7 +86,7 @@
 
   .extable-all-selected td,
   .extable-all-selected th {
-    background: rgba(59, 130, 246, 0.08);
+    background: rgba(59, 130, 246, 0.08) !important;
   }
 
 	.extable-active-cell {
@@ -117,6 +117,16 @@
 		.extable-readonly {
 			background: #f3f4f6 !important;
 			color: #94a3b8 !important;
+		}
+
+		/* Selection highlight must remain visible even on readonly cells. */
+		td.extable-selected.extable-readonly {
+			background: rgba(59, 130, 246, 0.12) !important;
+		}
+
+		.extable-all-selected td.extable-readonly,
+		.extable-all-selected th.extable-readonly {
+			background: rgba(59, 130, 246, 0.08) !important;
 		}
 
 		/* Active boolean cell should not look text-editable. */

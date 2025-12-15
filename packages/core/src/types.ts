@@ -8,6 +8,51 @@ export type CellValue =
 
 export type ColumnType = 'string' | 'number' | 'boolean' | 'datetime' | 'date' | 'time' | 'enum' | 'tags';
 
+// A1 notation typing (MVP: single cell only)
+// NOTE: Using per-digit unions here can explode the type space and break `tsc --emitDeclarationOnly`.
+// Keep the type reasonably permissive and enforce bounds (e.g. <= 100000) at runtime in the resolver.
+export type ExcelRow = `${number}`;
+
+export type Col1 =
+  | 'A'
+  | 'B'
+  | 'C'
+  | 'D'
+  | 'E'
+  | 'F'
+  | 'G'
+  | 'H'
+  | 'I'
+  | 'J'
+  | 'K'
+  | 'L'
+  | 'M'
+  | 'N'
+  | 'O'
+  | 'P'
+  | 'Q'
+  | 'R'
+  | 'S'
+  | 'T'
+  | 'U'
+  | 'V'
+  | 'W'
+  | 'X'
+  | 'Y'
+  | 'Z';
+export type Col2 = `${Col1}${Col1}`;
+export type ExcelColumn = Col1 | Col2;
+export type ExcelRef = `${ExcelColumn}${ExcelRow}`;
+
+export type Updater<T> = T | ((oldValue: T) => T);
+
+export type CellAddress =
+  | { rowId: string; colKey: string | number }
+  | { rowIndex: number; colIndex: number }
+  | { rowId: string; colIndex: number }
+  | { rowIndex: number; colKey: string | number }
+  | ExcelRef;
+
 export interface ColumnSchema {
   key: string | number; // object key or array index
   type: ColumnType;
@@ -35,7 +80,7 @@ export interface ColumnSchema {
     textColor?: string;
     background?: string;
     align?: 'left' | 'right' | 'center';
-    decorations?: { strike?: boolean; underline?: boolean };
+    decorations?: { strike?: boolean; underline?: boolean; bold?: boolean; italic?: boolean };
   };
   conditionalFormat?: { expr: string; engine?: 'cel' };
   formula?: string;
@@ -150,3 +195,67 @@ export interface SelectionRange {
   startCol: number;
   endCol: number;
 }
+
+export type ResolvedCellStyle = {
+  background?: string;
+  textColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+};
+
+export type StyleDelta = Partial<ResolvedCellStyle>;
+
+export type ToggleState = 'on' | 'off' | 'mixed' | 'disabled';
+export type ColorState = string | 'mixed' | null | 'disabled';
+
+export type TableError = {
+  scope: 'validation' | 'commit' | 'render' | 'unknown';
+  message: string;
+  target?: { rowId?: string; colKey?: string | number };
+};
+
+export type TableState = {
+  canCommit: boolean;
+  pendingCommandCount: number;
+  pendingCellCount?: number;
+  undoRedo: { canUndo: boolean; canRedo: boolean };
+  renderMode: 'html' | 'canvas';
+  ui: { searchPanelOpen: boolean };
+  activeErrors: TableError[];
+};
+
+export type TableStateListener = (next: TableState, prev: TableState | null) => void;
+
+export type SelectionSnapshot = {
+  ranges: SelectionRange[];
+  activeRowIndex: number | null;
+  activeRowKey: string | null;
+  activeColumnIndex: number | null;
+  activeColumnKey: string | number | null;
+  activeValueRaw: unknown;
+  activeValueDisplay: string;
+  activeValueType: ColumnType | null;
+  styles: {
+    columnStyle: Partial<ResolvedCellStyle>;
+    cellStyle: Partial<ResolvedCellStyle>;
+    resolved: Partial<ResolvedCellStyle>;
+  };
+  canStyle: boolean;
+  styleState: {
+    bold: ToggleState;
+    italic: ToggleState;
+    underline: ToggleState;
+    strike: ToggleState;
+    textColor: ColorState;
+    background: ColorState;
+  };
+};
+
+export type SelectionChangeReason = 'selection' | 'edit' | 'style' | 'schema' | 'view' | 'data' | 'unknown';
+export type SelectionListener = (
+  next: SelectionSnapshot,
+  prev: SelectionSnapshot | null,
+  reason: SelectionChangeReason,
+) => void;
