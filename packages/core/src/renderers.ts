@@ -13,6 +13,28 @@ import {
 import { removeFromParent } from "./utils";
 import { columnFormatToStyle, mergeStyle, styleToCssText } from "./styleResolver";
 
+function drawDiagnosticCorner(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  level: "warning" | "error",
+) {
+  const size = Math.min(10, Math.floor(Math.min(w, h) / 2));
+  if (size <= 0) return;
+  const color = level === "error" ? "#ef4444" : "#f59e0b";
+  ctx.save();
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x + w, y);
+  ctx.lineTo(x + w - size, y);
+  ctx.lineTo(x + w, y + size);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
 class ValueFormatCache {
   private numberFormatCache = new Map<string, Intl.NumberFormat>();
   private dateParseCache = new Map<string, Date>();
@@ -226,13 +248,15 @@ export class HTMLRenderer implements Renderer {
       td.dataset.colKey = String(col.key);
       if (col.type === "boolean") td.classList.add("extable-boolean");
       const isPending = this.dataModel.hasPending(row.id, col.key);
+      const condRes = this.dataModel.resolveConditionalStyle(row.id, col);
       const cellStyle = this.dataModel.getCellStyle(row.id, col.key);
-      if (!cellStyle && !isPending) {
+      if (!cellStyle && !condRes.delta && !isPending) {
         const css = colBaseCss[idx] ?? "";
         if (css) td.style.cssText = css;
       } else {
         const baseStyle = colBaseStyles[idx] ?? {};
-        const merged = cellStyle ? mergeStyle(baseStyle, cellStyle) : baseStyle;
+        const withCond = condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
+        const merged = cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
         const forCss = isPending ? { ...merged, textColor: undefined } : merged;
         const css = styleToCssText(forCss);
         if (css) td.style.cssText = css;
@@ -242,13 +266,26 @@ export class HTMLRenderer implements Renderer {
       const wrap = view.wrapText?.[String(col.key)] ?? col.wrapText;
       td.classList.add(wrap ? "cell-wrap" : "cell-nowrap");
       const raw = this.dataModel.getRawCell(row.id, col.key);
-      const value = this.dataModel.getCell(row.id, col.key);
-      const formatted = this.formatValue(value, col);
+      const valueRes = this.dataModel.resolveCellValue(row.id, col);
+      const textOverride = valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
+      const formatted = textOverride
+        ? { text: textOverride as string }
+        : this.formatValue(valueRes.value, col);
       td.textContent = formatted.text;
       if (formatted.color) td.style.color = formatted.color;
+      const diag = this.dataModel.getCellDiagnostic(row.id, col.key);
+      const marker = this.dataModel.getCellMarker(row.id, col.key);
+      if (marker) {
+        td.classList.toggle("extable-diag-warning", marker.level === "warning");
+        td.classList.toggle("extable-diag-error", marker.level === "error");
+        td.dataset.extableDiagMessage = marker.message;
+      } else {
+        td.classList.remove("extable-diag-warning", "extable-diag-error");
+        td.removeAttribute("data-extable-diag-message");
+      }
       const align = col.format?.align ?? (col.type === "number" ? "right" : "left");
       td.classList.add(align === "right" ? "align-right" : "align-left");
-      const rawNumbered = toRawValue(raw, value, col);
+      const rawNumbered = toRawValue(raw, valueRes.value, col);
       if (rawNumbered !== null) {
         td.dataset.raw = rawNumbered;
       } else {
@@ -278,8 +315,10 @@ export class HTMLRenderer implements Renderer {
         const col = schema.columns[idx]!;
         if (!col.wrapText) continue;
         const width = colWidths[idx] ?? (view.columnWidths?.[String(col.key)] ?? col.width ?? 100);
-        const value = this.dataModel.getCell(row.id, col.key);
-        const text = value === null || value === undefined ? "" : String(value);
+        const valueRes = this.dataModel.resolveCellValue(row.id, col);
+        const condRes = this.dataModel.resolveConditionalStyle(row.id, col);
+        const textOverride = valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
+        const text = textOverride ? "#ERROR" : (valueRes.value === null || valueRes.value === undefined ? "" : String(valueRes.value));
         const version = this.dataModel.getRowVersion(row.id);
         const key = `${row.id}|${String(col.key)}|${version}|${width}|${text}`;
         const cached = this.measureCache.get(key);
@@ -292,12 +331,16 @@ export class HTMLRenderer implements Renderer {
         const measure = document.createElement("span");
         measure.style.visibility = "hidden";
         measure.style.position = "absolute";
+        measure.style.left = "-10000px";
+        measure.style.top = "0";
         measure.style.whiteSpace = "pre-wrap";
         measure.style.overflowWrap = "anywhere";
         measure.style.display = "inline-block";
         measure.style.width = `${width}px`;
         measure.textContent = text;
-        document.body.appendChild(measure);
+        const measureHost = this.tableEl?.parentElement;
+        if (!measureHost) continue;
+        measureHost.appendChild(measure);
         const h = measure.clientHeight + 10; // padding allowance
         measure.remove();
         this.measureCache.set(key, { height: h, frame: this.frame });
@@ -430,6 +473,10 @@ export class CanvasRenderer implements Renderer {
   private root: HTMLElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private spacer: HTMLDivElement | null = null;
+  private overlayLayer: HTMLDivElement | null = null;
+  private tooltip: HTMLDivElement | null = null;
+  private tooltipTarget: { rowId: string; colKey: string | number } | null = null;
+  private tooltipMessage: string | null = null;
   private dataModel: DataModel;
   private readonly rowHeight = DEFAULT_ROW_HEIGHT_PX;
   private readonly headerHeight = HEADER_HEIGHT_PX;
@@ -468,10 +515,19 @@ export class CanvasRenderer implements Renderer {
     this.canvas.addEventListener("pointerleave", this.handlePointerLeave);
     this.spacer = document.createElement("div");
     this.spacer.style.width = "1px";
-    root.innerHTML = "";
-    root.style.position = "relative";
-    root.appendChild(this.canvas);
-    root.appendChild(this.spacer);
+	    if (this.tooltip) this.tooltip.remove();
+	    if (this.overlayLayer) this.overlayLayer.remove();
+	    this.overlayLayer = document.createElement("div");
+	    this.overlayLayer.className = "extable-overlay-layer";
+	    this.tooltip = document.createElement("div");
+	    this.tooltip.className = "extable-tooltip";
+	    this.tooltip.dataset.visible = "0";
+	    this.overlayLayer.appendChild(this.tooltip);
+	    root.innerHTML = "";
+	    root.style.position = "relative";
+	    root.appendChild(this.overlayLayer);
+	    root.appendChild(this.canvas);
+	    root.appendChild(this.spacer);
     this.render();
   }
 
@@ -517,6 +573,7 @@ export class CanvasRenderer implements Renderer {
     if (this.canvas.height !== desiredCanvasHeight) this.canvas.height = desiredCanvasHeight;
     this.canvas.style.width = `${desiredCanvasWidth}px`;
     this.canvas.style.height = `${desiredCanvasHeight}px`;
+    this.refreshTooltipPosition();
 
     const scrollTop = state?.scrollTop ?? this.root.scrollTop;
     const scrollLeft = state?.scrollLeft ?? this.root.scrollLeft;
@@ -585,15 +642,18 @@ export class CanvasRenderer implements Renderer {
         const w = colWidths[idx] ?? 100;
         const readOnly = this.dataModel.isReadonly(row.id, c.key);
         ctx.strokeStyle = "#d0d7de";
+        const condRes = this.dataModel.resolveConditionalStyle(row.id, c);
         const cellStyle = this.dataModel.getCellStyle(row.id, c.key);
         const baseStyle = colBaseStyles[idx] ?? {};
-        const mergedStyle = cellStyle ? mergeStyle(baseStyle, cellStyle) : baseStyle;
+        const withCond = condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
+        const mergedStyle = cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
         const bg = readOnly ? "#f3f4f6" : mergedStyle.background ?? "#ffffff";
         ctx.fillStyle = bg;
         ctx.fillRect(x, yCursor, w, rowH);
         ctx.strokeRect(x, yCursor, w, rowH);
-        const value = this.dataModel.getCell(row.id, c.key);
-        const formatted = this.formatValue(value, c);
+        const valueRes = this.dataModel.resolveCellValue(row.id, c);
+        const textOverride = valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
+        const formatted = textOverride ? { text: "#ERROR" } : this.formatValue(valueRes.value, c);
         const text = formatted.text;
         const align = c.format?.align ?? (c.type === "number" ? "right" : "left");
         const isActiveCell =
@@ -605,7 +665,7 @@ export class CanvasRenderer implements Renderer {
           ctx.lineWidth = 2;
           ctx.strokeRect(x + 1, yCursor + 1, w - 2, rowH - 2);
           ctx.lineWidth = 1;
-          if (shouldShowFillHandle(this.dataModel, this.selection, this.activeColKey)) {
+          if (shouldShowFillHandle(this.dataModel, this.selection, this.activeRowId, this.activeColKey)) {
             const size = FILL_HANDLE_VISUAL_SIZE_PX;
             const left = x + w - size - 1;
             const top = yCursor + rowH - size - 1;
@@ -658,6 +718,8 @@ export class CanvasRenderer implements Renderer {
           isCustomBoolean,
           { underline: Boolean(mergedStyle.underline), strike: Boolean(mergedStyle.strike) },
         );
+        const marker = this.dataModel.getCellMarker(row.id, c.key);
+        if (marker) drawDiagnosticCorner(ctx, x, yCursor, w, rowH, marker.level);
         x += w;
       }
       ctx.restore();
@@ -768,8 +830,14 @@ export class CanvasRenderer implements Renderer {
     this.pendingCursorPoint = null;
     removeFromParent(this.canvas);
     removeFromParent(this.spacer);
+    removeFromParent(this.overlayLayer);
+    removeFromParent(this.tooltip);
     this.canvas = null;
     this.spacer = null;
+    this.overlayLayer = null;
+    this.tooltip = null;
+    this.tooltipTarget = null;
+    this.tooltipMessage = null;
     this.root = null;
   }
 
@@ -894,7 +962,45 @@ export class CanvasRenderer implements Renderer {
   private handlePointerLeave = () => {
     if (!this.canvas) return;
     this.canvas.style.cursor = "cell";
+    if (this.tooltip) this.tooltip.dataset.visible = "0";
+    this.tooltipTarget = null;
+    this.tooltipMessage = null;
   };
+
+  private positionTooltipAtRect(rect: DOMRect) {
+    if (!this.tooltip) return;
+    if (!this.root) return;
+    const pad = 8;
+    const rootRect = this.root.getBoundingClientRect();
+    const maxW = this.root.clientWidth;
+    const maxH = this.root.clientHeight;
+    let left = rect.right - rootRect.left + pad;
+    let top = rect.top - rootRect.top + pad;
+    let side: "right" | "left" = "right";
+    const tRect = this.tooltip.getBoundingClientRect();
+    if (left + tRect.width > maxW) {
+      left = Math.max(0, rect.left - rootRect.left - tRect.width - pad);
+      side = "left";
+    }
+    if (top + tRect.height > maxH) top = Math.max(0, maxH - tRect.height - pad);
+    this.tooltip.style.left = `${left}px`;
+    this.tooltip.style.top = `${top}px`;
+    this.tooltip.dataset.side = side;
+  }
+
+  private refreshTooltipPosition() {
+    if (!this.tooltip || this.tooltip.dataset.visible !== "1") return;
+    if (!this.tooltipTarget || !this.tooltipMessage) return;
+    const rect = this.getCellRect(this.tooltipTarget.rowId, this.tooltipTarget.colKey);
+    if (!rect) {
+      this.tooltip.dataset.visible = "0";
+      this.tooltipTarget = null;
+      this.tooltipMessage = null;
+      return;
+    }
+    this.tooltip.textContent = this.tooltipMessage;
+    this.positionTooltipAtRect(rect);
+  }
 
   private getCellRect(rowId: string, colKey: string | number): DOMRect | null {
     if (!this.root || !this.canvas) return null;
@@ -940,11 +1046,42 @@ export class CanvasRenderer implements Renderer {
     const hit = this.hitTest(new MouseEvent("mousemove", { clientX, clientY }));
     if (!hit) {
       this.canvas.style.cursor = cursor;
+      if (this.tooltip) this.tooltip.dataset.visible = "0";
+      this.tooltipTarget = null;
+      this.tooltipMessage = null;
       return;
     }
     if (hit.colKey === "__all__" || hit.colKey === "__row__") {
       this.canvas.style.cursor = "cell";
+      if (this.tooltip) this.tooltip.dataset.visible = "0";
+      this.tooltipTarget = null;
+      this.tooltipMessage = null;
       return;
+    }
+
+    const marker = this.dataModel.getCellMarker(hit.rowId, hit.colKey);
+    if (this.tooltip && marker) {
+      const sameCell =
+        this.tooltipTarget &&
+        this.tooltipTarget.rowId === hit.rowId &&
+        String(this.tooltipTarget.colKey) === String(hit.colKey);
+      const sameMessage = this.tooltipMessage === marker.message;
+      if (!sameCell || !sameMessage || this.tooltip.dataset.visible !== "1") {
+        this.tooltipTarget = { rowId: hit.rowId, colKey: hit.colKey };
+        this.tooltipMessage = marker.message;
+        this.tooltip.textContent = marker.message;
+        const rect = this.getCellRect(hit.rowId, hit.colKey);
+        if (rect) {
+          this.positionTooltipAtRect(rect);
+          this.tooltip.dataset.visible = "1";
+        } else {
+          this.tooltip.dataset.visible = "0";
+        }
+      }
+    } else if (this.tooltip) {
+      this.tooltip.dataset.visible = "0";
+      this.tooltipTarget = null;
+      this.tooltipMessage = null;
     }
 
     if (!this.isPointInSelection(hit.rowId, hit.colKey)) {
@@ -969,7 +1106,7 @@ export class CanvasRenderer implements Renderer {
       this.activeRowId !== "__all__" &&
       this.activeColKey !== "__all__" &&
       this.activeColKey !== "__row__" &&
-      shouldShowFillHandle(this.dataModel, this.selection, this.activeColKey)
+      shouldShowFillHandle(this.dataModel, this.selection, this.activeRowId, this.activeColKey)
     ) {
       const cellRect = this.getCellRect(this.activeRowId, this.activeColKey);
       if (cellRect) {
@@ -1003,8 +1140,10 @@ export class CanvasRenderer implements Renderer {
       const wrap = view.wrapText?.[String(c.key)] ?? c.wrapText;
       if (!wrap) continue;
       const w = (colWidths[idx] ?? 100) - this.padding;
-      const value = this.dataModel.getCell(row.id, c.key);
-      const text = this.formatValue(value, c).text;
+      const valueRes = this.dataModel.resolveCellValue(row.id, c);
+      const condRes = this.dataModel.resolveConditionalStyle(row.id, c);
+      const textOverride = valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
+      const text = textOverride ? "#ERROR" : this.formatValue(valueRes.value, c).text;
       const lines = this.wrapLines(ctx, text, w);
       const h = lines.length * this.lineHeight + this.padding;
       maxHeight = Math.max(maxHeight, h);

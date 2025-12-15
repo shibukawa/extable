@@ -8,6 +8,31 @@ export type CellValue =
 
 export type ColumnType = 'string' | 'number' | 'boolean' | 'datetime' | 'date' | 'time' | 'enum' | 'tags';
 
+export type ResolvedCellStyle = {
+  background?: string;
+  textColor?: string;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+};
+
+export type StyleDelta = Partial<ResolvedCellStyle>;
+
+export type DiagnosticLevel = 'warning' | 'error';
+export type CellDiagnostic = {
+  level: DiagnosticLevel;
+  message: string;
+  source: 'formula' | 'conditionalStyle';
+};
+
+export type FormulaOk = string | boolean | number | Date;
+export type FormulaWarn<T extends FormulaOk> = readonly [value: T, warning: Error];
+export type FormulaReturn<T extends FormulaOk = FormulaOk> = T | FormulaWarn<T>;
+
+export type ConditionalStyleFn<TData extends Record<string, unknown> = Record<string, unknown>> =
+  (data: TData) => StyleDelta | null | Error;
+
 // A1 notation typing (MVP: single cell only)
 // NOTE: Using per-digit unions here can explode the type space and break `tsc --emitDeclarationOnly`.
 // Keep the type reasonably permissive and enforce bounds (e.g. <= 100000) at runtime in the resolver.
@@ -53,11 +78,19 @@ export type CellAddress =
   | { rowIndex: number; colKey: string | number }
   | ExcelRef;
 
-export interface ColumnSchema {
+export interface ColumnSchema<
+  TData extends Record<string, unknown> = Record<string, unknown>,
+  TType extends ColumnType = ColumnType,
+> {
   key: string | number; // object key or array index
-  type: ColumnType;
+  type: TType;
   header?: string;
   readonly?: boolean;
+  /**
+   * When true, enforce uniqueness within this column (per table).
+   * Duplicate (non-empty) values mark all duplicated cells as invalid.
+   */
+  unique?: boolean;
   nullable?: boolean;
   string?: { maxLength?: number; regex?: string };
   number?: {
@@ -83,18 +116,19 @@ export interface ColumnSchema {
     decorations?: { strike?: boolean; underline?: boolean; bold?: boolean; italic?: boolean };
   };
   conditionalFormat?: { expr: string; engine?: 'cel' };
-  formula?: string;
+  formula?: (data: TData) => FormulaReturn;
+  conditionalStyle?: ConditionalStyleFn<TData>;
 }
 
-export interface Schema {
-  columns: ColumnSchema[];
+export interface Schema<TData extends Record<string, unknown> = Record<string, unknown>> {
+  columns: ColumnSchema<TData>[];
 }
 
-export type RowObject = { _readonly?: boolean } & Record<string, CellValue>;
+export type RowObject<T extends Record<string, unknown> = Record<string, unknown>> = { _readonly?: boolean } & T;
 export type RowArray = CellValue[];
 
-export interface DataSet {
-  rows: Array<RowObject | RowArray>;
+export interface DataSet<T extends Record<string, unknown> = Record<string, unknown>> {
+  rows: Array<RowObject<T> | RowArray>;
 }
 
 export interface ViewFilter {
@@ -174,8 +208,8 @@ export interface CoreOptions {
   };
 }
 
-export interface TableConfig {
-  data: DataSet;
+export interface TableConfig<T extends Record<string, unknown> = Record<string, unknown>> {
+  data: DataSet<T>;
   view: View;
   schema: Schema;
 }
@@ -196,22 +230,11 @@ export interface SelectionRange {
   endCol: number;
 }
 
-export type ResolvedCellStyle = {
-  background?: string;
-  textColor?: string;
-  bold?: boolean;
-  italic?: boolean;
-  underline?: boolean;
-  strike?: boolean;
-};
-
-export type StyleDelta = Partial<ResolvedCellStyle>;
-
 export type ToggleState = 'on' | 'off' | 'mixed' | 'disabled';
 export type ColorState = string | 'mixed' | null | 'disabled';
 
 export type TableError = {
-  scope: 'validation' | 'commit' | 'render' | 'unknown';
+  scope: 'validation' | 'commit' | 'render' | 'formula' | 'conditionalStyle' | 'unknown';
   message: string;
   target?: { rowId?: string; colKey?: string | number };
 };
@@ -237,6 +260,7 @@ export type SelectionSnapshot = {
   activeValueRaw: unknown;
   activeValueDisplay: string;
   activeValueType: ColumnType | null;
+  diagnostic: CellDiagnostic | null;
   styles: {
     columnStyle: Partial<ResolvedCellStyle>;
     cellStyle: Partial<ResolvedCellStyle>;

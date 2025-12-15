@@ -284,10 +284,15 @@ export function isPointInRect(x: number, y: number, rect: DOMRect) {
 export function shouldShowFillHandle(
   dataModel: DataModel,
   ranges: SelectionRange[],
+  activeRowId: string | null,
   activeColKey: string | number | null
 ): boolean {
   const src = getFillHandleSource(dataModel, ranges);
   if (!src) return false;
+  if (!activeRowId || activeRowId === '__all__') return false;
   if (activeColKey === null) return false;
-  return String(activeColKey) === String(src.colKey);
+  if (activeColKey === '__all__' || activeColKey === '__row__') return false;
+  if (String(activeColKey) !== String(src.colKey)) return false;
+  if (dataModel.isReadonly(activeRowId, activeColKey)) return false;
+  return true;
 }

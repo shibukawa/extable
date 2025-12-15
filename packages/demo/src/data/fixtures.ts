@@ -2,9 +2,9 @@ export interface DemoRow {
   id: number;
   name: string;
   active: boolean;
-  date: string;
-  time: string;
-  datetime: string;
+  date: Date;
+  time: Date;
+  datetime: Date;
   role: 'viewer' | 'editor' | 'owner';
   tags: string[];
   score: number;
@@ -19,13 +19,14 @@ export const demoRows: DemoRow[] = [
 for (let i = 1; i <= 100; i += 1) {
   const isLong = i % 5 === 0;
   const hasNewlines = i % 7 === 0;
+  const base = new Date(2024, 10, 1, 9, 30, 0); // local time
   demoRows.push({
     id: i,
     name: `User ${i}`,
     active: i % 2 === 0,
-    date: '2024-11-01',
-    time: '09:30',
-    datetime: '2024-11-01T09:30:00Z',
+    date: new Date(base.getFullYear(), base.getMonth(), base.getDate()),
+    time: new Date(1970, 0, 1, base.getHours(), base.getMinutes(), base.getSeconds()),
+    datetime: new Date(base.getTime()),
     role: i % 3 === 0 ? 'owner' : i % 3 === 1 ? 'editor' : 'viewer',
     tags: i % 4 === 0 ? ['priority'] : i % 3 === 0 ? ['alpha'] : ['beta'],
     score: Math.round((50 + (i % 50)) * 100) / 100,
@@ -73,18 +74,25 @@ export interface DataFormatRow {
   boolCheck: boolean;
   boolTrueFalse: boolean;
   boolTrueFalseJp: boolean;
-  dateIso: string;
-  dateSlash: string;
-  time24s: string;
-  time12: string;
-  datetimeIso: string;
-  datetimeSlash: string;
+  dateIso: Date;
+  dateSlash: Date;
+  time24s: Date;
+  time12: Date;
+  datetimeIso: Date;
+  datetimeSlash: Date;
 }
 
 export const dataFormatRows: DataFormatRow[] = [];
 
 for (let i = 1; i <= 40; i += 1) {
   const negative = i % 4 === 0;
+  const month = (i % 12) + 1;
+  const day = (i % 28) + 1;
+  const hour = i % 24;
+  const minute = i % 60;
+  const second = (i * 2) % 60;
+  const d = new Date(2025, 11, day, 0, 0, 0);
+  const dt = new Date(2025, 11, day, hour, minute, 0);
   dataFormatRows.push({
     id: i,
     intPlain: negative ? -i * 10 : i * 10,
@@ -93,12 +101,12 @@ for (let i = 1; i <= 40; i += 1) {
     boolCheck: i % 2 === 0,
     boolTrueFalse: i % 3 === 0,
     boolTrueFalseJp: i % 5 === 0,
-    dateIso: `2025-12-${String((i % 28) + 1).padStart(2, '0')}`,
-    dateSlash: `2025/${String((i % 12) + 1).padStart(2, '0')}/${String((i % 28) + 1).padStart(2, '0')}`,
-    time24s: `0${i % 24}:${String(i % 60).padStart(2, '0')}:${String((i * 2) % 60).padStart(2, '0')}`,
-    time12: `${String(((i % 12) || 12)).padStart(2, '0')}:${String((i * 3) % 60).padStart(2, '0')} ${i % 24 >= 12 ? 'PM' : 'AM'}`,
-    datetimeIso: `2025-12-${String((i % 28) + 1).padStart(2, '0')}T0${i % 24}:${String(i % 60).padStart(2, '0')}:00Z`,
-    datetimeSlash: `2025/${String((i % 12) + 1).padStart(2, '0')}/${String((i % 28) + 1).padStart(2, '0')} ${String(i % 24).padStart(2, '0')}:${String((i * 2) % 60).padStart(2, '0')}`
+    dateIso: new Date(d.getFullYear(), d.getMonth(), d.getDate()),
+    dateSlash: new Date(2025, month - 1, day),
+    time24s: new Date(1970, 0, 1, hour, minute, second),
+    time12: new Date(1970, 0, 1, hour, (i * 3) % 60, 0),
+    datetimeIso: new Date(dt.getTime()),
+    datetimeSlash: new Date(2025, month - 1, day, hour, second, 0),
   });
 }
 
@@ -121,6 +129,169 @@ export const dataFormatSchema = {
 };
 
 export const dataFormatView = {
+  hiddenColumns: [],
+  filters: [],
+  sorts: []
+};
+
+export interface FormulaConditionalRow {
+  id: number;
+  item: string;
+  price: number;
+  qty: number;
+  discountRate: number;
+  note: string;
+}
+
+export const formulaRows: FormulaConditionalRow[] = [
+  { id: 1, item: 'Apple', price: 120, qty: 2, discountRate: 0, note: '' },
+  { id: 2, item: 'Banana', price: 80, qty: 5, discountRate: 0.1, note: 'promo' },
+  { id: 3, item: 'Orange', price: 150, qty: 1, discountRate: 0, note: '' },
+  { id: 4, item: 'Grape', price: 200, qty: 0, discountRate: 0.05, note: 'qty=0 (warn)' },
+  { id: 5, item: 'Mango', price: -50, qty: 3, discountRate: 0, note: 'negative price (error style)' }
+];
+
+export const formulaSchema = {
+  columns: [
+    { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
+    { key: 'item', header: 'Item', type: 'string', width: 140 },
+    { key: 'price', header: 'Price', type: 'number', format: { align: 'right' }, width: 90 },
+    { key: 'qty', header: 'Qty', type: 'number', format: { align: 'right' }, width: 70 },
+    {
+      key: 'subtotal',
+      header: 'Subtotal',
+      type: 'number',
+      formula: (row: FormulaConditionalRow) => row.price * row.qty,
+      format: { align: 'right' },
+      width: 110
+    },
+    {
+      key: 'total',
+      header: 'Total',
+      type: 'number',
+      formula: (row: FormulaConditionalRow) => {
+        if (row.qty === 0) return [0, new Error('qty is 0')] as const;
+        const subtotal = row.price * row.qty;
+        return subtotal * (1 - row.discountRate);
+      },
+      format: { align: 'right' },
+      width: 120
+    },
+    {
+      key: 'status',
+      header: 'Status (formula)',
+      type: 'string',
+      formula: (row: FormulaConditionalRow) => {
+        if (row.price < 0) throw new Error('price must be >= 0');
+        if (row.qty === 0) return ['warning', new Error('out of stock')] as const;
+        return row.discountRate > 0 ? 'discount' : 'ok';
+      },
+      width: 150
+    },
+    {
+      key: 'note',
+      header: 'Note',
+      type: 'string',
+      width: 180
+    }
+  ]
+};
+
+export const formulaView = {
+  hiddenColumns: [],
+  filters: [],
+  sorts: []
+};
+
+export interface ConditionalStyleRow {
+  id: number;
+  group: 'A' | 'B';
+  value: number;
+  flag: boolean;
+  note: string;
+}
+
+export const conditionalStyleRows: ConditionalStyleRow[] = [
+  { id: 1, group: 'A', value: 10, flag: false, note: '' },
+  { id: 2, group: 'A', value: 80, flag: true, note: 'warn from style fn' },
+  { id: 3, group: 'B', value: 55, flag: false, note: '' },
+  { id: 4, group: 'B', value: 5, flag: true, note: 'error from style fn' },
+  { id: 5, group: 'A', value: 120, flag: false, note: 'highlight' }
+];
+
+export const conditionalStyleSchema = {
+  columns: [
+    // Row-level conditional style (meta column; not rendered)
+    {
+      key: '__row__',
+      type: 'string',
+      conditionalStyle: (row: ConditionalStyleRow) => (row.group === 'B' ? { background: '#f1f5f9' } : null)
+    },
+    { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
+    { key: 'group', header: 'Group', type: 'string', width: 80 },
+    {
+      key: 'value',
+      header: 'Value',
+      type: 'number',
+      format: { align: 'right' },
+      conditionalStyle: (row: ConditionalStyleRow) => {
+        if (row.id === 2) return new Error('conditional style warning (demo)');
+        if (row.id === 4) throw new Error('conditional style error (demo)');
+        if (row.value >= 100) return { background: '#dcfce7', bold: true };
+        if (row.value < 20) return { textColor: '#b91c1c' };
+        return null;
+      },
+      width: 110
+    },
+    {
+      key: 'flag',
+      header: 'Flag',
+      type: 'boolean',
+      booleanDisplay: 'checkbox',
+      conditionalStyle: (row: ConditionalStyleRow) => (row.flag ? { underline: true } : null),
+      width: 80
+    },
+    {
+      key: 'note',
+      header: 'Note',
+      type: 'string',
+      conditionalStyle: (row: ConditionalStyleRow) => (row.note ? { textColor: '#1d4ed8' } : null),
+      width: 220
+    }
+  ]
+};
+
+export const conditionalStyleView = {
+  hiddenColumns: [],
+  filters: [],
+  sorts: []
+};
+
+export interface UniqueCheckRow {
+  id: number;
+  email: string;
+  code: string;
+  note: string;
+}
+
+export const uniqueCheckRows: UniqueCheckRow[] = [
+  { id: 1, email: 'alice@example.com', code: 'A-001', note: '' },
+  { id: 2, email: 'bob@example.com', code: 'B-002', note: '' },
+  { id: 3, email: 'alice@example.com', code: 'C-003', note: 'duplicate email' },
+  { id: 4, email: 'carol@example.com', code: 'B-002', note: 'duplicate code' },
+  { id: 5, email: '', code: '', note: 'empty values are ignored' }
+];
+
+export const uniqueCheckSchema = {
+  columns: [
+    { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
+    { key: 'email', header: 'Email (unique)', type: 'string', unique: true, width: 220 },
+    { key: 'code', header: 'Code (unique)', type: 'string', unique: true, width: 140 },
+    { key: 'note', header: 'Note', type: 'string', width: 240 }
+  ]
+};
+
+export const uniqueCheckView = {
   hiddenColumns: [],
   filters: [],
   sorts: []

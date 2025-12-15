@@ -157,9 +157,11 @@ export class SelectionManager {
 
   private updateFillHandleFlag() {
     const activeColKey = this.activeCell?.colKey ?? null;
+    const activeRowId = this.activeCell?.rowId ?? null;
     this.root.dataset.extableFillHandle = shouldShowFillHandle(
       this.dataModel,
       this.selectionRanges,
+      activeRowId,
       activeColKey,
     )
       ? "1"
@@ -507,7 +509,12 @@ export class SelectionManager {
           this.computeCanvasCellRect(handleRow.id, handleCol.key);
         if (
           cellRect &&
-          shouldShowFillHandle(this.dataModel, this.selectionRanges, this.activeCell.colKey)
+          shouldShowFillHandle(
+            this.dataModel,
+            this.selectionRanges,
+            this.activeCell.rowId,
+            this.activeCell.colKey,
+          )
         ) {
           const handleRect = getFillHandleRect(cellRect, FILL_HANDLE_HIT_SIZE_PX);
           if (isPointInRect(ev.clientX, ev.clientY, handleRect)) {
@@ -1291,7 +1298,7 @@ export class SelectionManager {
           op.value = opt;
           datalist.appendChild(op);
         }
-        document.body.appendChild(datalist);
+        this.root.appendChild(datalist);
       }
       return { control: input, value: initial, datalistId: listId };
     }

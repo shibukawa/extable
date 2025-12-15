@@ -12,6 +12,7 @@ import type {
   CellAddress,
   Command,
   CoreOptions,
+  ConditionalStyleFn,
   ExcelRef,
   DataSet,
   EditMode,
@@ -41,15 +42,15 @@ export * from "./types";
 export type { FindReplaceMatch, FindReplaceMode, FindReplaceOptions, FindReplaceState } from "./findReplace";
 export { FindReplaceController } from "./findReplace";
 
-export interface CoreInit {
+export interface CoreInit<T extends Record<string, unknown> = Record<string, unknown>> {
   root: HTMLElement;
-  defaultData: DataSet;
+  defaultData: DataSet<T>;
   defaultView: View;
   schema: Schema;
   options?: CoreOptions;
 }
 
-export class ExtableCore {
+export class ExtableCore<T extends Record<string, unknown> = Record<string, unknown>> {
   private root: HTMLElement;
   private shell: HTMLDivElement | null = null;
   private viewportEl: HTMLDivElement | null = null;
@@ -113,7 +114,7 @@ export class ExtableCore {
     }
   }
 
-  constructor(init: CoreInit) {
+  constructor(init: CoreInit<T>) {
     this.root = init.root;
     this.renderMode = init.options?.renderMode ?? "auto";
     this.editMode = init.options?.editMode ?? "direct";
@@ -285,7 +286,7 @@ export class ExtableCore {
     }
   }
 
-  setData(data: DataSet) {
+  setData(data: DataSet<T>) {
     this.dataModel.setData(data);
     this.safeRender(this.viewportState ?? undefined);
     this.emitSelection("data");
@@ -494,7 +495,7 @@ export class ExtableCore {
       }
     }
     pop.appendChild(list);
-    document.body.appendChild(pop);
+    (this.viewportEl ?? this.root).appendChild(pop);
     this.contextMenu = pop;
   }
 
@@ -599,7 +600,7 @@ export class ExtableCore {
     toast.style.right = "16px";
     toast.style.bottom = "16px";
     toast.style.position = "fixed";
-    document.body.appendChild(toast);
+    (this.viewportEl ?? this.root).appendChild(toast);
     this.toast = toast;
   }
 
@@ -724,7 +725,28 @@ export class ExtableCore {
       message: e.message,
       target: { rowId: e.rowId, colKey: e.colKey },
     }));
-    const activeErrors = [...validationErrors, ...this.activeErrors];
+    const diagnosticErrors: TableError[] = this.dataModel
+      .getDiagnostics()
+      .map((x) => {
+        if (!x.diag) return null;
+        return {
+          scope: x.diag.source,
+          message: x.diag.message,
+          target: { rowId: x.rowId, colKey: x.colKey },
+        } as TableError;
+      })
+      .filter(Boolean) as TableError[];
+    diagnosticErrors.sort((a, b) => {
+      const ar = a.target?.rowId ? this.dataModel.getRowIndex(a.target.rowId) : -1;
+      const br = b.target?.rowId ? this.dataModel.getRowIndex(b.target.rowId) : -1;
+      if (ar !== br) return ar - br;
+      const ac = a.target?.colKey !== undefined ? this.dataModel.getColumnIndex(a.target.colKey) : -1;
+      const bc = b.target?.colKey !== undefined ? this.dataModel.getColumnIndex(b.target.colKey) : -1;
+      if (ac !== bc) return ac - bc;
+      if (a.scope !== b.scope) return a.scope < b.scope ? -1 : 1;
+      return a.message < b.message ? -1 : a.message > b.message ? 1 : 0;
+    });
+    const activeErrors = [...validationErrors, ...diagnosticErrors.slice(0, 200), ...this.activeErrors];
     return {
       canCommit: this.editMode === "commit" && pendingCommandCount > 0,
       pendingCommandCount,
@@ -790,8 +812,13 @@ export class ExtableCore {
       activeColKey !== null ? schema.columns.findIndex((c) => String(c.key) === String(activeColKey)) : null;
     const col = activeColIndex !== null && activeColIndex >= 0 ? schema.columns[activeColIndex] : null;
 
-    const activeValueRaw = activeRowId && activeColKey !== null ? this.dataModel.getCell(activeRowId, activeColKey) : null;
+    const activeValueRes = activeRowId && col ? this.dataModel.resolveCellValue(activeRowId, col) : null;
+    const activeCondRes = activeRowId && col ? this.dataModel.resolveConditionalStyle(activeRowId, col) : null;
+    const activeTextOverride =
+      activeValueRes?.textOverride ?? (activeCondRes?.forceErrorText ? "#ERROR" : undefined);
+    const activeValueRaw = activeValueRes ? activeValueRes.value : null;
     const activeValueDisplay = (() => {
+      if (activeTextOverride) return activeTextOverride;
       const v = activeValueRaw;
       if (v === null || v === undefined) return "";
       if (v instanceof Date) return v.toISOString();
@@ -805,6 +832,8 @@ export class ExtableCore {
       return String(v);
     })();
     const activeValueType = col?.type ?? null;
+    const diagnostic =
+      activeRowId && activeColKey !== null ? this.dataModel.getCellDiagnostic(activeRowId, activeColKey) : null;
 
     const activeStyles = (() => {
       if (!activeRowId || !col) {
@@ -871,9 +900,7 @@ export class ExtableCore {
       if (!canStyle) return disabledStyleState;
       const resolvedStyles: ResolvedCellStyle[] = [];
       for (const c of selected) {
-        const base = columnFormatToStyle(c.col);
-        const cellStyle = this.dataModel.getCellStyle(c.rowId, c.colKey);
-        resolvedStyles.push(mergeStyle(base, cellStyle));
+        resolvedStyles.push(resolveCellStyles(this.dataModel, c.rowId, c.col).resolved);
       }
       return {
         bold: aggregateToggle(resolvedStyles.map((s) => Boolean(s.bold))),
@@ -894,6 +921,7 @@ export class ExtableCore {
       activeValueRaw,
       activeValueDisplay,
       activeValueType,
+      diagnostic,
       styles: activeStyles,
       canStyle,
       styleState,
@@ -970,6 +998,15 @@ export class ExtableCore {
         }
       }
     });
+    this.safeRender(this.viewportState ?? undefined);
+    this.emitSelection("style");
+    this.emitTableState();
+  }
+
+  setCellConditionalStyle(target: CellAddress, fn: ConditionalStyleFn | null) {
+    const resolved = resolveCellAddress(this.dataModel, target);
+    if (!resolved) return;
+    this.dataModel.setCellConditionalStyle(resolved.rowId, resolved.colKey, fn);
     this.safeRender(this.viewportState ?? undefined);
     this.emitSelection("style");
     this.emitTableState();
@@ -1260,8 +1297,11 @@ export class ExtableCore {
 }
 
 // Compatibility helpers for wrappers/tests
-export function createTablePlaceholder(config: TableConfig, options: CoreOptions) {
-  const core = new ExtableCore({
+export function createTablePlaceholder<T extends Record<string, unknown> = Record<string, unknown>>(
+  config: TableConfig<T>,
+  options: CoreOptions,
+) {
+  const core = new ExtableCore<T>({
     root: document.createElement("div"),
     defaultData: config.data,
     defaultView: config.view,

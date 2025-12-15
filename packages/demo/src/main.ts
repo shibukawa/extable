@@ -2,12 +2,28 @@ import './style.css';
 import '@extable/core/style.css';
 import { ExtableCore } from '@extable/core';
 import type { Command, CoreOptions, DataSet, Schema, ServerAdapter, UserInfo, View } from '@extable/core';
-import { demoRows, demoSchema, demoView, dataFormatRows, dataFormatSchema, dataFormatView } from './data/fixtures';
+import {
+  demoRows,
+  demoSchema,
+  demoView,
+  dataFormatRows,
+  dataFormatSchema,
+  dataFormatView,
+  formulaRows,
+  formulaSchema,
+  formulaView,
+  conditionalStyleRows,
+  conditionalStyleSchema,
+  conditionalStyleView,
+  uniqueCheckRows,
+  uniqueCheckSchema,
+  uniqueCheckView
+} from './data/fixtures';
 
 type Mode = 'html' | 'canvas' | 'auto';
 type EditMode = 'direct' | 'commit';
 type LockMode = 'none' | 'row';
-type DataMode = 'standard' | 'data-format';
+type DataMode = 'standard' | 'data-format' | 'formula' | 'conditional-style' | 'unique-check';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 const tableRootId = 'table-root';
@@ -70,6 +86,9 @@ function renderShell() {
       <h2>Data Set</h2>
       <label><input type="radio" name="data-mode" value="standard" checked /> Standard</label>
       <label><input type="radio" name="data-mode" value="data-format" /> Data Format</label>
+      <label><input type="radio" name="data-mode" value="formula" /> Formula</label>
+      <label><input type="radio" name="data-mode" value="conditional-style" /> Conditional Style</label>
+      <label><input type="radio" name="data-mode" value="unique-check" /> Unique Check</label>
     </div>
     <div>
       <h2>Actions</h2>
@@ -84,7 +103,7 @@ function renderShell() {
         <button id="style-underline" class="tool-btn" title="Underline"><span style="text-decoration: underline;">U</span></button>
         <button id="style-strike" class="tool-btn" title="Strikethrough"><span style="text-decoration: line-through;">S</span></button>
         <label class="color-label">Text <input id="style-text-color" type="color" /></label>
-        <label class="color-label">Bg <input id="style-bg-color" type="color" /></label>
+        <label class="color-label">Bg <input id="style-bg-color" type="color" value="#ffffff" /></label>
         <button id="style-clear" class="tool-btn" title="Clear style">Clear</button>
       </div>
     </div>
@@ -99,6 +118,8 @@ function renderShell() {
         <div class="state-panel">
           <h2>State Preview</h2>
           <pre id="state"></pre>
+          <h2>Data Note</h2>
+          <pre id="data-note"></pre>
         </div>
       </section>
     </main>
@@ -111,6 +132,27 @@ function cloneConfig(dataMode: DataMode) {
       data: { rows: dataFormatRows.map((r) => ({ ...r })) },
       schema: dataFormatSchema,
       view: { ...dataFormatView }
+    };
+  }
+  if (dataMode === 'formula') {
+    return {
+      data: { rows: formulaRows.map((r) => ({ ...r })) },
+      schema: formulaSchema,
+      view: { ...formulaView }
+    };
+  }
+  if (dataMode === 'conditional-style') {
+    return {
+      data: { rows: conditionalStyleRows.map((r) => ({ ...r })) },
+      schema: conditionalStyleSchema,
+      view: { ...conditionalStyleView }
+    };
+  }
+  if (dataMode === 'unique-check') {
+    return {
+      data: { rows: uniqueCheckRows.map((r) => ({ ...r })) },
+      schema: uniqueCheckSchema,
+      view: { ...uniqueCheckView }
     };
   }
   return {
@@ -139,8 +181,80 @@ function main() {
   let unsubscribeTable: (() => void) | null = null;
   let unsubscribeSelection: (() => void) | null = null;
   let lastSelection: any = null;
+  let lastTextColor = '#000000';
+  let lastBgColor = '#ffffff';
 
   const stateEl = document.getElementById('state');
+  const dataNoteEl = document.getElementById('data-note');
+
+  const safeFnSource = (fn: unknown) => {
+    if (typeof fn !== 'function') return null;
+    try {
+      return String(fn);
+    } catch {
+      return '[unavailable]';
+    }
+  };
+
+  const dataNoteForSchema = (schema: Schema) => {
+    const lines: string[] = [];
+    const metaRow = schema.columns.find((c: any) => String(c.key) === '__row__');
+    if (metaRow?.conditionalStyle) {
+      lines.push('Row conditionalStyle (__row__):');
+      lines.push(safeFnSource((metaRow as any).conditionalStyle) ?? '');
+      lines.push('');
+    }
+
+    const cols = schema.columns.filter((c: any) => String(c.key) !== '__row__');
+    const formulaCols = cols.filter((c: any) => Boolean((c as any).formula));
+    const condCols = cols.filter((c: any) => Boolean((c as any).conditionalStyle));
+    const uniqueCols = cols.filter((c: any) => Boolean((c as any).unique));
+
+    if (formulaCols.length) {
+      lines.push('Computed columns (formula):');
+      for (const c of formulaCols) {
+        lines.push(`- ${String((c as any).key)} (${String((c as any).type)}):`);
+        lines.push(safeFnSource((c as any).formula) ?? '');
+      }
+      lines.push('');
+    }
+    if (condCols.length) {
+      lines.push('Conditional styles (conditionalStyle):');
+      for (const c of condCols) {
+        lines.push(`- ${String((c as any).key)} (${String((c as any).type)}):`);
+        lines.push(safeFnSource((c as any).conditionalStyle) ?? '');
+      }
+      lines.push('');
+    }
+    if (uniqueCols.length) {
+      lines.push('Unique columns (unique: true):');
+      for (const c of uniqueCols) {
+        lines.push(`- ${String((c as any).key)} (${String((c as any).type)}): duplicates -> validation errors`);
+      }
+      lines.push('');
+    }
+
+    if (!lines.length) return 'No formula/conditionalStyle/unique rules in this dataset.';
+    return lines.join('\n');
+  };
+
+  const updateDataNote = () => {
+    if (!dataNoteEl) return;
+    const cfg = currentConfig;
+    const header = [
+      `dataMode: ${dataMode}`,
+      '',
+      'Notes:',
+      '- formula: (row) => value | [value, Error] (warning) | throw (error)',
+      '- conditionalStyle: (row) => StyleDelta | null | Error (warning) | throw (error)',
+      '- Warning/Error is shown as a corner marker with hover message.',
+      '',
+      'Sources:',
+      ''
+    ].join('\n');
+    dataNoteEl.textContent = header + dataNoteForSchema(cfg.schema);
+  };
+
   const updateState = () => {
     if (!stateEl) return;
     stateEl.textContent = JSON.stringify(
@@ -154,6 +268,7 @@ function main() {
       null,
       2
     );
+    updateDataNote();
   };
 
   const rebuildCore = () => {
@@ -164,6 +279,7 @@ function main() {
     unsubscribeSelection = null;
     const config = cloneConfig(dataMode);
     currentConfig = config;
+    updateDataNote();
     core = new ExtableCore({
       root: tableRoot,
       defaultData: config.data,
@@ -269,14 +385,18 @@ function main() {
   document.getElementById('style-strike')?.addEventListener('click', () => toggleFromSelection('strike'));
 
   const textColor = document.getElementById('style-text-color') as HTMLInputElement | null;
+  if (textColor) textColor.value = lastTextColor;
   textColor?.addEventListener('input', () => {
     if (!core || !lastSelection) return;
-    core.applyStyleToSelection({ textColor: textColor.value });
+    lastTextColor = textColor.value;
+    core.applyStyleToSelection({ textColor: lastTextColor });
   });
   const bgColor = document.getElementById('style-bg-color') as HTMLInputElement | null;
+  if (bgColor) bgColor.value = lastBgColor;
   bgColor?.addEventListener('input', () => {
     if (!core || !lastSelection) return;
-    core.applyStyleToSelection({ background: bgColor.value });
+    lastBgColor = bgColor.value;
+    core.applyStyleToSelection({ background: lastBgColor });
   });
   document.getElementById('style-clear')?.addEventListener('click', () => {
     if (!core || !lastSelection) return;

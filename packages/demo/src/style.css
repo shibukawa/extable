@@ -110,12 +110,12 @@ h2 {
   background: linear-gradient(0deg, #ffffff, #f9fafb);
   min-height: 320px;
   height: 480px;
-  overflow: auto;
+  overflow: hidden;
 }
 
 .table-container {
   max-height: 520px;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid #d0d7de;
 }
 
@@ -126,4 +126,8 @@ pre {
   border-radius: 6px;
   overflow: auto;
   border: 1px solid #0f172a;
+}
+
+.state-panel pre#data-note {
+  max-height: 320px;
 }

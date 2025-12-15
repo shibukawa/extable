@@ -7,11 +7,29 @@
 	.extable-cell {
 		border: var(--extable-border);
 		padding: 4px 8px;
+		position: relative;
 
 		&.invalid {
 			outline: 1px solid var(--extable-invalid);
 		}
 	}
+
+	.extable-diag-warning::before,
+	.extable-diag-error::before {
+		content: "";
+		position: absolute;
+		top: 0;
+		right: 0;
+		width: 10px;
+		height: 10px;
+		background: linear-gradient(225deg, #f59e0b 50%, transparent 50%);
+	}
+
+	.extable-diag-error::before {
+		background: linear-gradient(225deg, #ef4444 50%, transparent 50%);
+	}
+
+		/* Tooltip is defined at top-level to apply even when appended to <body>. */
 
 	.pending {
 		color: #b91c1c;
@@ -266,6 +284,17 @@
 	min-width: 0;
 	min-height: 0;
 	overflow: auto;
+	overscroll-behavior: contain;
+}
+
+.extable-overlay-layer {
+	position: sticky;
+	top: 0;
+	left: 0;
+	width: 0;
+	height: 0;
+	pointer-events: none;
+	z-index: 20;
 }
 
 .extable-search-sidebar {
@@ -299,6 +328,77 @@
 	opacity: 1;
 	transform: translateX(0);
 	pointer-events: auto;
+}
+
+.extable-tooltip {
+	position: absolute;
+	pointer-events: none;
+	z-index: 9999;
+	display: none;
+	max-width: 360px;
+	padding: 8px 10px;
+	border-radius: 10px;
+	background: #111827;
+	color: #f8fafc;
+	font-size: 12px;
+	line-height: 1.25;
+	box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+	border: 1px solid rgba(148, 163, 184, 0.35);
+	white-space: pre-wrap;
+}
+
+.extable-tooltip[data-visible="1"] {
+	display: block;
+}
+
+.extable-tooltip::after {
+	content: "";
+	position: absolute;
+	top: 10px;
+	width: 0;
+	height: 0;
+	border: 7px solid transparent;
+}
+
+.extable-tooltip[data-side="right"]::after {
+	left: -14px;
+	border-right-color: #111827;
+}
+
+.extable-tooltip[data-side="left"]::after {
+	right: -14px;
+	border-left-color: #111827;
+}
+
+/* HTML-only: show tooltip on cell hover (anchored to the cell, no JS). */
+.extable-root td[data-extable-diag-message]:hover::after {
+	content: attr(data-extable-diag-message);
+	position: absolute;
+	top: 6px;
+	left: calc(100% + 10px);
+	max-width: 360px;
+	padding: 8px 10px;
+	border-radius: 10px;
+	background: #111827;
+	color: #f8fafc;
+	font-size: 12px;
+	line-height: 1.25;
+	box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+	border: 1px solid rgba(148, 163, 184, 0.35);
+	white-space: pre-wrap;
+	z-index: 20;
+}
+
+.extable-root td[data-extable-diag-message]:hover::before {
+	content: "";
+	position: absolute;
+	top: 14px;
+	left: calc(100% + 2px);
+	width: 0;
+	height: 0;
+	border: 7px solid transparent;
+	border-right-color: #111827;
+	z-index: 21;
 }
 
 .extable-search-header {
