@@ -1,5 +1,5 @@
 import type { DataModel } from "./dataModel";
-import type { InternalRow, Schema, ColumnSchema, SelectionRange } from "./types";
+import type { InternalRow, Schema, ColumnSchema, SelectionRange, View, ViewFilterValues } from "./types";
 import { format as formatDate, parseISO } from "date-fns";
 import { toRawValue } from "./cellValueCodec";
 import { DEFAULT_ROW_HEIGHT_PX, HEADER_HEIGHT_PX, ROW_HEADER_WIDTH_PX, getColumnWidths } from "./geometry";
@@ -12,6 +12,43 @@ import {
 } from "./fillHandle";
 import { removeFromParent } from "./utils";
 import { columnFormatToStyle, mergeStyle, styleToCssText } from "./styleResolver";
+
+function getColumnSortDir(view: View, colKey: string | number): "asc" | "desc" | null {
+  const s = view.sorts?.[0];
+  if (!s) return null;
+  return String(s.key) === String(colKey) ? s.dir : null;
+}
+
+function hasActiveColumnFilter(view: View, colKey: string | number): boolean {
+  const hasValues = (view.filters ?? []).some((f) => {
+    const vf = f as ViewFilterValues;
+    return vf?.kind === "values" && String(vf.key) === String(colKey);
+  });
+  if (hasValues) return true;
+  const diag = view.columnDiagnostics?.[String(colKey)];
+  return Boolean(diag?.errors || diag?.warnings);
+}
+
+function svgFunnel() {
+  // Simple funnel icon (stroke only) for filter affordance.
+  return `
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+      <path d="M3 5h18l-7 8v6l-4 2v-8L3 5z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+  `.trim();
+}
+
+function svgArrow(dir: "asc" | "desc") {
+  const d =
+    dir === "asc"
+      ? "M12 6l6 8H6l6-8z"
+      : "M12 18l-6-8h12l-6 8z";
+  return `
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+      <path d="${d}" fill="currentColor"/>
+    </svg>
+  `.trim();
+}
 
 function drawDiagnosticCorner(
   ctx: CanvasRenderingContext2D,
@@ -55,6 +92,56 @@ class ValueFormatCache {
     if (!cached && !Number.isNaN(parsed.getTime())) this.dateParseCache.set(value, parsed);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
+}
+
+function drawFunnelIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, alpha: number) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = "rgba(15,23,42,1)";
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  // Top trapezoid
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + size, y);
+  ctx.lineTo(x + Math.round(size * 0.62), y + Math.round(size * 0.46));
+  ctx.lineTo(x + Math.round(size * 0.38), y + Math.round(size * 0.46));
+  ctx.closePath();
+  ctx.stroke();
+  // Stem
+  ctx.beginPath();
+  ctx.moveTo(x + Math.round(size * 0.46), y + Math.round(size * 0.46));
+  ctx.lineTo(x + Math.round(size * 0.46), y + size);
+  ctx.lineTo(x + Math.round(size * 0.54), y + size - 2);
+  ctx.lineTo(x + Math.round(size * 0.54), y + Math.round(size * 0.46));
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawSortArrowIcon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  alpha: number,
+  dir: "asc" | "desc",
+) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(15,23,42,1)";
+  ctx.beginPath();
+  if (dir === "asc") {
+    ctx.moveTo(x + size / 2, y);
+    ctx.lineTo(x + size, y + size);
+    ctx.lineTo(x, y + size);
+  } else {
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + size, y);
+    ctx.lineTo(x + size / 2, y + size);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 export interface ViewportState {
@@ -207,10 +294,32 @@ export class HTMLRenderer implements Renderer {
     if (this.activeRowId) rowTh.classList.toggle("extable-active-row-header", true);
     rowTh.dataset.colKey = "__row__";
     tr.appendChild(rowTh);
+    const view = this.dataModel.getView();
     for (let idx = 0; idx < schema.columns.length; idx += 1) {
       const col = schema.columns[idx]!;
       const th = document.createElement("th");
-      th.textContent = col.header ?? String(col.key);
+      const sortDir = getColumnSortDir(view, col.key);
+      const hasFilter = hasActiveColumnFilter(view, col.key);
+      if (sortDir) th.dataset.extableSortDir = sortDir;
+      else th.removeAttribute("data-extable-sort-dir");
+      if (hasFilter) th.dataset.extableFsActive = "1";
+      else th.removeAttribute("data-extable-fs-active");
+
+      const wrap = document.createElement("div");
+      wrap.className = "extable-col-header";
+      const label = document.createElement("span");
+      label.className = "extable-col-header-text";
+      label.textContent = col.header ?? String(col.key);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "extable-filter-sort-trigger";
+      btn.dataset.extableFsOpen = "1";
+      btn.dataset.extableColKey = String(col.key);
+      btn.title = "Filter / Sort";
+      btn.innerHTML = sortDir ? svgArrow(sortDir) : svgFunnel();
+      wrap.appendChild(label);
+      wrap.appendChild(btn);
+      th.appendChild(wrap);
       const width = colWidths[idx] ?? col.width;
       if (width) th.style.width = `${width}px`;
       th.dataset.colKey = String(col.key);
@@ -491,6 +600,8 @@ export class CanvasRenderer implements Renderer {
   private frame = 0;
   private cursorTimer: number | null = null;
   private pendingCursorPoint: { x: number; y: number } | null = null;
+  private hoverHeaderColKey: string | number | null = null;
+  private hoverHeaderIcon = false;
 
   constructor(dataModel: DataModel) {
     this.dataModel = dataModel;
@@ -513,6 +624,7 @@ export class CanvasRenderer implements Renderer {
     this.canvas.style.cursor = "cell";
     this.canvas.addEventListener("pointermove", this.handlePointerMove);
     this.canvas.addEventListener("pointerleave", this.handlePointerLeave);
+    this.canvas.addEventListener("click", this.handleClick);
     this.spacer = document.createElement("div");
     this.spacer.style.width = "1px";
 	    if (this.tooltip) this.tooltip.remove();
@@ -768,6 +880,23 @@ export class CanvasRenderer implements Renderer {
       ctx.font = "bold 14px sans-serif";
       ctx.fillText(c.header ?? String(c.key), xHeader + 8, this.headerHeight - 8);
       ctx.font = baseFont;
+
+      const sortDir = getColumnSortDir(view, c.key);
+      const hasFilter = hasActiveColumnFilter(view, c.key);
+      const isHover = this.hoverHeaderColKey !== null && String(this.hoverHeaderColKey) === String(c.key);
+      const showIcon = Boolean(sortDir) || hasFilter || isHover;
+      if (showIcon) {
+        const alpha = isHover ? 0.9 : hasFilter || sortDir ? 0.75 : 0.45;
+        const iconBox = 16;
+        const pad = 6;
+        const ix = xHeader + w - iconBox - pad;
+        const iy = Math.floor((this.headerHeight - iconBox) / 2);
+        if (sortDir) {
+          drawSortArrowIcon(ctx, ix + 3, iy + 3, iconBox - 6, alpha, sortDir);
+        } else {
+          drawFunnelIcon(ctx, ix + 2, iy + 2, iconBox - 4, alpha);
+        }
+      }
       xHeader += w;
     }
     ctx.restore();
@@ -822,6 +951,7 @@ export class CanvasRenderer implements Renderer {
     if (this.canvas) {
       this.canvas.removeEventListener("pointermove", this.handlePointerMove);
       this.canvas.removeEventListener("pointerleave", this.handlePointerLeave);
+      this.canvas.removeEventListener("click", this.handleClick);
     }
     if (this.cursorTimer) {
       window.clearTimeout(this.cursorTimer);
@@ -840,6 +970,42 @@ export class CanvasRenderer implements Renderer {
     this.tooltipMessage = null;
     this.root = null;
   }
+
+  private handleClick = (ev: MouseEvent) => {
+    if (!this.root || !this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const x = ev.clientX - rect.left + this.root.scrollLeft;
+    const y = ev.clientY - rect.top + this.root.scrollTop;
+    if (y >= this.headerHeight) return;
+    if (x < this.rowHeaderWidth) return;
+    const schema = this.dataModel.getSchema();
+    const view = this.dataModel.getView();
+    const colWidths = getColumnWidths(schema, view);
+    let xCursor = this.rowHeaderWidth;
+    let colIndex = -1;
+    for (let i = 0; i < colWidths.length; i += 1) {
+      const w = colWidths[i] ?? 100;
+      if (x >= xCursor && x <= xCursor + w) {
+        colIndex = i;
+        break;
+      }
+      xCursor += w;
+    }
+    if (colIndex < 0) return;
+    const col = schema.columns[colIndex];
+    if (!col) return;
+    const w = colWidths[colIndex] ?? 100;
+    const iconSize = 18;
+    const pad = 4;
+    const iconLeft = xCursor + w - iconSize - pad;
+    const iconTop = Math.floor((this.headerHeight - iconSize) / 2);
+    const inIcon =
+      x >= iconLeft && x <= iconLeft + iconSize && y >= iconTop && y <= iconTop + iconSize;
+    if (!inIcon) return;
+    this.root.dispatchEvent(
+      new CustomEvent("extable:filter-sort-open", { bubbles: true, detail: { colKey: col.key } }),
+    );
+  };
 
   getCellElements() {
     return null;
@@ -1035,6 +1201,55 @@ export class CanvasRenderer implements Renderer {
     if (this.root.dataset.extableFillDragging === "1") {
       this.canvas.style.cursor = "crosshair";
       return;
+    }
+    // Header hover (filter/sort icon affordance)
+    {
+      const rect = this.canvas.getBoundingClientRect();
+      const x = clientX - rect.left + this.root.scrollLeft;
+      const y = clientY - rect.top + this.root.scrollTop;
+      const prevKey = this.hoverHeaderColKey;
+      const prevIcon = this.hoverHeaderIcon;
+      let nextKey: string | number | null = null;
+      let nextIcon = false;
+      if (y >= 0 && y < this.headerHeight && x >= this.rowHeaderWidth) {
+        const schema = this.dataModel.getSchema();
+        const view = this.dataModel.getView();
+        const colWidths = getColumnWidths(schema, view);
+        let xCursor = this.rowHeaderWidth;
+        let colIndex = -1;
+        for (let i = 0; i < colWidths.length; i += 1) {
+          const w = colWidths[i] ?? 100;
+          if (x >= xCursor && x <= xCursor + w) {
+            colIndex = i;
+            break;
+          }
+          xCursor += w;
+        }
+        const col = colIndex >= 0 ? schema.columns[colIndex] : null;
+        if (col) {
+          nextKey = col.key;
+          const w = colWidths[colIndex] ?? 100;
+          const iconSize = 18;
+          const pad = 4;
+          const iconLeft = xCursor + w - iconSize - pad;
+          const iconTop = Math.floor((this.headerHeight - iconSize) / 2);
+          nextIcon =
+            x >= iconLeft && x <= iconLeft + iconSize && y >= iconTop && y <= iconTop + iconSize;
+        }
+      }
+      const changed =
+        String(prevKey ?? "") !== String(nextKey ?? "") || Boolean(prevIcon) !== Boolean(nextIcon);
+      this.hoverHeaderColKey = nextKey;
+      this.hoverHeaderIcon = nextIcon;
+      if (nextKey !== null) {
+        this.canvas.style.cursor = nextIcon ? "pointer" : "cell";
+        if (this.tooltip) this.tooltip.dataset.visible = "0";
+        this.tooltipTarget = null;
+        this.tooltipMessage = null;
+        if (changed) this.render();
+        return;
+      }
+      if (changed) this.render();
     }
     // Cursor spec:
     // - No selection or outside selection: cell

@@ -17,13 +17,16 @@ import {
   conditionalStyleView,
   uniqueCheckRows,
   uniqueCheckSchema,
-  uniqueCheckView
+  uniqueCheckView,
+  filterSortRows,
+  filterSortSchema,
+  filterSortView
 } from './data/fixtures';
 
 type Mode = 'html' | 'canvas' | 'auto';
 type EditMode = 'direct' | 'commit';
 type LockMode = 'none' | 'row';
-type DataMode = 'standard' | 'data-format' | 'formula' | 'conditional-style' | 'unique-check';
+type DataMode = 'standard' | 'data-format' | 'formula' | 'conditional-style' | 'unique-check' | 'filter-sort';
 
 const app = document.querySelector<HTMLDivElement>('#app');
 const tableRootId = 'table-root';
@@ -89,6 +92,7 @@ function renderShell() {
       <label><input type="radio" name="data-mode" value="formula" /> Formula</label>
       <label><input type="radio" name="data-mode" value="conditional-style" /> Conditional Style</label>
       <label><input type="radio" name="data-mode" value="unique-check" /> Unique Check</label>
+      <label><input type="radio" name="data-mode" value="filter-sort" /> Filter / Sort</label>
     </div>
     <div>
       <h2>Actions</h2>
@@ -102,8 +106,24 @@ function renderShell() {
         <button id="style-italic" class="tool-btn" title="Italic"><em>I</em></button>
         <button id="style-underline" class="tool-btn" title="Underline"><span style="text-decoration: underline;">U</span></button>
         <button id="style-strike" class="tool-btn" title="Strikethrough"><span style="text-decoration: line-through;">S</span></button>
-        <label class="color-label">Text <input id="style-text-color" type="color" /></label>
-        <label class="color-label">Bg <input id="style-bg-color" type="color" value="#ffffff" /></label>
+        <div class="color-group" aria-label="Text color">
+          <span class="color-group-label">Text</span>
+          <button id="style-text-apply" class="tool-btn color-apply" type="button" title="Apply last text color">A</button>
+          <button id="style-text-pick" class="tool-btn color-pick" type="button" title="Pick text color">
+            <span class="color-swatch" id="style-text-swatch"></span>
+            <span class="color-pick-caret">▾</span>
+          </button>
+          <input id="style-text-color" class="color-input-hidden" type="color" />
+        </div>
+        <div class="color-group" aria-label="Background color">
+          <span class="color-group-label">Bg</span>
+          <button id="style-bg-apply" class="tool-btn color-apply" type="button" title="Apply last background color">■</button>
+          <button id="style-bg-pick" class="tool-btn color-pick" type="button" title="Pick background color">
+            <span class="color-swatch" id="style-bg-swatch"></span>
+            <span class="color-pick-caret">▾</span>
+          </button>
+          <input id="style-bg-color" class="color-input-hidden" type="color" value="#ffffff" />
+        </div>
         <button id="style-clear" class="tool-btn" title="Clear style">Clear</button>
       </div>
     </div>
@@ -153,6 +173,13 @@ function cloneConfig(dataMode: DataMode) {
       data: { rows: uniqueCheckRows.map((r) => ({ ...r })) },
       schema: uniqueCheckSchema,
       view: { ...uniqueCheckView }
+    };
+  }
+  if (dataMode === 'filter-sort') {
+    return {
+      data: { rows: filterSortRows.map((r) => ({ ...r })) },
+      schema: filterSortSchema,
+      view: { ...filterSortView }
     };
   }
   return {
@@ -321,6 +348,14 @@ function main() {
       const bgColor = document.getElementById('style-bg-color') as HTMLInputElement | null;
       if (textColor) textColor.toggleAttribute('disabled', !snap.canStyle);
       if (bgColor) bgColor.toggleAttribute('disabled', !snap.canStyle);
+      const textPick = document.getElementById('style-text-pick') as HTMLButtonElement | null;
+      const textApply = document.getElementById('style-text-apply') as HTMLButtonElement | null;
+      const bgPick = document.getElementById('style-bg-pick') as HTMLButtonElement | null;
+      const bgApply = document.getElementById('style-bg-apply') as HTMLButtonElement | null;
+      if (textPick) textPick.toggleAttribute('disabled', !snap.canStyle);
+      if (textApply) textApply.toggleAttribute('disabled', !snap.canStyle);
+      if (bgPick) bgPick.toggleAttribute('disabled', !snap.canStyle);
+      if (bgApply) bgApply.toggleAttribute('disabled', !snap.canStyle);
     };
 
     unsubscribeSelection = core.subscribeSelection((next) => {
@@ -384,18 +419,49 @@ function main() {
   document.getElementById('style-underline')?.addEventListener('click', () => toggleFromSelection('underline'));
   document.getElementById('style-strike')?.addEventListener('click', () => toggleFromSelection('strike'));
 
+  const setSwatch = (id: string, color: string) => {
+    const el = document.getElementById(id) as HTMLElement | null;
+    if (!el) return;
+    el.style.background = color;
+  };
+
   const textColor = document.getElementById('style-text-color') as HTMLInputElement | null;
+  const textPick = document.getElementById('style-text-pick') as HTMLButtonElement | null;
+  const textApply = document.getElementById('style-text-apply') as HTMLButtonElement | null;
   if (textColor) textColor.value = lastTextColor;
-  textColor?.addEventListener('input', () => {
+  setSwatch('style-text-swatch', lastTextColor);
+  textPick?.addEventListener('click', (e) => {
+    e.preventDefault();
+    textColor?.click();
+  });
+  textApply?.addEventListener('click', () => {
     if (!core || !lastSelection) return;
-    lastTextColor = textColor.value;
     core.applyStyleToSelection({ textColor: lastTextColor });
   });
+  textColor?.addEventListener('input', () => {
+    if (!core || !lastSelection || !textColor) return;
+    lastTextColor = textColor.value;
+    setSwatch('style-text-swatch', lastTextColor);
+    core.applyStyleToSelection({ textColor: lastTextColor });
+  });
+
   const bgColor = document.getElementById('style-bg-color') as HTMLInputElement | null;
+  const bgPick = document.getElementById('style-bg-pick') as HTMLButtonElement | null;
+  const bgApply = document.getElementById('style-bg-apply') as HTMLButtonElement | null;
   if (bgColor) bgColor.value = lastBgColor;
-  bgColor?.addEventListener('input', () => {
+  setSwatch('style-bg-swatch', lastBgColor);
+  bgPick?.addEventListener('click', (e) => {
+    e.preventDefault();
+    bgColor?.click();
+  });
+  bgApply?.addEventListener('click', () => {
     if (!core || !lastSelection) return;
+    core.applyStyleToSelection({ background: lastBgColor });
+  });
+  bgColor?.addEventListener('input', () => {
+    if (!core || !lastSelection || !bgColor) return;
     lastBgColor = bgColor.value;
+    setSwatch('style-bg-swatch', lastBgColor);
     core.applyStyleToSelection({ background: lastBgColor });
   });
   document.getElementById('style-clear')?.addEventListener('click', () => {

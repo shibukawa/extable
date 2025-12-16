@@ -94,6 +94,106 @@ export class SelectionManager {
     this.editMode = mode;
   }
 
+  syncAfterRowsChanged() {
+    const schema = this.dataModel.getSchema();
+    const rows = this.dataModel.listRows();
+    if (!rows.length || !schema.columns.length) {
+      this.selectionRanges = [];
+      this.activeCell = null;
+      this.selectionAnchor = null;
+      this.lastBooleanCell = null;
+      this.teardownInput(true);
+      this.onActiveChange(null, null);
+      this.onSelectionChange(this.selectionRanges);
+      this.updateFillHandleFlag();
+      return;
+    }
+
+    const maxRow = rows.length - 1;
+    const maxCol = schema.columns.length - 1;
+
+    const activeRowId = this.activeCell?.rowId ?? null;
+    const activeColKey = this.activeCell?.colKey ?? null;
+    const activeRowIndex = activeRowId ? this.dataModel.getRowIndex(activeRowId) : -1;
+    const activeColIndex =
+      activeColKey !== null
+        ? schema.columns.findIndex((c) => String(c.key) === String(activeColKey))
+        : -1;
+
+    // If current active cell is still visible, just clamp selection ranges when needed.
+    if (activeRowIndex >= 0 && activeColIndex >= 0) {
+      let changed = false;
+      if (!this.selectionRanges.length) {
+        this.selectionRanges = [
+          {
+            kind: "cells",
+            startRow: activeRowIndex,
+            endRow: activeRowIndex,
+            startCol: activeColIndex,
+            endCol: activeColIndex,
+          },
+        ];
+        changed = true;
+      } else {
+        const nextRanges: SelectionRange[] = this.selectionRanges.map((r) => {
+          const clamp = (n: number, max: number) => Math.max(0, Math.min(max, n));
+          const next: SelectionRange = {
+            ...r,
+            startRow: clamp(r.startRow, maxRow),
+            endRow: clamp(r.endRow, maxRow),
+            startCol: clamp(r.startCol, maxCol),
+            endCol: clamp(r.endCol, maxCol),
+          };
+          if (
+            next.startRow !== r.startRow ||
+            next.endRow !== r.endRow ||
+            next.startCol !== r.startCol ||
+            next.endCol !== r.endCol
+          ) {
+            changed = true;
+          }
+          return next;
+        });
+        this.selectionRanges = nextRanges;
+      }
+      if (changed) this.onSelectionChange(this.selectionRanges);
+      this.updateFillHandleFlag();
+      return;
+    }
+
+    // Active row got filtered out (or active col disappeared): move to the nearest visible row/col.
+    const desiredColKey = activeColKey ?? schema.columns[0]!.key;
+    let colIndex = schema.columns.findIndex((c) => String(c.key) === String(desiredColKey));
+    if (colIndex < 0) colIndex = 0;
+    const colKey = schema.columns[colIndex]!.key;
+
+    const baseIndex = activeRowId ? this.dataModel.getBaseRowIndex(activeRowId) : 0;
+    const nextRow =
+      rows.find((r) => this.dataModel.getBaseRowIndex(r.id) >= baseIndex) ?? rows[rows.length - 1]!;
+    const rowId = nextRow.id;
+    const rowIndex = this.dataModel.getRowIndex(rowId);
+
+    this.selectionAnchor = null;
+    this.lastBooleanCell = null;
+    this.teardownInput(false);
+    this.selectionRanges = [
+      {
+        kind: "cells",
+        startRow: rowIndex,
+        endRow: rowIndex,
+        startCol: colIndex,
+        endCol: colIndex,
+      },
+    ];
+    this.activeCell = { rowId, colKey };
+    this.onActiveChange(rowId, colKey);
+    this.onSelectionChange(this.selectionRanges);
+    this.ensureVisibleCell(rowId, colKey);
+    const current = this.dataModel.getCell(rowId, colKey);
+    this.focusSelectionInput(this.cellToClipboardString(current));
+    this.updateFillHandleFlag();
+  }
+
   navigateToCell(rowId: string, colKey: string | number) {
     const schema = this.dataModel.getSchema();
     const rowIndex = this.dataModel.getRowIndex(rowId);
@@ -409,7 +509,10 @@ export class SelectionManager {
   private ensureVisibleCell(rowId: string, colKey: string | number) {
     const htmlCell = this.findHtmlCellElement(rowId, colKey);
     if (htmlCell) {
-      htmlCell.scrollIntoView({ block: "nearest", inline: "nearest" });
+      const anyCell = htmlCell as any;
+      if (typeof anyCell.scrollIntoView === "function") {
+        anyCell.scrollIntoView({ block: "nearest", inline: "nearest" });
+      }
       return;
     }
     const metrics = this.getCanvasCellMetrics(rowId, colKey);
@@ -478,6 +581,8 @@ export class SelectionManager {
 
   private handlePointerDown = (ev: PointerEvent) => {
     if (ev.button !== 0) return;
+    const el = ev.target as HTMLElement | null;
+    if (el?.closest('button[data-extable-fs-open="1"]')) return;
     // Avoid starting a drag from inside an active editor.
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) return;
     // Commit current editor before starting a drag/select operation.
@@ -1332,6 +1437,10 @@ export class SelectionManager {
   private handleClick = (ev: MouseEvent) => {
     if (ev.button !== 0) {
       return; // only left click starts edit/selection; right-click is handled by contextmenu
+    }
+    const el = ev.target as HTMLElement | null;
+    if (el?.closest('button[data-extable-fs-open="1"]')) {
+      return;
     }
     if (this.suppressNextClick) {
       this.suppressNextClick = false;

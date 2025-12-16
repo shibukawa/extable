@@ -2,11 +2,14 @@ import { generateId } from "./utils";
 import type {
   CellDiagnostic,
   ColumnSchema,
+  ColumnDiagnosticFilter,
   ConditionalStyleFn,
   DataSet,
   InternalRow,
   Schema,
   StyleDelta,
+  ViewFilterValues,
+  ViewSort,
   View,
 } from "./types";
 import { validateCellValue } from "./validation";
@@ -15,6 +18,20 @@ export class DataModel {
   private schema: Schema;
   private view: View;
   private rows: InternalRow[] = [];
+  private baseIndexById = new Map<string, number>();
+  private dataVersion = 0;
+  private visibleRowsCache:
+    | {
+        version: number;
+        key: string;
+        rows: InternalRow[];
+        indexById: Map<string, number>;
+      }
+    | null = null;
+  private distinctValueCache = new Map<
+    string,
+    { version: number; values: Array<{ value: unknown; label: string }>; hasBlanks: boolean; total: number }
+  >();
   private pending: Map<string, Record<string | number, unknown>> = new Map();
   private rowVersion: Map<string, number> = new Map();
   private listeners = new Set<() => void>();
@@ -69,6 +86,8 @@ export class DataModel {
   }
 
   private notify() {
+    this.visibleRowsCache = null;
+    this.distinctValueCache.clear();
     if (this.notifySuspended) {
       this.notifyDirty = true;
       return;
@@ -90,6 +109,7 @@ export class DataModel {
   }
 
   public setData(dataset: DataSet) {
+    this.dataVersion += 1;
     this.pending.clear();
     this.cellStyles.clear();
     this.cellConditionalStyles.clear();
@@ -109,11 +129,13 @@ export class DataModel {
         displayIndex: idx + 1,
       };
     });
+    this.rebuildBaseIndex();
     this.recomputeValidationErrors();
     this.notify();
   }
 
   public setSchema(schema: Schema) {
+    this.dataVersion += 1;
     this.schema = schema;
     this.computedCache.clear();
     this.conditionalCache.clear();
@@ -125,7 +147,13 @@ export class DataModel {
   }
 
   public setView(view: View) {
-    this.view = view;
+    this.dataVersion += 1;
+    // MVP constraint: allow `sorts` as array, but enforce at most one sort.
+    if (Array.isArray(view.sorts) && view.sorts.length > 1) {
+      this.view = { ...view, sorts: view.sorts.slice(0, 1) };
+    } else {
+      this.view = view;
+    }
     this.notify();
   }
 
@@ -150,12 +178,24 @@ export class DataModel {
     return this.view;
   }
 
+  public getDataVersion() {
+    return this.dataVersion;
+  }
+
   public getFullSchema() {
     return this.schema;
   }
 
   public listRows(): InternalRow[] {
+    return this.computeVisibleRows().rows;
+  }
+
+  public listAllRows(): InternalRow[] {
     return this.rows;
+  }
+
+  public getAllRowCount() {
+    return this.rows.length;
   }
 
   private findRow(rowId: string): { row: InternalRow; index: number } | null {
@@ -216,6 +256,7 @@ export class DataModel {
   }
 
   public setCell(rowId: string, key: string | number, value: unknown, committed: boolean) {
+    this.dataVersion += 1;
     const found = this.findRow(rowId);
     if (!found) return;
     const row = found.row;
@@ -256,6 +297,7 @@ export class DataModel {
   }
 
   public applyPending(rowId: string) {
+    this.dataVersion += 1;
     const pendingRow = this.pending.get(rowId);
     if (!pendingRow) return;
     const found = this.findRow(rowId);
@@ -279,6 +321,7 @@ export class DataModel {
   }
 
   public clearPending(rowId: string) {
+    this.dataVersion += 1;
     this.pending.delete(rowId);
     this.notify();
   }
@@ -298,17 +341,20 @@ export class DataModel {
   }
 
   public insertRowAt(rowData: InternalRow["raw"], index: number, forcedId?: string) {
+    this.dataVersion += 1;
     const id = forcedId ?? generateId();
     const clamped = Math.max(0, Math.min(index, this.rows.length));
     this.rows.splice(clamped, 0, { id, raw: rowData, displayIndex: 0 });
     this.reindexRows();
     this.rowVersion.set(id, 0);
+    this.rebuildBaseIndex();
     this.recomputeValidationErrors();
     this.notify();
     return id;
   }
 
   public removeRow(rowId: string): { row: InternalRow; index: number } | null {
+    this.dataVersion += 1;
     const found = this.findRow(rowId);
     if (!found) return null;
     const removed = this.rows.splice(found.index, 1)[0];
@@ -316,17 +362,22 @@ export class DataModel {
     this.pending.delete(rowId);
     this.rowVersion.delete(rowId);
     this.reindexRows();
+    this.rebuildBaseIndex();
     this.recomputeValidationErrors();
     this.notify();
     return { row: removed, index: found.index };
   }
 
   public getDisplayIndex(rowId: string) {
-    return this.findRow(rowId)?.row.displayIndex;
+    return this.findRow(rowId)?.row.displayIndex ?? null;
   }
 
   public getRowIndex(rowId: string) {
-    return this.findRow(rowId)?.index ?? -1;
+    return this.computeVisibleRows().indexById.get(rowId) ?? -1;
+  }
+
+  public getBaseRowIndex(rowId: string) {
+    return this.baseIndexById.get(rowId) ?? -1;
   }
 
   public getColumnIndex(colKey: string | number) {
@@ -338,7 +389,261 @@ export class DataModel {
   }
 
   public getRowByIndex(rowIndex: number) {
-    return this.rows[rowIndex] ?? null;
+    return this.listRows()[rowIndex] ?? null;
+  }
+
+  private rebuildBaseIndex() {
+    this.baseIndexById.clear();
+    for (let i = 0; i < this.rows.length; i += 1) {
+      const r = this.rows[i];
+      if (r) this.baseIndexById.set(r.id, i);
+    }
+  }
+
+  private getFilterSortKey(options?: { excludeColumnKey?: string | number; includeSort?: boolean }) {
+    const exclude = options?.excludeColumnKey;
+    const includeSort = options?.includeSort ?? true;
+    const view = this.view;
+    const filters = (view.filters ?? [])
+      .filter((f) => (exclude !== undefined ? String((f as any).key) !== String(exclude) : true))
+      .map((f) => {
+        if ((f as any).kind === "values") {
+          const vf = f as ViewFilterValues;
+          return {
+            kind: "values" as const,
+            key: String(vf.key),
+            includeBlanks: Boolean(vf.includeBlanks),
+            values: (vf.values ?? []).map((v) => this.stableValueKey(v)),
+          };
+        }
+        // Unknown filter kind (or legacy op filter) => keep a stable representation for caching.
+        const opf = f as any;
+        return {
+          kind: "op" as const,
+          key: String(opf.key),
+          op: String(opf.op ?? ""),
+          value: this.stableValueKey(opf.value),
+        };
+      })
+      .sort((a, b) => (a.key === b.key ? (a.kind < b.kind ? -1 : 1) : a.key < b.key ? -1 : 1));
+
+    const columnDiagnosticsEntries = Object.entries(view.columnDiagnostics ?? {})
+      .filter(([k]) => (exclude !== undefined ? String(k) !== String(exclude) : true))
+      .map(([k, v]) => ({
+        key: String(k),
+        errors: Boolean((v as ColumnDiagnosticFilter | undefined)?.errors),
+        warnings: Boolean((v as ColumnDiagnosticFilter | undefined)?.warnings),
+      }))
+      .filter((x) => x.errors || x.warnings)
+      .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+
+    const sorts = includeSort
+      ? (view.sorts ?? [])
+          .slice(0, 1)
+          .map((s) => ({ key: String(s.key), dir: s.dir }))
+      : [];
+
+    return JSON.stringify({ filters, columnDiagnosticsEntries, sorts });
+  }
+
+  private stableValueKey(value: unknown) {
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+    if (value instanceof Date) return `date:${value.getTime()}`;
+    if (typeof value === "string") return `s:${value}`;
+    if (typeof value === "number") return `n:${Number.isNaN(value) ? "NaN" : String(value)}`;
+    if (typeof value === "boolean") return `b:${value ? "1" : "0"}`;
+    if (typeof value === "object") {
+      const anyV = value as any;
+      if (anyV.kind === "enum" && typeof anyV.value === "string") return `enum:${anyV.value}`;
+      if (anyV.kind === "tags" && Array.isArray(anyV.values)) return `tags:${anyV.values.join("|")}`;
+    }
+    try {
+      return `json:${JSON.stringify(value)}`;
+    } catch {
+      return `str:${String(value)}`;
+    }
+  }
+
+  private isBlankValue(value: unknown) {
+    return value === null || value === undefined || value === "";
+  }
+
+  private resolveFilterColumnKey(key: string | number) {
+    const cols = this.getColumns();
+    const found = cols.find((c) => String(c.key) === String(key));
+    return found?.key ?? key;
+  }
+
+  private getFilterCellValue(rowId: string, colKey: string | number) {
+    const col = this.getColumns().find((c) => String(c.key) === String(colKey));
+    if (!col) return this.getCell(rowId, colKey);
+    return this.resolveCellValue(rowId, col).value;
+  }
+
+  private valuesFilterMatches(rowId: string, filter: ViewFilterValues) {
+    const colKey = this.resolveFilterColumnKey(filter.key);
+    const value = this.getFilterCellValue(rowId, colKey);
+    if (this.isBlankValue(value)) return Boolean(filter.includeBlanks);
+    if (!filter.values || filter.values.length === 0) return false;
+    const valueKey = this.stableValueKey(value);
+    for (const v of filter.values) {
+      if (this.stableValueKey(v) === valueKey) return true;
+    }
+    return false;
+  }
+
+  private rowPassesColumnDiagnostics(rowId: string, colKeyStr: string, diag: ColumnDiagnosticFilter) {
+    const errors = Boolean(diag.errors);
+    const warnings = Boolean(diag.warnings);
+    if (!errors && !warnings) return true;
+    const colKey = this.resolveFilterColumnKey(colKeyStr);
+    // Ensure diagnostics are computed for this cell before filtering by diagnostics.
+    const col = this.getColumns().find((c) => String(c.key) === String(colKey));
+    if (col) {
+      this.resolveCellValue(rowId, col);
+      this.resolveConditionalStyle(rowId, col);
+    }
+    const marker = this.getCellMarker(rowId, colKey);
+    if (!marker) return false;
+    if (marker.level === "error") return errors;
+    return warnings;
+  }
+
+  private computeRowsAfterFilter(options?: { excludeColumnKey?: string | number; includeSort?: boolean }) {
+    const exclude = options?.excludeColumnKey;
+    const includeSort = options?.includeSort ?? true;
+    const view = this.view;
+    const schema = this.getSchema();
+
+    const filters = (view.filters ?? []).filter((f) =>
+      exclude !== undefined ? String((f as any).key) !== String(exclude) : true,
+    );
+    const diagEntries = Object.entries(view.columnDiagnostics ?? {}).filter(([k]) =>
+      exclude !== undefined ? String(k) !== String(exclude) : true,
+    );
+
+    const filtered: InternalRow[] = [];
+    for (const row of this.rows) {
+      let ok = true;
+      for (const f of filters) {
+        if ((f as any).kind === "values") {
+          if (!this.valuesFilterMatches(row.id, f as ViewFilterValues)) {
+            ok = false;
+            break;
+          }
+          continue;
+        }
+        // Unknown filter kind (or legacy op filter) => ignore in MVP.
+      }
+      if (!ok) continue;
+      for (const [k, diag] of diagEntries) {
+        if (!this.rowPassesColumnDiagnostics(row.id, k, diag as ColumnDiagnosticFilter)) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      filtered.push(row);
+    }
+
+    if (!includeSort) return filtered;
+
+    const sort = (view.sorts ?? []).slice(0, 1)[0] as ViewSort | undefined;
+    if (!sort) return filtered;
+    const sortCol = schema.columns.find((c) => String(c.key) === String(sort.key));
+    if (!sortCol) return filtered;
+
+    const dir = sort.dir === "desc" ? -1 : 1;
+    const withKeys = filtered.map((row) => {
+      const v = this.getFilterCellValue(row.id, sortCol.key);
+      const blank = this.isBlankValue(v);
+      const baseIndex = this.baseIndexById.get(row.id) ?? 0;
+      return { row, v, blank, baseIndex };
+    });
+
+    const compare = (a: unknown, b: unknown) => {
+      if (a === b) return 0;
+      if (a instanceof Date && b instanceof Date) return a.getTime() - b.getTime();
+      if (typeof a === "number" && typeof b === "number") return a - b;
+      if (typeof a === "boolean" && typeof b === "boolean") return a === b ? 0 : a ? 1 : -1;
+      const as = a instanceof Date ? a.toISOString() : typeof a === "string" ? a : String(a);
+      const bs = b instanceof Date ? b.toISOString() : typeof b === "string" ? b : String(b);
+      if (as === bs) return 0;
+      return as < bs ? -1 : 1;
+    };
+
+    withKeys.sort((a, b) => {
+      if (a.blank && b.blank) return a.baseIndex - b.baseIndex;
+      if (a.blank) return 1;
+      if (b.blank) return -1;
+      const c = compare(a.v, b.v);
+      if (c !== 0) return c * dir;
+      return a.baseIndex - b.baseIndex;
+    });
+
+    return withKeys.map((x) => x.row);
+  }
+
+  private computeVisibleRows() {
+    const key = this.getFilterSortKey();
+    const cached = this.visibleRowsCache;
+    if (cached && cached.version === this.dataVersion && cached.key === key) return cached;
+
+    const base = this.computeRowsAfterFilter({ includeSort: true });
+    // Keep `displayIndex` stable (pre-filter) and only change the visible ordering.
+    const rows = base;
+    const indexById = new Map<string, number>();
+    for (let i = 0; i < rows.length; i += 1) {
+      const r = rows[i];
+      if (r) indexById.set(r.id, i);
+    }
+    const next = { version: this.dataVersion, key, rows, indexById };
+    this.visibleRowsCache = next;
+    return next;
+  }
+
+  public getDistinctValuesForColumn(colKey: string | number) {
+    const cacheKey = `${String(colKey)}|${this.getFilterSortKey({ excludeColumnKey: colKey, includeSort: false })}`;
+    const cached = this.distinctValueCache.get(cacheKey);
+    if (cached && cached.version === this.dataVersion) return cached;
+
+    const rows = this.computeRowsAfterFilter({ excludeColumnKey: colKey, includeSort: false });
+    const col = this.getSchema().columns.find((c) => String(c.key) === String(colKey));
+    if (!col) {
+      const empty = { version: this.dataVersion, values: [], hasBlanks: false, total: 0 };
+      this.distinctValueCache.set(cacheKey, empty);
+      return empty;
+    }
+
+    const map = new Map<string, { value: unknown; label: string }>();
+    let hasBlanks = false;
+    for (const row of rows) {
+      const v = this.getFilterCellValue(row.id, col.key);
+      if (this.isBlankValue(v)) {
+        hasBlanks = true;
+        continue;
+      }
+      const k = this.stableValueKey(v);
+      if (map.has(k)) continue;
+      const label = (() => {
+        if (v instanceof Date) return v.toISOString();
+        if (typeof v === "string") return v;
+        if (typeof v === "number" || typeof v === "boolean") return String(v);
+        if (typeof v === "object" && v) {
+          const anyV = v as any;
+          if (anyV.kind === "enum" && typeof anyV.value === "string") return anyV.value;
+          if (anyV.kind === "tags" && Array.isArray(anyV.values)) return anyV.values.join(", ");
+        }
+        return String(v);
+      })();
+      map.set(k, { value: v, label });
+    }
+
+    const values = [...map.values()].sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+    const next = { version: this.dataVersion, values, hasBlanks, total: values.length + (hasBlanks ? 1 : 0) };
+    this.distinctValueCache.set(cacheKey, next);
+    return next;
   }
 
   private cellStyleKey(rowId: string, colKey: string | number) {

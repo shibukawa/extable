@@ -34,6 +34,7 @@ import type {
   UserInfo,
   Updater,
   View,
+  ViewFilterValues,
   RowObject,
   RowArray,
 } from "./types";
@@ -84,6 +85,25 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   private findReplaceUiEnabled = true;
   private findReplaceEnableSearch = false;
 
+  private filterSortSidebar: HTMLElement | null = null;
+  private filterSortSidebarUnsub: (() => void) | null = null;
+  private filterSortKeydown: ((ev: KeyboardEvent) => void) | null = null;
+  private filterSortClickCapture: ((ev: MouseEvent) => void) | null = null;
+  private filterSortOpenEvent: ((ev: Event) => void) | null = null;
+  private filterSortActiveColumnKey: string | number | null = null;
+  private filterSortDraft:
+    | {
+        colKey: string | number;
+        values: Array<{ key: string; value: unknown; label: string }>;
+        hasBlanks: boolean;
+        selected: Set<string>;
+        includeBlanks: boolean;
+        diagErrors: boolean;
+        diagWarnings: boolean;
+        search: string;
+      }
+    | null = null;
+
   private tableStateListeners = new Set<TableStateListener>();
   private selectionListeners = new Set<SelectionListener>();
   private lastTableState: TableState | null = null;
@@ -94,6 +114,10 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
 
   private isSearchPanelVisible() {
     return this.root.classList.contains("extable-search-open");
+  }
+
+  private isFilterSortPanelVisible() {
+    return this.root.classList.contains("extable-filter-sort-open");
   }
 
   private safeRender(state?: ViewportState) {
@@ -237,6 +261,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.root.dataset.extable = "ready";
     this.bindViewport();
     this.ensureFindReplace();
+    this.ensureFilterSort();
     if (this.server) {
       this.unsubscribe = this.server.subscribe((event) => this.handleServerEvent(event));
     }
@@ -245,6 +270,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   }
 
   destroy() {
+    this.teardownFilterSort();
     this.teardownFindReplace();
     this.selectionManager?.destroy();
     this.renderer.destroy();
@@ -289,6 +315,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   setData(data: DataSet<T>) {
     this.dataModel.setData(data);
     this.safeRender(this.viewportState ?? undefined);
+    this.selectionManager?.syncAfterRowsChanged();
     this.emitSelection("data");
     this.emitTableState();
   }
@@ -296,6 +323,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   setView(view: View) {
     this.dataModel.setView(view);
     this.safeRender(this.viewportState ?? undefined);
+    this.selectionManager?.syncAfterRowsChanged();
     this.emitSelection("view");
     this.emitTableState();
   }
@@ -303,6 +331,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   setSchema(schema: Schema) {
     this.dataModel.setSchema(schema);
     this.safeRender(this.viewportState ?? undefined);
+    this.selectionManager?.syncAfterRowsChanged();
     this.emitSelection("schema");
     this.emitTableState();
   }
@@ -313,6 +342,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.commandQueue.enqueue({ ...cmd, prev });
     this.dataModel.setCell(cmd.rowId, cmd.colKey, cmd.next, commitNow);
     this.safeRender(this.viewportState ?? undefined);
+    this.selectionManager?.syncAfterRowsChanged();
     this.emitTableState();
     this.emitSelection("edit");
     if (commitNow) {
@@ -330,6 +360,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       this.applyInverse(cmd);
     }
     this.safeRender(this.viewportState ?? undefined);
+    this.selectionManager?.syncAfterRowsChanged();
     this.emitTableState();
     this.emitSelection("edit");
   }
@@ -342,6 +373,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       this.applyForward(cmd);
     }
     this.safeRender(this.viewportState ?? undefined);
+    this.selectionManager?.syncAfterRowsChanged();
     this.emitTableState();
     this.emitSelection("edit");
   }
@@ -359,7 +391,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       case "deleteRow":
         if (cmd.rowId && cmd.rowData) {
           const idx = (cmd.payload as any)?.index;
-          const index = typeof idx === "number" ? idx : this.dataModel.listRows().length;
+          const index = typeof idx === "number" ? idx : this.dataModel.getAllRowCount();
           this.dataModel.insertRowAt(cmd.rowData, index, cmd.rowId);
         }
         return;
@@ -378,7 +410,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       case "insertRow":
         if (cmd.rowData) {
           const idx = (cmd.payload as any)?.index;
-          const index = typeof idx === "number" ? idx : this.dataModel.listRows().length;
+          const index = typeof idx === "number" ? idx : this.dataModel.getAllRowCount();
           const forcedId = typeof cmd.rowId === "string" ? cmd.rowId : undefined;
           this.dataModel.insertRowAt(cmd.rowData, index, forcedId);
         }
@@ -401,6 +433,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     await this.lockManager.unlockOnCommit(this.commandQueue.listApplied().at(-1)?.rowId);
     this.commandQueue.clear();
     this.safeRender(this.viewportState ?? undefined);
+    this.selectionManager?.syncAfterRowsChanged();
     this.emitTableState();
     this.emitSelection("edit");
   }
@@ -433,6 +466,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       this.applyCommand(cmd);
     }
     this.safeRender(this.viewportState ?? undefined);
+    this.selectionManager?.syncAfterRowsChanged();
     this.emitSelection("data");
     this.emitTableState();
   }
@@ -541,9 +575,8 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       return;
     }
     if (!this.contextMenuRowId) return;
-    const rows = this.dataModel.listRows();
-    const idx = rows.findIndex((r) => r.id === this.contextMenuRowId);
-    const targetIndex = idx >= 0 ? idx : rows.length;
+    const idx = this.dataModel.getBaseRowIndex(this.contextMenuRowId);
+    const targetIndex = idx >= 0 ? idx : this.dataModel.getAllRowCount();
     if (action === "insert-above" || action === "insert-below") {
       const insertAt = action === "insert-above" ? targetIndex : targetIndex + 1;
       const raw = this.createBlankRow();
@@ -555,6 +588,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
         payload: { index: insertAt },
       });
       this.safeRender(this.viewportState ?? undefined);
+      this.selectionManager?.syncAfterRowsChanged();
       this.showToast("Row inserted", "info");
       return;
     }
@@ -568,6 +602,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
         payload: { index: removed.index },
       });
       this.safeRender(this.viewportState ?? undefined);
+      this.selectionManager?.syncAfterRowsChanged();
       this.showToast("Row deleted", "info");
       return;
     }
@@ -575,7 +610,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
 
   private createBlankRow(): RowObject | RowArray {
     const schema = this.dataModel.getSchema();
-    const rows = this.dataModel.listRows();
+    const rows = this.dataModel.listAllRows();
     const sample = rows[0]?.raw;
     if (Array.isArray(sample)) {
       return new Array(schema.columns.length).fill(null) as RowArray;
@@ -662,6 +697,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
 
   remount(target: HTMLElement) {
     this.unbindViewport();
+    this.teardownFilterSort();
     this.teardownFindReplace();
     this.selectionManager?.destroy();
     this.renderer.destroy();
@@ -1244,6 +1280,406 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     }
     this.findReplace?.destroy();
     this.findReplace = null;
+  }
+
+  private stableValueKey(value: unknown) {
+    if (value === null) return "null";
+    if (value === undefined) return "undefined";
+    if (value instanceof Date) return `date:${value.getTime()}`;
+    if (typeof value === "string") return `s:${value}`;
+    if (typeof value === "number") return `n:${Number.isNaN(value) ? "NaN" : String(value)}`;
+    if (typeof value === "boolean") return `b:${value ? "1" : "0"}`;
+    if (typeof value === "object") {
+      const anyV = value as any;
+      if (anyV.kind === "enum" && typeof anyV.value === "string") return `enum:${anyV.value}`;
+      if (anyV.kind === "tags" && Array.isArray(anyV.values)) return `tags:${anyV.values.join("|")}`;
+    }
+    try {
+      return `json:${JSON.stringify(value)}`;
+    } catch {
+      return `str:${String(value)}`;
+    }
+  }
+
+  private ensureFilterSort() {
+    this.ensureFilterSortSidebar();
+    this.ensureFilterSortHeaderIntegration();
+    this.ensureFilterSortEscape();
+  }
+
+  private ensureFilterSortEscape() {
+    if (this.filterSortKeydown) return;
+    this.filterSortKeydown = (ev: KeyboardEvent) => {
+      if (!this.isFilterSortPanelVisible()) return;
+      if (ev.key !== "Escape") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.hideFilterSortPanel();
+    };
+    document.addEventListener("keydown", this.filterSortKeydown, true);
+  }
+
+  private ensureFilterSortHeaderIntegration() {
+    if (this.filterSortClickCapture) return;
+    const host = this.viewportEl ?? this.root;
+    this.filterSortClickCapture = (ev: MouseEvent) => {
+      const el = ev.target as HTMLElement | null;
+      const btn = el?.closest<HTMLButtonElement>('button[data-extable-fs-open="1"]');
+      if (!btn) return;
+      const key = btn.dataset.extableColKey ?? btn.closest<HTMLElement>("th[data-col-key]")?.dataset.colKey;
+      if (!key) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.showFilterSortPanel(key);
+    };
+    host.addEventListener("click", this.filterSortClickCapture, true);
+    this.filterSortOpenEvent = (ev: Event) => {
+      const anyEv = ev as CustomEvent<any>;
+      const key = anyEv?.detail?.colKey;
+      if (key === undefined || key === null) return;
+      this.showFilterSortPanel(key);
+    };
+    host.addEventListener("extable:filter-sort-open", this.filterSortOpenEvent as any);
+  }
+
+  private ensureFilterSortSidebar() {
+    if (this.filterSortSidebar) return;
+    this.ensureShell();
+    const shell = this.shell ?? this.root;
+
+    const aside = document.createElement("aside");
+    aside.className = "extable-filter-sort-sidebar";
+    aside.innerHTML = `
+      <div class="extable-filter-sort-header">
+        <div class="extable-filter-sort-row">
+          <div class="extable-filter-sort-title" data-extable-fs="title">Sort/Filter</div>
+          <button type="button" data-extable-fs="close" class="extable-filter-sort-close">×</button>
+        </div>
+      </div>
+      <div class="extable-filter-sort-body">
+        <div class="extable-filter-sort-section extable-filter-sort-section-filter">
+          <div class="extable-filter-sort-section-title">Filter</div>
+          <div class="extable-filter-sort-actions">
+            <label><input type="checkbox" data-extable-fs="col-errors" /> Errors</label>
+            <label><input type="checkbox" data-extable-fs="col-warnings" /> Warnings</label>
+          </div>
+          <input data-extable-fs="search" type="text" placeholder="Search values" />
+          <div class="extable-filter-sort-values" data-extable-fs="values"></div>
+          <div class="extable-filter-sort-actions">
+            <button type="button" data-extable-fs="select-all">Select All</button>
+            <button type="button" data-extable-fs="select-none">Select None</button>
+            <button type="button" data-extable-fs="apply-filter">Apply</button>
+            <button type="button" data-extable-fs="clear-filter">Clear</button>
+          </div>
+        </div>
+        <div class="extable-filter-sort-section extable-filter-sort-section-sort">
+          <div class="extable-filter-sort-section-title">Sort</div>
+          <div class="extable-filter-sort-actions">
+            <button type="button" data-extable-fs="sort-asc">Sort Asc</button>
+            <button type="button" data-extable-fs="sort-desc">Sort Desc</button>
+            <button type="button" data-extable-fs="clear-sort">Clear Sort</button>
+          </div>
+        </div>
+      </div>
+    `;
+    shell.appendChild(aside);
+    this.filterSortSidebar = aside;
+
+    const btnClose = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="close"]')!;
+    const cbErrors = aside.querySelector<HTMLInputElement>('input[data-extable-fs="col-errors"]')!;
+    const cbWarnings = aside.querySelector<HTMLInputElement>('input[data-extable-fs="col-warnings"]')!;
+    const search = aside.querySelector<HTMLInputElement>('input[data-extable-fs="search"]')!;
+    const values = aside.querySelector<HTMLElement>('[data-extable-fs="values"]')!;
+    const btnAll = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="select-all"]')!;
+    const btnNone = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="select-none"]')!;
+    const btnApply = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="apply-filter"]')!;
+    const btnClear = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="clear-filter"]')!;
+    const btnSortAsc = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="sort-asc"]')!;
+    const btnSortDesc = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="sort-desc"]')!;
+    const btnSortClear = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="clear-sort"]')!;
+
+    btnClose.addEventListener("click", () => this.hideFilterSortPanel());
+
+    cbErrors.addEventListener("change", () => {
+      if (!this.filterSortDraft) return;
+      this.filterSortDraft.diagErrors = cbErrors.checked;
+    });
+    cbWarnings.addEventListener("change", () => {
+      if (!this.filterSortDraft) return;
+      this.filterSortDraft.diagWarnings = cbWarnings.checked;
+    });
+    search.addEventListener("input", () => {
+      if (!this.filterSortDraft) return;
+      this.filterSortDraft.search = search.value;
+      this.renderFilterSortValues();
+    });
+
+    values.addEventListener("change", (e) => {
+      const input = (e.target as HTMLElement | null)?.closest<HTMLInputElement>('input[type="checkbox"][data-fs-val]');
+      if (!input || !this.filterSortDraft) return;
+      const k = input.dataset.fsVal ?? "";
+      if (!k) return;
+      if (k === "__blanks__") {
+        this.filterSortDraft.includeBlanks = input.checked;
+      } else if (input.checked) {
+        this.filterSortDraft.selected.add(k);
+      } else {
+        this.filterSortDraft.selected.delete(k);
+      }
+    });
+
+    btnAll.addEventListener("click", () => {
+      if (!this.filterSortDraft) return;
+      this.filterSortDraft.selected = new Set(this.filterSortDraft.values.map((v) => v.key));
+      this.filterSortDraft.includeBlanks = this.filterSortDraft.hasBlanks;
+      this.renderFilterSortValues();
+    });
+    btnNone.addEventListener("click", () => {
+      if (!this.filterSortDraft) return;
+      this.filterSortDraft.selected = new Set();
+      this.filterSortDraft.includeBlanks = false;
+      this.renderFilterSortValues();
+    });
+    btnApply.addEventListener("click", () => this.applyFilterSortDraft());
+    btnClear.addEventListener("click", () => this.clearFilterSortForActiveColumn());
+    btnSortAsc.addEventListener("click", () => this.setSortForActiveColumn("asc"));
+    btnSortDesc.addEventListener("click", () => this.setSortForActiveColumn("desc"));
+    btnSortClear.addEventListener("click", () => this.clearSort());
+
+    this.filterSortSidebarUnsub = this.dataModel.subscribe(() => {
+      if (!this.isFilterSortPanelVisible()) return;
+      if (!this.filterSortActiveColumnKey) return;
+      this.buildFilterSortDraft(this.filterSortActiveColumnKey);
+      this.renderFilterSortSidebar();
+    });
+  }
+
+  private showFilterSortPanel(colKey: string | number) {
+    this.filterSortActiveColumnKey = colKey;
+    this.buildFilterSortDraft(colKey);
+    this.root.classList.toggle("extable-filter-sort-open", true);
+    this.renderFilterSortSidebar();
+    const input = this.filterSortSidebar?.querySelector<HTMLInputElement>('input[data-extable-fs="search"]') ?? null;
+    input?.focus();
+  }
+
+  private hideFilterSortPanel() {
+    this.root.classList.toggle("extable-filter-sort-open", false);
+    this.filterSortActiveColumnKey = null;
+    this.filterSortDraft = null;
+  }
+
+  private buildFilterSortDraft(colKey: string | number) {
+    const view = this.dataModel.getView();
+    const schema = this.dataModel.getSchema();
+    const col = schema.columns.find((c) => String(c.key) === String(colKey));
+    if (!col) {
+      this.filterSortDraft = null;
+      return;
+    }
+    const prevSearch =
+      this.filterSortDraft && String(this.filterSortDraft.colKey) === String(col.key)
+        ? this.filterSortDraft.search
+        : "";
+    const distinct = this.dataModel.getDistinctValuesForColumn(col.key);
+    const values = distinct.values.map((v) => ({ ...v, key: this.stableValueKey(v.value) }));
+    const existing = (view.filters ?? []).find(
+      (f) => (f as ViewFilterValues).kind === "values" && String((f as ViewFilterValues).key) === String(col.key),
+    ) as ViewFilterValues | undefined;
+
+    const selected = new Set<string>();
+    if (existing) {
+      for (const v of existing.values ?? []) selected.add(this.stableValueKey(v));
+    } else {
+      for (const v of values) selected.add(v.key);
+    }
+    const includeBlanks = existing ? Boolean(existing.includeBlanks) : distinct.hasBlanks;
+    const diag = view.columnDiagnostics?.[String(col.key)];
+    this.filterSortDraft = {
+      colKey: col.key,
+      values,
+      hasBlanks: distinct.hasBlanks,
+      selected,
+      includeBlanks,
+      diagErrors: Boolean(diag?.errors),
+      diagWarnings: Boolean(diag?.warnings),
+      search: prevSearch,
+    };
+  }
+
+  private renderFilterSortSidebar() {
+    if (!this.filterSortSidebar) return;
+    const title = this.filterSortSidebar.querySelector<HTMLElement>('[data-extable-fs="title"]')!;
+    const cbErrors = this.filterSortSidebar.querySelector<HTMLInputElement>('input[data-extable-fs="col-errors"]')!;
+    const cbWarnings = this.filterSortSidebar.querySelector<HTMLInputElement>('input[data-extable-fs="col-warnings"]')!;
+    const search = this.filterSortSidebar.querySelector<HTMLInputElement>('input[data-extable-fs="search"]')!;
+    const draft = this.filterSortDraft;
+    if (!draft) {
+      title.textContent = "Sort/Filter";
+      cbErrors.checked = false;
+      cbWarnings.checked = false;
+      search.value = "";
+      this.renderFilterSortValues();
+      return;
+    }
+    const schema = this.dataModel.getSchema();
+    const col = schema.columns.find((c) => String(c.key) === String(draft.colKey));
+    const name = col?.header ?? String(draft.colKey);
+    title.textContent = `Sort/Filter: ${name}`;
+    cbErrors.checked = draft.diagErrors;
+    cbWarnings.checked = draft.diagWarnings;
+    search.value = draft.search;
+    this.renderFilterSortValues();
+  }
+
+  private renderFilterSortValues() {
+    if (!this.filterSortSidebar) return;
+    const values = this.filterSortSidebar.querySelector<HTMLElement>('[data-extable-fs="values"]')!;
+    values.innerHTML = "";
+    const draft = this.filterSortDraft;
+    if (!draft) return;
+
+    const q = draft.search.trim().toLowerCase();
+    const total = draft.values.length + (draft.hasBlanks ? 1 : 0);
+    if (total > 100 && !q) {
+      const msg = document.createElement("div");
+      msg.textContent = "Too many values (100+). Type to search.";
+      values.appendChild(msg);
+      return;
+    }
+
+    if (draft.hasBlanks) {
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.dataset.fsVal = "__blanks__";
+      cb.checked = draft.includeBlanks;
+      const text = document.createElement("span");
+      text.textContent = "(Blanks)";
+      label.appendChild(cb);
+      label.appendChild(text);
+      values.appendChild(label);
+    }
+
+    const filtered = q
+      ? draft.values.filter((v) => v.label.toLowerCase().includes(q))
+      : draft.values;
+    for (const v of filtered.slice(0, 200)) {
+      const label = document.createElement("label");
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.dataset.fsVal = v.key;
+      cb.checked = draft.selected.has(v.key);
+      const text = document.createElement("span");
+      text.textContent = v.label;
+      label.appendChild(cb);
+      label.appendChild(text);
+      values.appendChild(label);
+    }
+  }
+
+  private applyFilterSortDraft() {
+    const draft = this.filterSortDraft;
+    if (!draft) return;
+    const view = this.dataModel.getView();
+    const existingFilters = [...(view.filters ?? [])].filter(
+      (f) => !((f as ViewFilterValues).kind === "values" && String((f as ViewFilterValues).key) === String(draft.colKey)),
+    );
+
+    const allSelected =
+      draft.selected.size === draft.values.length && draft.includeBlanks === Boolean(draft.hasBlanks);
+    const nextFilters = allSelected
+      ? existingFilters
+      : [
+          ...existingFilters,
+          {
+            kind: "values",
+            key: draft.colKey,
+            values: draft.values.filter((v) => draft.selected.has(v.key)).map((v) => v.value),
+            includeBlanks: draft.includeBlanks,
+          } satisfies ViewFilterValues,
+        ];
+
+    const nextDiagnostics = { ...(view.columnDiagnostics ?? {}) };
+    if (draft.diagErrors || draft.diagWarnings) {
+      nextDiagnostics[String(draft.colKey)] = { errors: draft.diagErrors, warnings: draft.diagWarnings };
+    } else {
+      delete nextDiagnostics[String(draft.colKey)];
+    }
+
+    const nextView: View = {
+      ...view,
+      filters: nextFilters.length ? nextFilters : undefined,
+      columnDiagnostics: Object.keys(nextDiagnostics).length ? nextDiagnostics : undefined,
+    };
+    this.setView(nextView);
+  }
+
+  private clearFilterSortForActiveColumn() {
+    const colKey = this.filterSortActiveColumnKey;
+    if (colKey === null || colKey === undefined) return;
+    const view = this.dataModel.getView();
+    const nextFilters = [...(view.filters ?? [])].filter(
+      (f) => !((f as ViewFilterValues).kind === "values" && String((f as ViewFilterValues).key) === String(colKey)),
+    );
+    const nextDiagnostics = { ...(view.columnDiagnostics ?? {}) };
+    delete nextDiagnostics[String(colKey)];
+    const nextView: View = {
+      ...view,
+      filters: nextFilters.length ? nextFilters : undefined,
+      columnDiagnostics: Object.keys(nextDiagnostics).length ? nextDiagnostics : undefined,
+    };
+    this.setView(nextView);
+    this.buildFilterSortDraft(colKey);
+    this.renderFilterSortSidebar();
+  }
+
+  private setSortForActiveColumn(dir: "asc" | "desc") {
+    const colKey = this.filterSortActiveColumnKey;
+    if (colKey === null || colKey === undefined) return;
+    const view = this.dataModel.getView();
+    const nextView: View = { ...view, sorts: [{ key: colKey, dir }] };
+    this.setView(nextView);
+    this.buildFilterSortDraft(colKey);
+    this.renderFilterSortSidebar();
+  }
+
+  private clearSort() {
+    const view = this.dataModel.getView();
+    if (!view.sorts?.length) return;
+    const nextView: View = { ...view, sorts: undefined };
+    this.setView(nextView);
+    if (this.filterSortActiveColumnKey !== null) {
+      this.buildFilterSortDraft(this.filterSortActiveColumnKey);
+      this.renderFilterSortSidebar();
+    }
+  }
+
+  private teardownFilterSort() {
+    this.filterSortSidebarUnsub?.();
+    this.filterSortSidebarUnsub = null;
+    if (this.filterSortSidebar) {
+      removeFromParent(this.filterSortSidebar);
+      this.filterSortSidebar = null;
+    }
+    if (this.filterSortKeydown) {
+      document.removeEventListener("keydown", this.filterSortKeydown, true);
+      this.filterSortKeydown = null;
+    }
+    if (this.filterSortClickCapture) {
+      (this.viewportEl ?? this.root).removeEventListener("click", this.filterSortClickCapture, true);
+      this.filterSortClickCapture = null;
+    }
+    if (this.filterSortOpenEvent) {
+      (this.viewportEl ?? this.root).removeEventListener(
+        "extable:filter-sort-open",
+        this.filterSortOpenEvent as any,
+      );
+      this.filterSortOpenEvent = null;
+    }
+    this.root.classList.toggle("extable-filter-sort-open", false);
+    this.filterSortActiveColumnKey = null;
+    this.filterSortDraft = null;
   }
 
   private initViewportState() {

@@ -131,11 +131,30 @@ export interface DataSet<T extends Record<string, unknown> = Record<string, unkn
   rows: Array<RowObject<T> | RowArray>;
 }
 
-export interface ViewFilter {
+export type ViewFilterOp = {
+  kind: "op";
   key: string | number;
-  op: 'eq' | 'neq' | 'lt' | 'lte' | 'gt' | 'gte' | 'contains';
+  op: "eq" | "neq" | "lt" | "lte" | "gt" | "gte" | "contains";
   value: unknown;
-}
+};
+
+export type ViewFilterValues = {
+  kind: "values";
+  key: string | number;
+  /** Allow-list of selected non-blank values. */
+  values: unknown[];
+  /** When true, blanks (null/undefined/"") are included. */
+  includeBlanks?: boolean;
+};
+
+export type ViewFilter = ViewFilterOp | ViewFilterValues;
+
+export type ColumnDiagnosticFilter = {
+  errors?: boolean;
+  warnings?: boolean;
+};
+
+export type ColumnDiagnosticFilterMap = Record<string, ColumnDiagnosticFilter>;
 
 export interface ViewSort {
   key: string | number;
@@ -146,6 +165,11 @@ export interface View {
   hiddenColumns?: Array<string | number>;
   filters?: ViewFilter[];
   sorts?: ViewSort[];
+  /**
+   * Column-scoped diagnostic quick filters.
+   * Key is the column key (stringified).
+   */
+  columnDiagnostics?: ColumnDiagnosticFilterMap;
   userId?: string; // personalization
   columnWidths?: Record<string, number>; // key -> px
   rowHeights?: Record<string, number>;

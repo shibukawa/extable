@@ -296,3 +296,48 @@ export const uniqueCheckView = {
   filters: [],
   sorts: []
 };
+
+export interface FilterSortRow {
+  id: number;
+  group: 'A' | 'B' | 'C';
+  amount: number | null;
+  note: string;
+}
+
+export const filterSortRows: FilterSortRow[] = [
+  { id: 1, group: 'A', amount: 120, note: 'ok' },
+  { id: 2, group: 'B', amount: 80, note: 'warn' },
+  { id: 3, group: 'A', amount: 150, note: 'ok' },
+  { id: 4, group: 'C', amount: null, note: 'blank amount' },
+  { id: 5, group: 'B', amount: -50, note: 'error' },
+  { id: 6, group: 'C', amount: 200, note: 'ok' },
+  { id: 7, group: 'A', amount: 0, note: 'warn' },
+  { id: 8, group: 'B', amount: 60, note: 'ok' }
+];
+
+export const filterSortSchema = {
+  columns: [
+    { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
+    { key: 'group', header: 'Group', type: 'enum', enum: { options: ['A', 'B', 'C'] }, width: 100 },
+    { key: 'amount', header: 'Amount', type: 'number', format: { align: 'right' }, width: 110 },
+    {
+      key: 'status',
+      header: 'Status',
+      type: 'string',
+      formula: (row: FilterSortRow) => {
+        if (row.amount === null) return '';
+        if (row.amount < 0) throw new Error('amount must be >= 0');
+        if (row.note === 'warn') return ['warning', new Error('check this row')] as const;
+        return 'ok';
+      },
+      width: 160
+    },
+    { key: 'note', header: 'Note', type: 'string', width: 220 }
+  ]
+};
+
+export const filterSortView = {
+  hiddenColumns: [],
+  filters: [],
+  sorts: []
+};
