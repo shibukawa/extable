@@ -5,7 +5,7 @@ describe("type inference", () => {
   test("infers T from defaultData rows", () => {
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ price: 10, qty: 2 }] },
+        data: [{ price: 10, qty: 2 }],
         schema: { columns: [{ key: "price", type: "number" }, { key: "qty", type: "number" }] },
         view: {},
       },
@@ -15,4 +15,3 @@ describe("type inference", () => {
     expectTypeOf(core).toEqualTypeOf<ExtableCore<{ price: number; qty: number }>>();
   });
 });
-

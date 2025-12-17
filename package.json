@@ -23,10 +23,11 @@
     "dev:demo-react": "npm run dev --workspace @extable/demo-react",
     "dev:demo-vue": "npm run dev --workspace @extable/demo-vue",
     "dev:server": "npm run dev --workspace @extable/server-hono",
+    "dev:docs": "npm run dev --workspace @extable/docs",
     "e2e": "npm run e2e --ws --if-present",
-    "docs:dev": "BASE_PATH=/ vitepress dev docs/pages",
-    "docs:build": "vitepress build docs/pages && node scripts/vitepress-fix-preload-stylesheet.mjs",
-    "docs:preview": "BASE_PATH=/ npm run docs:build && BASE_PATH=/ vitepress preview docs/pages",
+    "docs:dev": "npm run dev:docs",
+    "docs:build": "npm run build --workspace @extable/docs",
+    "docs:preview": "npm run preview --workspace @extable/docs",
     "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium firefox webkit"
   },
   "devDependencies": {

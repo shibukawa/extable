@@ -10,7 +10,7 @@ export interface FindReplaceOptions {
 
 export interface FindReplaceMatch {
   rowId: string;
-  colKey: string | number;
+  colKey: string;
   rowIndex: number;
   colIndex: number;
   start: number;
@@ -40,12 +40,19 @@ function stringifyCellValue(value: unknown, col: ColumnSchema): string {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (typeof value === "object") {
-    const maybe = value as any;
-    if (maybe.kind === "enum" && typeof maybe.value === "string") return maybe.value;
-    if (maybe.kind === "tags" && Array.isArray(maybe.values)) return maybe.values.join(", ");
+    const obj = value as Record<string, unknown>;
+    const kind = obj.kind;
+    if (kind === "enum" && typeof obj.value === "string") return obj.value;
+    if (kind === "tags" && Array.isArray(obj.values)) {
+      return obj.values.filter((x) => typeof x === "string").join(", ");
+    }
   }
   // Fallback: stable stringification.
-  return col.type === "boolean" ? (String(value).toLowerCase() === "true" ? "TRUE" : "FALSE") : String(value);
+  return col.type === "boolean"
+    ? String(value).toLowerCase() === "true"
+      ? "TRUE"
+      : "FALSE"
+    : String(value);
 }
 
 function escapeRegExp(text: string) {
@@ -73,9 +80,9 @@ export class FindReplaceController {
 
   constructor(
     private dataModel: DataModel,
-    private navigateToCell: (rowId: string, colKey: string | number) => void,
-    private applyEdit: (rowId: string, colKey: string | number, next: unknown) => void,
-    private canEdit: (rowId: string, colKey: string | number) => boolean,
+    private navigateToCell: (rowId: string, colKey: string) => void,
+    private applyEdit: (rowId: string, colKey: string, next: unknown) => void,
+    private canEdit: (rowId: string, colKey: string) => boolean,
   ) {
     this.unsubscribeData = this.dataModel.subscribe(() => {
       if (!this.state.query) return;
@@ -127,14 +134,16 @@ export class FindReplaceController {
 
   prev() {
     if (!this.state.matches.length) return;
-    const idx = (this.state.activeIndex - 1 + this.state.matches.length) % this.state.matches.length;
+    const idx =
+      (this.state.activeIndex - 1 + this.state.matches.length) % this.state.matches.length;
     this.activateIndex(idx);
   }
 
   activateIndex(index: number) {
     const idx = clampIndex(index, this.state.matches.length);
     if (idx < 0) return;
-    const match = this.state.matches[idx]!;
+    const match = this.state.matches[idx];
+    if (!match) return;
     this.setState({ ...this.state, activeIndex: idx });
     this.navigateToCell(match.rowId, match.colKey);
   }
@@ -162,18 +171,21 @@ export class FindReplaceController {
     const byCell = new Map<string, FindReplaceMatch[]>();
     for (const m of this.state.matches) {
       if (!this.canEdit(m.rowId, m.colKey)) continue;
-      byCell.set(`${m.rowId}|${String(m.colKey)}`, [...(byCell.get(`${m.rowId}|${String(m.colKey)}`) ?? []), m]);
+      byCell.set(`${m.rowId}|${m.colKey}`, [...(byCell.get(`${m.rowId}|${m.colKey}`) ?? []), m]);
     }
     for (const [key, matches] of byCell.entries()) {
       const [rowId, colKeyStr] = key.split("|");
-      const colIndex = matches[0]!.colIndex;
+      const first = matches[0];
+      if (!first) continue;
+      const colIndex = first.colIndex;
       const col = schema.columns[colIndex];
       if (!col) continue;
-      const colKey: string | number = typeof col.key === "number" ? col.key : colKeyStr;
-      const current = this.dataModel.getCell(rowId!, colKey);
+      if (!rowId || !colKeyStr) continue;
+      const colKey = colKeyStr;
+      const current = this.dataModel.getCell(rowId, colKey);
       const currentText = stringifyCellValue(current, col);
       const nextText = this.applyReplacementAllInCell(currentText, matches);
-      this.applyEdit(rowId!, colKey, nextText);
+      this.applyEdit(rowId, colKey, nextText);
     }
     this.recompute();
   }
@@ -186,10 +198,11 @@ export class FindReplaceController {
         const flags = `g${options.caseInsensitive ? "i" : ""}`;
         const re = new RegExp(query, flags);
         let seen = -1;
-        return text.replace(re, (...args: any[]) => {
-          const off = args[args.length - 2] as number;
-          if (off !== match.start) return args[0];
-          if (seen === off) return args[0];
+        return text.replace(re, (substr, ...args) => {
+          const off = args[args.length - 2];
+          if (typeof off !== "number") return substr;
+          if (off !== match.start) return substr;
+          if (seen === off) return substr;
           seen = off;
           return replace;
         });
@@ -256,21 +269,28 @@ export class FindReplaceController {
     }
 
     if (!re || error) {
-      this.setState({ ...this.state, matches: [], activeIndex: -1, error: error ?? "Invalid pattern" });
+      this.setState({
+        ...this.state,
+        matches: [],
+        activeIndex: -1,
+        error: error ?? "Invalid pattern",
+      });
       return;
     }
 
     for (let r = 0; r < rows.length; r += 1) {
-      const row = rows[r]!;
+      const row = rows[r];
+      if (!row) continue;
       for (let c = 0; c < schema.columns.length; c += 1) {
-        const col = schema.columns[c]!;
+        const col = schema.columns[c];
+        if (!col) continue;
         if (view.hiddenColumns?.some((k) => String(k) === String(col.key))) continue;
         const cellValue = this.dataModel.getCell(row.id, col.key);
         const text = stringifyCellValue(cellValue, col);
         if (!text) continue;
         re.lastIndex = 0;
-        let m: RegExpExecArray | null;
-        while ((m = re.exec(text))) {
+        let m: RegExpExecArray | null = re.exec(text);
+        while (m) {
           const start = m.index;
           const end = start + (m[0]?.length ?? 0);
           matches.push({
@@ -283,6 +303,7 @@ export class FindReplaceController {
             text,
           });
           if (m[0] === "") break;
+          m = re.exec(text);
         }
       }
     }

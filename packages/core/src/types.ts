@@ -38,60 +38,28 @@ export type FormulaOk = string | boolean | number | Date;
 export type FormulaWarn<T extends FormulaOk> = readonly [value: T, warning: Error];
 export type FormulaReturn<T extends FormulaOk = FormulaOk> = T | FormulaWarn<T>;
 
-export type ConditionalStyleFn<TData extends Record<string, unknown> = Record<string, unknown>> = (
+export type ConditionalStyleFn<TData extends object = Record<string, unknown>> = (
   data: TData,
 ) => StyleDelta | null | Error;
-
-// A1 notation typing (MVP: single cell only)
-// NOTE: Using per-digit unions here can explode the type space and break `tsc --emitDeclarationOnly`.
-// Keep the type reasonably permissive and enforce bounds (e.g. <= 100000) at runtime in the resolver.
-export type ExcelRow = `${number}`;
-
-export type Col1 =
-  | "A"
-  | "B"
-  | "C"
-  | "D"
-  | "E"
-  | "F"
-  | "G"
-  | "H"
-  | "I"
-  | "J"
-  | "K"
-  | "L"
-  | "M"
-  | "N"
-  | "O"
-  | "P"
-  | "Q"
-  | "R"
-  | "S"
-  | "T"
-  | "U"
-  | "V"
-  | "W"
-  | "X"
-  | "Y"
-  | "Z";
-export type Col2 = `${Col1}${Col1}`;
-export type ExcelColumn = Col1 | Col2;
-export type ExcelRef = `${ExcelColumn}${ExcelRow}`;
 
 export type Updater<T> = T | ((oldValue: T) => T);
 
 export type CellAddress =
-  | { rowId: string; colKey: string | number }
+  | { rowId: string; colKey: string }
   | { rowIndex: number; colIndex: number }
   | { rowId: string; colIndex: number }
-  | { rowIndex: number; colKey: string | number }
-  | ExcelRef;
+  | { rowIndex: number; colKey: string };
+
+export type CellTarget = {
+  rowId: string;
+  colKey: string;
+};
 
 export interface ColumnSchema<
-  TData extends Record<string, unknown> = Record<string, unknown>,
+  TData extends object = Record<string, unknown>,
   TType extends ColumnType = ColumnType,
 > {
-  key: string | number; // object key or array index
+  key: string;
   type: TType;
   header?: string;
   readonly?: boolean;
@@ -129,32 +97,27 @@ export interface ColumnSchema<
   conditionalStyle?: ConditionalStyleFn<TData>;
 }
 
-export interface Schema<TData extends Record<string, unknown> = Record<string, unknown>> {
+export interface Schema<TData extends object = Record<string, unknown>> {
   columns: ColumnSchema<TData>[];
 }
 
-export type RowObject<T extends Record<string, unknown> = Record<string, unknown>> = {
+export type RowObject<T extends object = Record<string, unknown>> = {
   _readonly?: boolean;
 } & T;
-export type RowArray = CellValue[];
 
-export interface DataSet<T extends Record<string, unknown> = Record<string, unknown>> {
-  rows: Array<RowObject<T> | RowArray>;
-}
-
-export type NullableDataSet<T extends Record<string, unknown> = Record<string, unknown>> =
-  DataSet<T> | null;
+// Public data is object-row arrays only. Use `null` for async loading.
+export type NullableData<T extends object = Record<string, unknown>> = T[] | null;
 
 export type ViewFilterOp = {
   kind: "op";
-  key: string | number;
+  key: string;
   op: "eq" | "neq" | "lt" | "lte" | "gt" | "gte" | "contains";
   value: unknown;
 };
 
 export type ViewFilterValues = {
   kind: "values";
-  key: string | number;
+  key: string;
   /** Allow-list of selected non-blank values. */
   values: unknown[];
   /** When true, blanks (null/undefined/"") are included. */
@@ -171,12 +134,12 @@ export type ColumnDiagnosticFilter = {
 export type ColumnDiagnosticFilterMap = Record<string, ColumnDiagnosticFilter>;
 
 export interface ViewSort {
-  key: string | number;
+  key: string;
   dir: "asc" | "desc";
 }
 
 export interface View {
-  hiddenColumns?: Array<string | number>;
+  hiddenColumns?: string[];
   filters?: ViewFilter[];
   sorts?: ViewSort[];
   /**
@@ -197,8 +160,8 @@ export type LockMode = "none" | "row";
 export interface Command {
   kind: "edit" | "deleteRow" | "insertRow" | "updateView" | "lock" | "unlock";
   rowId?: string;
-  colKey?: string | number;
-  rowData?: RowObject | RowArray;
+  colKey?: string;
+  rowData?: RowObject;
   prev?: unknown;
   next?: unknown;
   payload?: unknown;
@@ -210,7 +173,12 @@ export interface UserInfo {
 }
 
 export interface ServerAdapter {
-  fetchInitial?: () => Promise<{ data: DataSet; view?: View; schema?: Schema; user: UserInfo }>;
+  fetchInitial?: () => Promise<{
+    data: Record<string, unknown>[];
+    view?: View;
+    schema?: Schema;
+    user: UserInfo;
+  }>;
   lockRow: (rowId: string, user: UserInfo) => Promise<void>;
   unlockRows: (rowIds: string[], user: UserInfo) => Promise<void>;
   commit: (commands: Command[], user: UserInfo) => Promise<void>;
@@ -251,8 +219,8 @@ export interface CoreOptions {
   };
 }
 
-export interface TableConfig<T extends Record<string, unknown> = Record<string, unknown>> {
-  data: DataSet<T>;
+export interface TableConfig<T extends object = Record<string, unknown>> {
+  data: T[] | null;
   view: View;
   schema: Schema;
 }
@@ -275,7 +243,7 @@ export type UndoRedoHistory = {
 
 export interface InternalRow {
   id: string;
-  raw: RowObject | RowArray;
+  raw: RowObject;
   displayIndex: number;
 }
 
@@ -295,7 +263,7 @@ export type ColorState = string | "mixed" | null | "disabled";
 export type TableError = {
   scope: "validation" | "commit" | "render" | "formula" | "conditionalStyle" | "unknown";
   message: string;
-  target?: { rowId?: string; colKey?: string | number };
+  target?: { rowId?: string; colKey?: string };
 };
 
 export type TableState = {
@@ -315,7 +283,7 @@ export type SelectionSnapshot = {
   activeRowIndex: number | null;
   activeRowKey: string | null;
   activeColumnIndex: number | null;
-  activeColumnKey: string | number | null;
+  activeColumnKey: string | null;
   activeValueRaw: unknown;
   activeValueDisplay: string;
   activeValueType: ColumnType | null;

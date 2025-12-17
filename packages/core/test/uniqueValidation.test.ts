@@ -7,7 +7,7 @@ describe("unique column validation", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ name: "Alice" }, { name: "Alice" }, { name: "Bob" }] },
+        data: [{ name: "Alice" }, { name: "Alice" }, { name: "Bob" }],
         schema: { columns: [{ key: "name", type: "string", unique: true }] },
         view: {},
       },
@@ -34,7 +34,7 @@ describe("unique column validation", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ name: "Alice" }, { name: "Alice" }] },
+        data: [{ name: "Alice" }, { name: "Alice" }],
         schema: { columns: [{ key: "name", type: "string", unique: true }] },
         view: {},
       },

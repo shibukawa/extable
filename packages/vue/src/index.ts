@@ -2,7 +2,7 @@ import type {
   CoreOptions,
   EditMode,
   LockMode,
-  NullableDataSet,
+  NullableData,
   Schema,
   SelectionChangeReason,
   SelectionSnapshot,
@@ -10,10 +10,11 @@ import type {
   View,
 } from "@extable/core";
 import { ExtableCore } from "@extable/core";
-import { PropType, defineComponent, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import type { PropType } from "vue";
+import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 export const Extable = defineComponent({
-  name: 'Extable',
+  name: "Extable",
   inheritAttrs: true,
   props: {
     schema: {
@@ -21,8 +22,9 @@ export const Extable = defineComponent({
       required: true,
     },
     defaultData: {
-      type: Object as PropType<NullableDataSet>,
-      required: true,
+      type: Array as PropType<NullableData>,
+      required: false,
+      default: null,
     },
     defaultView: {
       type: Object as PropType<View>,
@@ -31,7 +33,7 @@ export const Extable = defineComponent({
     options: {
       type: Object as PropType<CoreOptions>,
       required: false,
-    }
+    },
   },
   emits: {
     tableState: (_next: TableState, _prev: TableState | null) => true,
@@ -59,7 +61,9 @@ export const Extable = defineComponent({
         options: props.options,
       });
       unsubTable = core.subscribeTableState((next, prev) => emit("tableState", next, prev));
-      unsubSel = core.subscribeSelection((next, prev, reason) => emit("cellEvent", next, prev, reason));
+      unsubSel = core.subscribeSelection((next, prev, reason) =>
+        emit("cellEvent", next, prev, reason),
+      );
     });
 
     onBeforeUnmount(() => {
@@ -90,27 +94,27 @@ export const Extable = defineComponent({
         core?.destroy();
         core = null;
       },
-      setData: (data: NullableDataSet) => core?.setData(data),
+      setData: (data: NullableData) => core?.setData(data),
       setView: (view: View) => core?.setView(view),
       setEditMode: (mode: EditMode) => core?.setEditMode(mode),
       setLockMode: (mode: LockMode) => core?.setLockMode(mode),
     });
 
     return () =>
-      h('div', {
+      h("div", {
         ref: root,
         "data-extable-wrapper": "",
         ...attrs,
-        class: ["extable-root", (attrs as any).class],
+        class: ["extable-root", (attrs as unknown as Record<string, unknown>).class],
       });
-  }
+  },
 });
 
 export type {
   CoreOptions,
   EditMode,
   LockMode,
-  NullableDataSet,
+  NullableData,
   Schema,
   SelectionChangeReason,
   SelectionSnapshot,
@@ -122,7 +126,7 @@ export type ExtableVueHandle<T extends Record<string, unknown> = Record<string, 
   getCore(): ExtableCore<T> | null;
   destroy(): void;
 
-  setData(data: NullableDataSet<T>): void;
+  setData(data: NullableData<T>): void;
   setView(view: View): void;
 
   setEditMode(mode: EditMode): void;

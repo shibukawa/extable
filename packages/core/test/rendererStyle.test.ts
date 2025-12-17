@@ -7,7 +7,7 @@ describe("renderer style application", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ a: "x" }] },
+        data: [{ a: "x" }],
         schema: {
           columns: [
             {
@@ -95,11 +95,11 @@ describe("renderer style application", () => {
     try {
       const root = document.createElement("div");
       document.body.appendChild(root);
-      const core = createTablePlaceholder(
-        {
-          data: { rows: [{ a: "x" }] },
-          schema: {
-            columns: [
+        const core = createTablePlaceholder(
+          {
+            data: [{ a: "x" }],
+            schema: {
+              columns: [
               {
                 key: "a",
                 type: "string",
@@ -172,11 +172,11 @@ describe("renderer style application", () => {
     try {
       const root = document.createElement("div");
       document.body.appendChild(root);
-      const core = createTablePlaceholder(
-        {
-          data: { rows: [{ a: "x" }] },
-          schema: {
-            columns: [
+        const core = createTablePlaceholder(
+          {
+            data: [{ a: "x" }],
+            schema: {
+              columns: [
               {
                 key: "__row__",
                 type: "string",

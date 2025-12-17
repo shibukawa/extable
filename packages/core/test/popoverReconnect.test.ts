@@ -6,7 +6,7 @@ describe("popover reconnect", () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
     const core = createTablePlaceholder(
-      { data: { rows: [{ a: "x" }] }, schema: { columns: [{ key: "a", type: "string" }] }, view: {} },
+      { data: [{ a: "x" }], schema: { columns: [{ key: "a", type: "string" }] }, view: {} },
       { renderMode: "html", editMode: "direct", lockMode: "none" },
     );
     mountTable(root, core);
@@ -30,4 +30,3 @@ describe("popover reconnect", () => {
     root.remove();
   });
 });
-

@@ -815,7 +815,7 @@ export class CanvasRenderer implements Renderer {
         const accum = heightIndex.fenwick.sum(visibleStart);
         let visibleEnd = visibleStart;
         let drawnHeight = 0;
-          const maxHeight = (this.canvas?.height ?? 0) + this.rowHeight * 2;
+        const maxHeight = (this.canvas?.height ?? 0) + this.rowHeight * 2;
         for (let i = visibleStart; i < rows.length && drawnHeight < maxHeight; i += 1) {
           drawnHeight += heightIndex.heights[i] ?? this.rowHeight;
           visibleEnd = i + 1;
@@ -902,6 +902,10 @@ export class CanvasRenderer implements Renderer {
         for (let idx = 0; idx < schema.columns.length; idx += 1) {
           const c = schema.columns[idx];
           const w = colWidths[idx] ?? 100;
+          if (!c) {
+            x += w;
+            continue;
+          }
           const readOnly = this.dataModel.isReadonly(row.id, c.key);
           ctx.strokeStyle = "#d0d7de";
           const condRes = this.dataModel.resolveConditionalStyle(row.id, c);
@@ -1023,6 +1027,10 @@ export class CanvasRenderer implements Renderer {
       for (let idx = 0; idx < schema.columns.length; idx += 1) {
         const c = schema.columns[idx];
         const w = colWidths[idx] ?? 100;
+        if (!c) {
+          xHeader += w;
+          continue;
+        }
         const isActiveCol = this.activeColKey !== null && this.activeColKey === c.key;
         if (isActiveCol) {
           ctx.fillStyle = "rgba(59,130,246,0.16)";
@@ -1635,6 +1643,7 @@ export class CanvasRenderer implements Renderer {
     const view = this.dataModel.getView();
     for (let idx = 0; idx < schema.columns.length; idx += 1) {
       const c = schema.columns[idx];
+      if (!c) continue;
       const wrap = view.wrapText?.[c.key] ?? c.wrapText;
       if (!wrap) continue;
       const w = (colWidths[idx] ?? 100) - this.padding;

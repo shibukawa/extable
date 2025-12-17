@@ -1,10 +1,10 @@
 import type { DataModel } from './dataModel';
-import type { ColumnSchema, SelectionRange } from './types';
+import type { SelectionRange } from './types';
 
 export type FillHandleMode = 'copy' | 'sequence';
 
 export interface FillHandleSource {
-  colKey: string | number;
+  colKey: string;
   colIndex: number;
   startRowIndex: number;
   endRowIndex: number;
@@ -285,14 +285,14 @@ export function shouldShowFillHandle(
   dataModel: DataModel,
   ranges: SelectionRange[],
   activeRowId: string | null,
-  activeColKey: string | number | null
+  activeColKey: string | null,
 ): boolean {
   const src = getFillHandleSource(dataModel, ranges);
   if (!src) return false;
   if (!activeRowId || activeRowId === '__all__') return false;
   if (activeColKey === null) return false;
   if (activeColKey === '__all__' || activeColKey === '__row__') return false;
-  if (String(activeColKey) !== String(src.colKey)) return false;
+  if (activeColKey !== src.colKey) return false;
   if (dataModel.isReadonly(activeRowId, activeColKey)) return false;
   return true;
 }

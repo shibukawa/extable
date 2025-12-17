@@ -4,7 +4,7 @@ import type {
   CoreOptions,
   EditMode,
   LockMode,
-  NullableDataSet,
+  NullableData,
   Schema,
   SelectionChangeReason,
   SelectionSnapshot,
@@ -17,7 +17,7 @@ export type ExtableHandle<T extends Record<string, unknown> = Record<string, unk
   getCore(): ExtableCore<T> | null;
   destroy(): void;
 
-  setData(data: NullableDataSet<T>): void;
+  setData(data: NullableData<T>): void;
   setView(view: View): void;
   setSchema(schema: Schema): void;
 
@@ -30,7 +30,7 @@ export type ExtableProps<T extends Record<string, unknown> = Record<string, unkn
   "children"
 > & {
   schema: Schema;
-  defaultData: NullableDataSet<T>;
+  defaultData: NullableData<T>;
   defaultView: View;
   options?: CoreOptions;
 
@@ -134,7 +134,7 @@ export type {
   CoreOptions,
   EditMode,
   LockMode,
-  NullableDataSet,
+  NullableData,
   Schema,
   SelectionChangeReason,
   SelectionSnapshot,

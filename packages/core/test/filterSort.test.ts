@@ -7,7 +7,7 @@ describe("filter/sort view behavior", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ a: "x" }, { a: "y" }, { a: "x" }, { a: "" }] },
+        data: [{ a: "x" }, { a: "y" }, { a: "x" }, { a: "" }],
         schema: { columns: [{ key: "a", type: "string" }] },
         view: {},
       },
@@ -42,7 +42,7 @@ describe("filter/sort view behavior", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ v: 2, id: "a" }, { v: 1, id: "b" }, { v: 2, id: "c" }, { v: null, id: "blank" }] },
+        data: [{ v: 2, id: "a" }, { v: 1, id: "b" }, { v: 2, id: "c" }, { v: null, id: "blank" }],
         schema: { columns: [{ key: "v", type: "number" }, { key: "id", type: "string" }] },
         view: {},
       },
@@ -66,7 +66,7 @@ describe("filter/sort view behavior", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ n: 1 }, { n: -1 }, { n: 2 }] },
+        data: [{ n: 1 }, { n: -1 }, { n: 2 }],
         schema: {
           columns: [
             { key: "n", type: "number" },
@@ -102,7 +102,7 @@ describe("filter/sort view behavior", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ id: 1, a: "x" }, { id: 2, a: "y" }, { id: 3, a: "x" }] },
+        data: [{ id: 1, a: "x" }, { id: 2, a: "y" }, { id: 3, a: "x" }],
         schema: { columns: [{ key: "id", type: "number" }, { key: "a", type: "string" }] },
         view: {},
       },
@@ -133,7 +133,7 @@ describe("filter/sort view behavior", () => {
     document.body.appendChild(root);
     const rows = Array.from({ length: 120 }, (_, i) => ({ a: `v${i}` }));
     const core = createTablePlaceholder(
-      { data: { rows }, schema: { columns: [{ key: "a", type: "string" }] }, view: {} },
+      { data: rows, schema: { columns: [{ key: "a", type: "string" }] }, view: {} },
       { renderMode: "html", editMode: "direct", lockMode: "none" },
     );
     mountTable(root, core);

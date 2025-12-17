@@ -169,14 +169,15 @@ export class SelectionManager {
     }
 
     // Active row got filtered out (or active col disappeared): move to the nearest visible row/col.
-    const desiredColKey = activeColKey ?? (schema.columns[0]?.key ?? "");
+    const desiredColKey = activeColKey ?? schema.columns[0]?.key ?? "";
     let colIndex = schema.columns.findIndex((c) => String(c.key) === String(desiredColKey));
     if (colIndex < 0) colIndex = 0;
     const colKey = schema.columns[colIndex]?.key ?? "";
 
     const baseIndex = activeRowId ? this.dataModel.getBaseRowIndex(activeRowId) : 0;
     const fallbackRow = rows[rows.length - 1] ?? rows[0] ?? null;
-    const nextRow = rows.find((r) => this.dataModel.getBaseRowIndex(r.id) >= baseIndex) ?? fallbackRow;
+    const nextRow =
+      rows.find((r) => this.dataModel.getBaseRowIndex(r.id) >= baseIndex) ?? fallbackRow;
     if (!nextRow) return;
     const rowId = nextRow.id;
     const rowIndex = this.dataModel.getRowIndex(rowId);
@@ -589,7 +590,6 @@ export class SelectionManager {
       this.updateFillHandleFlag();
       return;
     }
-    
   }
 
   private handlePointerDown = (ev: PointerEvent) => {

@@ -4,8 +4,7 @@ import { ExtableCore } from "@extable/core";
 import type {
   Command,
   CoreOptions,
-  DataSet,
-  NullableDataSet,
+  NullableData,
   Schema,
   ServerAdapter,
   UserInfo,
@@ -51,8 +50,8 @@ const tableRootId = "table-root";
 
 const user: UserInfo = { id: "demo-user", name: "Demo User" };
 
-let currentConfig: { data: NullableDataSet; view: View; schema: Schema } = {
-  data: { rows: demoRows.map((r) => ({ ...r })) },
+let currentConfig: { data: NullableData; view: View; schema: Schema } = {
+  data: demoRows.map((r) => ({ ...r })),
   view: { ...demoView },
   schema: demoSchema,
 };
@@ -147,50 +146,51 @@ function cloneConfig(dataMode: DataMode) {
     };
   }
   if (dataMode === "performance-10k") {
-    (cloneConfig as any)._perfRows ??= makePerformanceDemoRows(10000);
+    (cloneConfig as unknown as Record<string, unknown>)._perfRows ??=
+      makePerformanceDemoRows(10000);
     return {
-      data: { rows: (cloneConfig as any)._perfRows },
+      data: (cloneConfig as unknown as Record<string, unknown>)._perfRows as any[],
       schema: demoSchema,
       view: { ...demoView },
     };
   }
   if (dataMode === "data-format") {
     return {
-      data: { rows: dataFormatRows.map((r) => ({ ...r })) },
+      data: dataFormatRows.map((r) => ({ ...r })),
       schema: dataFormatSchema,
       view: { ...dataFormatView },
     };
   }
   if (dataMode === "formula") {
     return {
-      data: { rows: formulaRows.map((r) => ({ ...r })) },
+      data: formulaRows.map((r) => ({ ...r })),
       schema: formulaSchema,
       view: { ...formulaView },
     };
   }
   if (dataMode === "conditional-style") {
     return {
-      data: { rows: conditionalStyleRows.map((r) => ({ ...r })) },
+      data: conditionalStyleRows.map((r) => ({ ...r })),
       schema: conditionalStyleSchema,
       view: { ...conditionalStyleView },
     };
   }
   if (dataMode === "unique-check") {
     return {
-      data: { rows: uniqueCheckRows.map((r) => ({ ...r })) },
+      data: uniqueCheckRows.map((r) => ({ ...r })),
       schema: uniqueCheckSchema,
       view: { ...uniqueCheckView },
     };
   }
   if (dataMode === "filter-sort") {
     return {
-      data: { rows: filterSortRows.map((r) => ({ ...r })) },
+      data: filterSortRows.map((r) => ({ ...r })),
       schema: filterSortSchema,
       view: { ...filterSortView },
     };
   }
   return {
-    data: { rows: demoRows.map((r) => ({ ...r })) },
+    data: demoRows.map((r) => ({ ...r })),
     schema: demoSchema,
     view: { ...demoView },
   };
@@ -233,40 +233,49 @@ function main() {
 
   const dataNoteForSchema = (schema: Schema) => {
     const lines: string[] = [];
-    const metaRow = schema.columns.find((c: any) => String(c.key) === "__row__");
-    if (metaRow?.conditionalStyle) {
+    const metaRow = schema.columns.find((c) => String(c.key) === "__row__");
+    if ((metaRow as unknown as Record<string, unknown>)?.conditionalStyle) {
       lines.push("Row conditionalStyle (__row__):");
-      lines.push(safeFnSource((metaRow as any).conditionalStyle) ?? "");
+      lines.push(
+        safeFnSource((metaRow as unknown as Record<string, unknown>).conditionalStyle) ?? "",
+      );
       lines.push("");
     }
 
-    const cols = schema.columns.filter((c: any) => String(c.key) !== "__row__");
-    const formulaCols = cols.filter((c: any) => Boolean((c as any).formula));
-    const condCols = cols.filter((c: any) => Boolean((c as any).conditionalStyle));
-    const uniqueCols = cols.filter((c: any) => Boolean((c as any).unique));
+    const cols = schema.columns.filter((c) => String(c.key) !== "__row__");
+    const formulaCols = cols.filter((c) =>
+      Boolean((c as unknown as Record<string, unknown>).formula),
+    );
+    const condCols = cols.filter((c) =>
+      Boolean((c as unknown as Record<string, unknown>).conditionalStyle),
+    );
+    const uniqueCols = cols.filter((c) =>
+      Boolean((c as unknown as Record<string, unknown>).unique),
+    );
 
     if (formulaCols.length) {
       lines.push("Computed columns (formula):");
       for (const c of formulaCols) {
-        lines.push(`- ${String((c as any).key)} (${String((c as any).type)}):`);
-        lines.push(safeFnSource((c as any).formula) ?? "");
+        const _c = c as unknown as Record<string, unknown>;
+        lines.push(`- ${String(_c.key)} (${String(_c.type)}):`);
+        lines.push(safeFnSource(_c.formula) ?? "");
       }
       lines.push("");
     }
     if (condCols.length) {
       lines.push("Conditional styles (conditionalStyle):");
       for (const c of condCols) {
-        lines.push(`- ${String((c as any).key)} (${String((c as any).type)}):`);
-        lines.push(safeFnSource((c as any).conditionalStyle) ?? "");
+        const _c = c as unknown as Record<string, unknown>;
+        lines.push(`- ${String(_c.key)} (${String(_c.type)}):`);
+        lines.push(safeFnSource(_c.conditionalStyle) ?? "");
       }
       lines.push("");
     }
     if (uniqueCols.length) {
       lines.push("Unique columns (unique: true):");
       for (const c of uniqueCols) {
-        lines.push(
-          `- ${String((c as any).key)} (${String((c as any).type)}): duplicates -> validation errors`,
-        );
+        const _c = c as unknown as Record<string, unknown>;
+        lines.push(`- ${String(_c.key)} (${String(_c.type)}): duplicates -> validation errors`);
       }
       lines.push("");
     }
@@ -331,11 +340,11 @@ function main() {
       loadTimer = window.setTimeout(() => {
         if (gen !== loadGeneration) return;
         if (dataMode !== "loading-async") return;
-        core?.setData({ rows: demoRows.map((r) => ({ ...r })) } as DataSet);
+        core?.setData(demoRows.map((r) => ({ ...r })));
       }, 3000);
     }
     // Expose the latest core instance for demos/e2e.
-    (window as any).__extableCore = core;
+    (window as unknown as Record<string, unknown>).__extableCore = core;
     const commitBtn = document.getElementById("commit-btn");
     if (commitBtn) {
       commitBtn.style.display = options.editMode === "commit" ? "inline-block" : "none";
@@ -391,33 +400,33 @@ function main() {
   undoBtn?.addEventListener("click", () => core?.undo());
   redoBtn?.addEventListener("click", () => core?.redo());
 
-  document.querySelectorAll<HTMLInputElement>('input[name="render-mode"]').forEach((input) => {
+  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="render-mode"]')) {
     input.addEventListener("change", () => {
       options.renderMode = input.value as Mode;
       rebuildCore();
     });
-  });
+  }
 
-  document.querySelectorAll<HTMLInputElement>('input[name="edit-mode"]').forEach((input) => {
+  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="edit-mode"]')) {
     input.addEventListener("change", () => {
       options.editMode = input.value as EditMode;
       rebuildCore();
     });
-  });
+  }
 
-  document.querySelectorAll<HTMLInputElement>('input[name="lock-mode"]').forEach((input) => {
+  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="lock-mode"]')) {
     input.addEventListener("change", () => {
       options.lockMode = input.value as LockMode;
       rebuildCore();
     });
-  });
+  }
 
-  document.querySelectorAll<HTMLInputElement>('input[name="data-mode"]').forEach((input) => {
+  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="data-mode"]')) {
     input.addEventListener("change", () => {
       dataMode = input.value as DataMode;
       rebuildCore();
     });
-  });
+  }
 
   const commitBtn = document.getElementById("commit-btn");
   commitBtn?.addEventListener("click", () => {
@@ -435,7 +444,7 @@ function main() {
   };
   document.addEventListener("keydown", onKey, { capture: true });
   window.addEventListener("beforeunload", () => {
-    document.removeEventListener("keydown", onKey, { capture: true } as any);
+    document.removeEventListener("keydown", onKey, { capture: true });
   });
 }
 

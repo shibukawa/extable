@@ -7,7 +7,7 @@ describe("find/replace", () => {
     document.body.appendChild(root);
     const core = new ExtableCore({
       root,
-      defaultData: { rows: [{ name: "Alice" }, { name: "ALICIA" }, { name: "Bob" }] },
+      defaultData: [{ name: "Alice" }, { name: "ALICIA" }, { name: "Bob" }],
       defaultView: {},
       schema: { columns: [{ key: "name", type: "string" }] },
       options: { renderMode: "html", editMode: "direct", lockMode: "none", findReplace: { sidebar: false } },
@@ -28,7 +28,7 @@ describe("find/replace", () => {
     document.body.appendChild(root);
     const core = new ExtableCore({
       root,
-      defaultData: { rows: [{ name: "Alice" }] },
+      defaultData: [{ name: "Alice" }],
       defaultView: {},
       schema: { columns: [{ key: "name", type: "string" }] },
       options: { renderMode: "html", editMode: "direct", lockMode: "none", findReplace: { sidebar: false } },
@@ -49,7 +49,7 @@ describe("find/replace", () => {
     document.body.appendChild(root);
     const core = new ExtableCore({
       root,
-      defaultData: { rows: [{ name: "Alice" }] },
+      defaultData: [{ name: "Alice" }],
       defaultView: {},
       schema: { columns: [{ key: "name", type: "string" }] },
       options: {
@@ -81,7 +81,7 @@ describe("find/replace", () => {
     document.body.appendChild(root);
     const core = new ExtableCore({
       root,
-      defaultData: { rows: [{ name: "Alice" }] },
+      defaultData: [{ name: "Alice" }],
       defaultView: {},
       schema: { columns: [{ key: "name", type: "string" }] },
       options: { renderMode: "html", editMode: "direct", lockMode: "none" },
@@ -107,7 +107,7 @@ describe("find/replace", () => {
     document.body.appendChild(root);
     const core = new ExtableCore({
       root,
-      defaultData: { rows: [{ name: "Alice" }] },
+      defaultData: [{ name: "Alice" }],
       defaultView: {},
       schema: { columns: [{ key: "name", type: "string" }] },
       options: { renderMode: "html", editMode: "direct", lockMode: "none", findReplace: { sidebar: false } },
@@ -119,7 +119,7 @@ describe("find/replace", () => {
     fr.recompute();
     expect(fr.getState().matches.length).toBe(0);
 
-    core.setData({ rows: [{ name: "Bob" }] });
+    core.setData([{ name: "Bob" }]);
     vi.advanceTimersByTime(250);
     expect(fr.getState().matches.length).toBe(1);
 

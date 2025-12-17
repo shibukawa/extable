@@ -44,7 +44,7 @@ describe("canvas size clamp", () => {
       document.body.appendChild(root);
 
       const core = createTablePlaceholder(
-        { data: { rows: [{ a: "x" }] }, schema: { columns: [{ key: "a", type: "string" }] }, view: {} },
+        { data: [{ a: "x" }], schema: { columns: [{ key: "a", type: "string" }] }, view: {} },
         { renderMode: "canvas", editMode: "direct", lockMode: "none" },
       );
       mountTable(root, core);
@@ -61,4 +61,3 @@ describe("canvas size clamp", () => {
     }
   });
 });
-

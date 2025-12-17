@@ -4,8 +4,8 @@ import type {
   ColumnSchema,
   ColumnDiagnosticFilter,
   ConditionalStyleFn,
-  DataSet,
   InternalRow,
+  RowObject,
   Schema,
   StyleDelta,
   ViewFilterValues,
@@ -14,25 +14,30 @@ import type {
 } from "./types";
 import { validateCellValue } from "./validation";
 
+type AnyFilter = { key?: unknown; kind?: unknown };
+
 export class DataModel {
   private schema: Schema;
   private view: View;
   private rows: InternalRow[] = [];
   private baseIndexById = new Map<string, number>();
   private dataVersion = 0;
-  private visibleRowsCache:
-    | {
-        version: number;
-        key: string;
-        rows: InternalRow[];
-        indexById: Map<string, number>;
-      }
-    | null = null;
+  private visibleRowsCache: {
+    version: number;
+    key: string;
+    rows: InternalRow[];
+    indexById: Map<string, number>;
+  } | null = null;
   private distinctValueCache = new Map<
     string,
-    { version: number; values: Array<{ value: unknown; label: string }>; hasBlanks: boolean; total: number }
+    {
+      version: number;
+      values: Array<{ value: unknown; label: string }>;
+      hasBlanks: boolean;
+      total: number;
+    }
   >();
-  private pending: Map<string, Record<string | number, unknown>> = new Map();
+  private pending: Map<string, Record<string, unknown>> = new Map();
   private rowVersion: Map<string, number> = new Map();
   private listeners = new Set<() => void>();
   private cellStyles = new Map<string, StyleDelta>();
@@ -69,15 +74,21 @@ export class DataModel {
   >();
   private formulaDiagnostics = new Map<string, CellDiagnostic>();
   private conditionalDiagnostics = new Map<string, CellDiagnostic>();
-  private baseValidationErrors = new Map<string, { rowId: string; colKey: string | number; message: string }>();
-  private uniqueValidationErrors = new Map<string, { rowId: string; colKey: string | number; message: string }>();
+  private baseValidationErrors = new Map<
+    string,
+    { rowId: string; colKey: string; message: string }
+  >();
+  private uniqueValidationErrors = new Map<
+    string,
+    { rowId: string; colKey: string; message: string }
+  >();
   private notifySuspended = false;
   private notifyDirty = false;
 
-  constructor(dataset: DataSet, schema: Schema, view: View) {
+  constructor(dataset: RowObject[] | undefined, schema: Schema, view: View) {
     this.schema = schema;
     this.view = view;
-    this.setData(dataset);
+    this.setData(dataset ?? []);
   }
 
   public subscribe(listener: () => void) {
@@ -108,7 +119,7 @@ export class DataModel {
     }
   }
 
-  public setData(dataset: DataSet) {
+  public setData(dataset: RowObject[] | undefined) {
     this.dataVersion += 1;
     this.pending.clear();
     this.cellStyles.clear();
@@ -120,7 +131,7 @@ export class DataModel {
     this.conditionalDiagnostics.clear();
     this.baseValidationErrors.clear();
     this.uniqueValidationErrors.clear();
-    this.rows = dataset.rows.map((row, idx) => {
+    this.rows = (dataset ?? []).map((row, idx) => {
       const id = generateId();
       this.rowVersion.set(id, 0);
       return {
@@ -237,46 +248,39 @@ export class DataModel {
     if (changed) this.notify();
   }
 
-  public getCell(rowId: string, key: string | number) {
+  public getCell(rowId: string, key: string) {
     const found = this.findRow(rowId);
     if (!found) return undefined;
     const row = found.row;
     const pendingRow = this.pending.get(rowId);
     if (pendingRow && key in pendingRow) return pendingRow[key];
-    if (Array.isArray(row.raw)) {
-      return row.raw[Number(key)];
-    }
-    return row.raw[String(key)];
+    return row.raw[key];
   }
 
-  public getRawCell(rowId: string, key: string | number) {
+  public getRawCell(rowId: string, key: string) {
     const found = this.findRow(rowId);
     if (!found) return undefined;
     const row = found.row;
-    if (Array.isArray(row.raw)) {
-      return row.raw[Number(key)];
-    }
-    return row.raw[String(key)];
+    return row.raw[key];
   }
 
   public isRowReadonly(rowId: string) {
     const found = this.findRow(rowId);
     if (!found) return false;
     const row = found.row;
-    if (Array.isArray(row.raw)) return false;
     return Boolean((row.raw as Record<string, unknown>)._readonly);
   }
 
-  public isColumnReadonly(colKey: string | number) {
-    const col = this.schema.columns.find((c) => String(c.key) === String(colKey));
+  public isColumnReadonly(colKey: string) {
+    const col = this.schema.columns.find((c) => c.key === colKey);
     return Boolean(col?.readonly || col?.formula);
   }
 
-  public isReadonly(rowId: string, colKey: string | number) {
+  public isReadonly(rowId: string, colKey: string) {
     return this.isRowReadonly(rowId) || this.isColumnReadonly(colKey);
   }
 
-  public setCell(rowId: string, key: string | number, value: unknown, committed: boolean) {
+  public setCell(rowId: string, key: string, value: unknown, committed: boolean) {
     this.dataVersion += 1;
     const found = this.findRow(rowId);
     if (!found) return;
@@ -286,11 +290,7 @@ export class DataModel {
       this.rowVersion.set(rowId, prev + 1);
     };
     if (committed) {
-      if (Array.isArray(row.raw)) {
-        row.raw[Number(key)] = value as any;
-      } else {
-        row.raw[String(key)] = value as any;
-      }
+      row.raw[key] = value;
       this.pending.delete(rowId);
       bumpVersion();
     } else {
@@ -310,7 +310,7 @@ export class DataModel {
       bumpVersion();
     }
     this.updateValidationForCell(rowId, key, this.getCell(rowId, key));
-    const col = this.schema.columns.find((c) => String(c.key) === String(key));
+    const col = this.schema.columns.find((c) => c.key === key);
     if (col?.unique) this.recomputeUniqueValidationForColumn(key);
     // Invalidate computed/conditional caches for the row by version mismatch; clear diagnostics eagerly.
     this.clearDiagnosticsForCell(rowId, key);
@@ -324,13 +324,9 @@ export class DataModel {
     const found = this.findRow(rowId);
     if (!found) return;
     const row = found.row;
-    const uniqueCols = new Set<string | number>();
+    const uniqueCols = new Set<string>();
     for (const [key, val] of Object.entries(pendingRow)) {
-      if (Array.isArray(row.raw)) {
-        row.raw[Number(key)] = val as any;
-      } else {
-        row.raw[key] = val as any;
-      }
+      row.raw[key] = val;
       this.updateValidationForCell(rowId, key, val);
       const col = this.schema.columns.find((c) => String(c.key) === String(key));
       if (col?.unique) uniqueCols.add(col.key);
@@ -351,7 +347,7 @@ export class DataModel {
     return this.pending;
   }
 
-  public hasPending(rowId: string, key: string | number) {
+  public hasPending(rowId: string, key: string) {
     const p = this.pending.get(rowId);
     if (!p) return false;
     return key in p;
@@ -401,8 +397,8 @@ export class DataModel {
     return this.baseIndexById.get(rowId) ?? -1;
   }
 
-  public getColumnIndex(colKey: string | number) {
-    return this.getColumns().findIndex((c) => String(c.key) === String(colKey));
+  public getColumnIndex(colKey: string) {
+    return this.getColumns().findIndex((c) => c.key === colKey);
   }
 
   public getColumnByIndex(colIndex: number) {
@@ -421,14 +417,22 @@ export class DataModel {
     }
   }
 
-  private getFilterSortKey(options?: { excludeColumnKey?: string | number; includeSort?: boolean }) {
+  private getFilterSortKey(options?: {
+    excludeColumnKey?: string;
+    includeSort?: boolean;
+  }) {
     const exclude = options?.excludeColumnKey;
     const includeSort = options?.includeSort ?? true;
     const view = this.view;
     const filters = (view.filters ?? [])
-      .filter((f) => (exclude !== undefined ? String((f as any).key) !== String(exclude) : true))
+      .filter((f) => {
+        if (exclude === undefined) return true;
+        const key = (f as AnyFilter | null | undefined)?.key;
+        return String(key) !== String(exclude);
+      })
       .map((f) => {
-        if ((f as any).kind === "values") {
+        const kind = (f as AnyFilter | null | undefined)?.kind;
+        if (kind === "values") {
           const vf = f as ViewFilterValues;
           return {
             kind: "values" as const,
@@ -438,7 +442,7 @@ export class DataModel {
           };
         }
         // Unknown filter kind (or legacy op filter) => keep a stable representation for caching.
-        const opf = f as any;
+        const opf = f as Record<string, unknown>;
         return {
           kind: "op" as const,
           key: String(opf.key),
@@ -459,9 +463,7 @@ export class DataModel {
       .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
     const sorts = includeSort
-      ? (view.sorts ?? [])
-          .slice(0, 1)
-          .map((s) => ({ key: String(s.key), dir: s.dir }))
+      ? (view.sorts ?? []).slice(0, 1).map((s) => ({ key: String(s.key), dir: s.dir }))
       : [];
 
     return JSON.stringify({ filters, columnDiagnosticsEntries, sorts });
@@ -475,9 +477,12 @@ export class DataModel {
     if (typeof value === "number") return `n:${Number.isNaN(value) ? "NaN" : String(value)}`;
     if (typeof value === "boolean") return `b:${value ? "1" : "0"}`;
     if (typeof value === "object") {
-      const anyV = value as any;
-      if (anyV.kind === "enum" && typeof anyV.value === "string") return `enum:${anyV.value}`;
-      if (anyV.kind === "tags" && Array.isArray(anyV.values)) return `tags:${anyV.values.join("|")}`;
+      const obj = value as Record<string, unknown>;
+      const kind = obj.kind;
+      if (kind === "enum" && typeof obj.value === "string") return `enum:${obj.value}`;
+      if (kind === "tags" && Array.isArray(obj.values)) {
+        return `tags:${obj.values.filter((x) => typeof x === "string").join("|")}`;
+      }
     }
     try {
       return `json:${JSON.stringify(value)}`;
@@ -490,13 +495,13 @@ export class DataModel {
     return value === null || value === undefined || value === "";
   }
 
-  private resolveFilterColumnKey(key: string | number) {
+  private resolveFilterColumnKey(key: string) {
     const cols = this.getColumns();
     const found = cols.find((c) => String(c.key) === String(key));
     return found?.key ?? key;
   }
 
-  private getFilterCellValue(rowId: string, colKey: string | number) {
+  private getFilterCellValue(rowId: string, colKey: string) {
     const col = this.getColumns().find((c) => String(c.key) === String(colKey));
     if (!col) return this.getCell(rowId, colKey);
     return this.resolveCellValue(rowId, col).value;
@@ -514,7 +519,11 @@ export class DataModel {
     return false;
   }
 
-  private rowPassesColumnDiagnostics(rowId: string, colKeyStr: string, diag: ColumnDiagnosticFilter) {
+  private rowPassesColumnDiagnostics(
+    rowId: string,
+    colKeyStr: string,
+    diag: ColumnDiagnosticFilter,
+  ) {
     const errors = Boolean(diag.errors);
     const warnings = Boolean(diag.warnings);
     if (!errors && !warnings) return true;
@@ -531,15 +540,20 @@ export class DataModel {
     return warnings;
   }
 
-  private computeRowsAfterFilter(options?: { excludeColumnKey?: string | number; includeSort?: boolean }) {
+  private computeRowsAfterFilter(options?: {
+    excludeColumnKey?: string;
+    includeSort?: boolean;
+  }) {
     const exclude = options?.excludeColumnKey;
     const includeSort = options?.includeSort ?? true;
     const view = this.view;
     const schema = this.getSchema();
 
-    const filters = (view.filters ?? []).filter((f) =>
-      exclude !== undefined ? String((f as any).key) !== String(exclude) : true,
-    );
+    const filters = (view.filters ?? []).filter((f) => {
+      if (exclude === undefined) return true;
+      const key = (f as AnyFilter | null | undefined)?.key;
+      return String(key) !== String(exclude);
+    });
     const diagEntries = Object.entries(view.columnDiagnostics ?? {}).filter(([k]) =>
       exclude !== undefined ? String(k) !== String(exclude) : true,
     );
@@ -548,12 +562,13 @@ export class DataModel {
     for (const row of this.rows) {
       let ok = true;
       for (const f of filters) {
-        if ((f as any).kind === "values") {
+        const kind = (f as AnyFilter | null | undefined)?.kind;
+        if (kind === "values") {
           if (!this.valuesFilterMatches(row.id, f as ViewFilterValues)) {
             ok = false;
             break;
           }
-          continue;
+          // matched values filter
         }
         // Unknown filter kind (or legacy op filter) => ignore in MVP.
       }
@@ -624,7 +639,7 @@ export class DataModel {
     return next;
   }
 
-  public getDistinctValuesForColumn(colKey: string | number) {
+  public getDistinctValuesForColumn(colKey: string) {
     const cacheKey = `${String(colKey)}|${this.getFilterSortKey({ excludeColumnKey: colKey, includeSort: false })}`;
     const cached = this.distinctValueCache.get(cacheKey);
     if (cached && cached.version === this.dataVersion) return cached;
@@ -652,32 +667,42 @@ export class DataModel {
         if (typeof v === "string") return v;
         if (typeof v === "number" || typeof v === "boolean") return String(v);
         if (typeof v === "object" && v) {
-          const anyV = v as any;
-          if (anyV.kind === "enum" && typeof anyV.value === "string") return anyV.value;
-          if (anyV.kind === "tags" && Array.isArray(anyV.values)) return anyV.values.join(", ");
+          const obj = v as Record<string, unknown>;
+          const kind = obj.kind;
+          if (kind === "enum" && typeof obj.value === "string") return obj.value;
+          if (kind === "tags" && Array.isArray(obj.values)) {
+            return obj.values.filter((x) => typeof x === "string").join(", ");
+          }
         }
         return String(v);
       })();
       map.set(k, { value: v, label });
     }
 
-    const values = [...map.values()].sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
-    const next = { version: this.dataVersion, values, hasBlanks, total: values.length + (hasBlanks ? 1 : 0) };
+    const values = [...map.values()].sort((a, b) =>
+      a.label < b.label ? -1 : a.label > b.label ? 1 : 0,
+    );
+    const next = {
+      version: this.dataVersion,
+      values,
+      hasBlanks,
+      total: values.length + (hasBlanks ? 1 : 0),
+    };
     this.distinctValueCache.set(cacheKey, next);
     return next;
   }
 
-  private cellStyleKey(rowId: string, colKey: string | number) {
+  private cellStyleKey(rowId: string, colKey: string) {
     return `${rowId}::${String(colKey)}`;
   }
 
-  private clearDiagnosticsForCell(rowId: string, colKey: string | number) {
+  private clearDiagnosticsForCell(rowId: string, colKey: string) {
     const key = this.cellStyleKey(rowId, colKey);
     this.formulaDiagnostics.delete(key);
     this.conditionalDiagnostics.delete(key);
   }
 
-  public getCellDiagnostic(rowId: string, colKey: string | number): CellDiagnostic | null {
+  public getCellDiagnostic(rowId: string, colKey: string): CellDiagnostic | null {
     const key = this.cellStyleKey(rowId, colKey);
     const a = this.formulaDiagnostics.get(key) ?? null;
     const b = this.conditionalDiagnostics.get(key) ?? null;
@@ -705,17 +730,20 @@ export class DataModel {
     const found = this.findRow(rowId);
     if (!found) return null;
     const row = found.row;
-    if (Array.isArray(row.raw)) return null;
     const pendingRow = this.pending.get(rowId);
-    if (!pendingRow || Object.keys(pendingRow).length === 0) return row.raw as any;
-    const merged: Record<string, unknown> = { ...(row.raw as any) };
+    if (!pendingRow || Object.keys(pendingRow).length === 0)
+      return row.raw as Record<string, unknown>;
+    const merged: Record<string, unknown> = { ...(row.raw as Record<string, unknown>) };
     for (const [k, v] of Object.entries(pendingRow)) {
       merged[k] = v;
     }
     return merged;
   }
 
-  public resolveCellValue(rowId: string, col: ColumnSchema): {
+  public resolveCellValue(
+    rowId: string,
+    col: ColumnSchema,
+  ): {
     value: unknown;
     textOverride?: string;
     diagnostic: CellDiagnostic | null;
@@ -728,17 +756,26 @@ export class DataModel {
     const cached = this.computedCache.get(key);
     if (cached && cached.version === version && cached.formulaRef === col.formula) {
       if (cached.diagnostic) this.formulaDiagnostics.set(key, cached.diagnostic);
-      return { value: cached.value, textOverride: cached.textOverride, diagnostic: cached.diagnostic };
+      return {
+        value: cached.value,
+        textOverride: cached.textOverride,
+        diagnostic: cached.diagnostic,
+      };
     }
     const data = this.getRowObjectEffective(rowId);
     if (!data) {
       const value = this.getCell(rowId, col.key);
-      const next = { version, formulaRef: col.formula, value, diagnostic: null as any };
+      const next = {
+        version,
+        formulaRef: col.formula,
+        value,
+        diagnostic: null as CellDiagnostic | null,
+      };
       this.computedCache.set(key, next);
       return { value, diagnostic: null };
     }
     try {
-      const out = col.formula(data) as any;
+      const out: unknown = col.formula(data);
       if (Array.isArray(out) && out.length >= 2 && out[1] instanceof Error) {
         const diag: CellDiagnostic = {
           level: "warning",
@@ -769,7 +806,7 @@ export class DataModel {
     }
   }
 
-  public setCellConditionalStyle(rowId: string, colKey: string | number, fn: ConditionalStyleFn | null) {
+  public setCellConditionalStyle(rowId: string, colKey: string, fn: ConditionalStyleFn | null) {
     const key = this.cellStyleKey(rowId, colKey);
     if (!fn) this.cellConditionalStyles.delete(key);
     else this.cellConditionalStyles.set(key, fn);
@@ -812,7 +849,11 @@ export class DataModel {
     const version = this.getRowVersion(rowId);
     const cached = this.rowConditionalCache.get(rowId);
     if (cached && cached.version === version && cached.fnRef === fn) {
-      return { delta: cached.delta, diagnostic: cached.diagnostic, forceErrorText: cached.forceErrorText };
+      return {
+        delta: cached.delta,
+        diagnostic: cached.diagnostic,
+        forceErrorText: cached.forceErrorText,
+      };
     }
     const data = this.getRowObjectEffective(rowId);
     if (!data) {
@@ -825,7 +866,10 @@ export class DataModel {
     return res;
   }
 
-  public resolveConditionalStyle(rowId: string, col: ColumnSchema): {
+  public resolveConditionalStyle(
+    rowId: string,
+    col: ColumnSchema,
+  ): {
     delta: StyleDelta | null;
     diagnostic: CellDiagnostic | null;
     forceErrorText: boolean;
@@ -863,7 +907,8 @@ export class DataModel {
         const res = this.evalConditionalStyleFn(col.conditionalStyle, data);
         this.conditionalCache.set(colCacheKey, { version, fnRef: col.conditionalStyle, ...res });
         delta = applyDelta(delta, res.delta);
-        if (res.diagnostic && (diagnostic === null || diagnostic.level !== "error")) diagnostic = res.diagnostic;
+        if (res.diagnostic && (diagnostic === null || diagnostic.level !== "error"))
+          diagnostic = res.diagnostic;
         forceErrorText = forceErrorText || res.forceErrorText;
       }
     }
@@ -881,7 +926,8 @@ export class DataModel {
         const res = this.evalConditionalStyleFn(cellFn, data);
         this.conditionalCache.set(key, { version, fnRef: cellFn, ...res });
         delta = applyDelta(delta, res.delta);
-        if (res.diagnostic && (diagnostic === null || diagnostic.level !== "error")) diagnostic = res.diagnostic;
+        if (res.diagnostic && (diagnostic === null || diagnostic.level !== "error"))
+          diagnostic = res.diagnostic;
         forceErrorText = forceErrorText || res.forceErrorText;
       }
     }
@@ -893,7 +939,7 @@ export class DataModel {
   }
 
   public getValidationErrors() {
-    const merged = new Map<string, { rowId: string; colKey: string | number; message: string }>();
+    const merged = new Map<string, { rowId: string; colKey: string; message: string }>();
     for (const [k, v] of this.baseValidationErrors.entries()) merged.set(k, { ...v });
     for (const [k, v] of this.uniqueValidationErrors.entries()) {
       const prev = merged.get(k);
@@ -912,7 +958,7 @@ export class DataModel {
     return out;
   }
 
-  public getCellValidationMessage(rowId: string, colKey: string | number): string | null {
+  public getCellValidationMessage(rowId: string, colKey: string): string | null {
     const key = this.cellStyleKey(rowId, colKey);
     const a = this.baseValidationErrors.get(key)?.message ?? null;
     const b = this.uniqueValidationErrors.get(key)?.message ?? null;
@@ -921,7 +967,10 @@ export class DataModel {
     return `${a}\n${b}`;
   }
 
-  public getCellMarker(rowId: string, colKey: string | number): { level: "warning" | "error"; message: string } | null {
+  public getCellMarker(
+    rowId: string,
+    colKey: string,
+  ): { level: "warning" | "error"; message: string } | null {
     const diag = this.getCellDiagnostic(rowId, colKey);
     const validation = this.getCellValidationMessage(rowId, colKey);
     if (!diag && !validation) return null;
@@ -930,7 +979,7 @@ export class DataModel {
     return { level, message };
   }
 
-  private updateValidationForCell(rowId: string, colKey: string | number, value: unknown) {
+  private updateValidationForCell(rowId: string, colKey: string, value: unknown) {
     const col = this.schema.columns.find((c) => String(c.key) === String(colKey));
     if (!col) return;
     const msg = validateCellValue(value, col);
@@ -960,17 +1009,20 @@ export class DataModel {
     if (typeof value === "number" || typeof value === "boolean") return String(value);
     if (value instanceof Date) return String(value.getTime());
     if (typeof value === "object") {
-      const anyV = value as any;
-      if (anyV.kind === "enum" && typeof anyV.value === "string") return anyV.value === "" ? null : anyV.value;
-      if (anyV.kind === "tags" && Array.isArray(anyV.values)) {
-        const joined = anyV.values.join(",");
+      const obj = value as Record<string, unknown>;
+      const kind = obj.kind;
+      if (kind === "enum" && typeof obj.value === "string") {
+        return obj.value === "" ? null : obj.value;
+      }
+      if (kind === "tags" && Array.isArray(obj.values)) {
+        const joined = obj.values.filter((x) => typeof x === "string").join(",");
         return joined === "" ? null : joined;
       }
     }
     return String(value);
   }
 
-  private recomputeUniqueValidationForColumn(colKey: string | number) {
+  private recomputeUniqueValidationForColumn(colKey: string) {
     const colKeyStr = String(colKey);
     for (const k of Array.from(this.uniqueValidationErrors.keys())) {
       const sep = k.indexOf("::");
@@ -1004,11 +1056,11 @@ export class DataModel {
     }
   }
 
-  public getCellStyle(rowId: string, colKey: string | number): StyleDelta | null {
+  public getCellStyle(rowId: string, colKey: string): StyleDelta | null {
     return this.cellStyles.get(this.cellStyleKey(rowId, colKey)) ?? null;
   }
 
-  public setCellStyle(rowId: string, colKey: string | number, style: StyleDelta | null) {
+  public setCellStyle(rowId: string, colKey: string, style: StyleDelta | null) {
     const key = this.cellStyleKey(rowId, colKey);
     if (!style || Object.keys(style).length === 0) this.cellStyles.delete(key);
     else this.cellStyles.set(key, style);
@@ -1016,8 +1068,10 @@ export class DataModel {
   }
 
   public updateColumnFormat(
-    colKey: string | number,
-    updater: ColumnSchema["format"] | ((oldValue: ColumnSchema["format"] | undefined) => ColumnSchema["format"] | undefined),
+    colKey: string,
+    updater:
+      | ColumnSchema["format"]
+      | ((oldValue: ColumnSchema["format"] | undefined) => ColumnSchema["format"] | undefined),
   ) {
     const col = this.schema.columns.find((c) => String(c.key) === String(colKey));
     if (!col) return;

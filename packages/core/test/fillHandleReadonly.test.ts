@@ -7,7 +7,7 @@ describe("fill handle visibility", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ price: 10, qty: 2 }] },
+        data: [{ price: 10, qty: 2 }],
         schema: {
           columns: [
             { key: "price", type: "number" },
@@ -38,4 +38,3 @@ describe("fill handle visibility", () => {
     root.remove();
   });
 });
-

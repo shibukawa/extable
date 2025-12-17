@@ -163,8 +163,7 @@
 import type {
   Command,
   CoreOptions,
-  DataSet,
-  NullableDataSet,
+  NullableData,
   Schema,
   ServerAdapter,
   UserInfo,
@@ -229,7 +228,7 @@ const tableRef = ref<ExtableVueHandle | null>(null);
 const tableInstanceKey = ref(0);
 const tableState = ref<any>(null);
 const history = ref<UndoRedoHistory>({ undo: [], redo: [] });
-const asyncData = ref<NullableDataSet>(null);
+const asyncData = ref<NullableData<any>>(null);
 const perfRows = ref<any[] | null>(null);
 let loadGeneration = 0;
 let firstRenderMode = true;
@@ -263,7 +262,7 @@ const options = computed<CoreOptions>(() => ({
 const cloneConfig = (mode: DataMode) => {
   if (mode === "loading-async") {
     return {
-      data: null as NullableDataSet,
+      data: null as NullableData<any>,
       schema: demoSchema as Schema,
       view: { ...demoView },
     };
@@ -271,48 +270,48 @@ const cloneConfig = (mode: DataMode) => {
   if (mode === "performance-10k") {
     if (!perfRows.value) perfRows.value = makePerformanceDemoRows(10000);
     return {
-      data: { rows: perfRows.value } as DataSet,
+      data: perfRows.value,
       schema: demoSchema as Schema,
       view: { ...demoView },
     };
   }
   if (mode === "data-format") {
     return {
-      data: { rows: dataFormatRows.map((r) => ({ ...r })) },
+      data: dataFormatRows.map((r) => ({ ...r })),
       schema: dataFormatSchema as Schema,
       view: { ...dataFormatView },
     };
   }
   if (mode === "formula") {
     return {
-      data: { rows: formulaRows.map((r) => ({ ...r })) },
+      data: formulaRows.map((r) => ({ ...r })),
       schema: formulaSchema as Schema,
       view: { ...formulaView },
     };
   }
   if (mode === "conditional-style") {
     return {
-      data: { rows: conditionalStyleRows.map((r) => ({ ...r })) },
+      data: conditionalStyleRows.map((r) => ({ ...r })),
       schema: conditionalStyleSchema as Schema,
       view: { ...conditionalStyleView },
     };
   }
   if (mode === "unique-check") {
     return {
-      data: { rows: uniqueCheckRows.map((r) => ({ ...r })) },
+      data: uniqueCheckRows.map((r) => ({ ...r })),
       schema: uniqueCheckSchema as Schema,
       view: { ...uniqueCheckView },
     };
   }
   if (mode === "filter-sort") {
     return {
-      data: { rows: filterSortRows.map((r) => ({ ...r })) },
+      data: filterSortRows.map((r) => ({ ...r })),
       schema: filterSortSchema as Schema,
       view: { ...filterSortView },
     };
   }
   return {
-    data: { rows: demoRows.map((r) => ({ ...r })) },
+    data: demoRows.map((r) => ({ ...r })),
     schema: demoSchema as Schema,
     view: { ...demoView },
   };
@@ -341,7 +340,7 @@ watch(
       const gen = loadGeneration;
       asyncTimer = window.setTimeout(() => {
         if (gen !== loadGeneration) return;
-        asyncData.value = { rows: demoRows.map((r) => ({ ...r })) } as DataSet;
+        asyncData.value = demoRows.map((r) => ({ ...r }));
       }, 3000);
     }
   },
@@ -374,7 +373,7 @@ watch(
     const gen = loadGeneration;
     asyncTimer = window.setTimeout(() => {
       if (gen !== loadGeneration) return;
-      asyncData.value = { rows: demoRows.map((r) => ({ ...r })) } as DataSet;
+      asyncData.value = demoRows.map((r) => ({ ...r }));
     }, 3000);
     onInvalidate(() => {
       if (asyncTimer !== null) {
@@ -424,9 +423,9 @@ onMounted(() => {
 });
 const handleTableState = (next: any) => {
   tableState.value = next;
-  const core = tableRef.value?.getCore?.();
+  const core = tableRef.value?.getCore();
   if (core) {
-    (window as any).__extableCore = core;
+    (window as unknown as Record<string, unknown>).__extableCore = core;
     history.value = core.getUndoRedoHistory();
   } else {
     history.value = { undo: [], redo: [] };
@@ -443,38 +442,45 @@ const safeFnSource = (fn: unknown) => {
 };
 const dataNoteForSchema = (schema: Schema) => {
   const lines: string[] = [];
-  const metaRow = schema.columns.find((c: any) => String(c.key) === "__row__");
-  if ((metaRow as any)?.conditionalStyle) {
+  const metaRow = schema.columns.find((c) => String(c.key) === "__row__");
+  if ((metaRow as unknown as Record<string, unknown>)?.conditionalStyle) {
     lines.push("Row conditionalStyle (__row__):");
-    lines.push(safeFnSource((metaRow as any).conditionalStyle) ?? "");
+    lines.push(
+      safeFnSource((metaRow as unknown as Record<string, unknown>).conditionalStyle) ?? "",
+    );
     lines.push("");
   }
-  const cols = schema.columns.filter((c: any) => String(c.key) !== "__row__");
-  const formulaCols = cols.filter((c: any) => Boolean((c as any).formula));
-  const condCols = cols.filter((c: any) => Boolean((c as any).conditionalStyle));
-  const uniqueCols = cols.filter((c: any) => Boolean((c as any).unique));
+  const cols = schema.columns.filter((c) => String(c.key) !== "__row__");
+  const formulaCols = cols.filter((c) =>
+    Boolean((c as unknown as Record<string, unknown>).formula),
+  );
+  const condCols = cols.filter((c) =>
+    Boolean((c as unknown as Record<string, unknown>).conditionalStyle),
+  );
+  const uniqueCols = cols.filter((c) => Boolean((c as unknown as Record<string, unknown>).unique));
   if (formulaCols.length) {
     lines.push("Computed columns (formula):");
     for (const c of formulaCols) {
-      lines.push(`- ${String((c as any).key)} (${String((c as any).type)}):`);
-      lines.push(safeFnSource((c as any).formula) ?? "");
+      const _c = c as unknown as Record<string, unknown>;
+      lines.push(`- ${String(_c.key)} (${String(_c.type)}):`);
+      lines.push(safeFnSource(_c.formula) ?? "");
     }
     lines.push("");
   }
   if (condCols.length) {
     lines.push("Conditional styles (conditionalStyle):");
     for (const c of condCols) {
-      lines.push(`- ${String((c as any).key)} (${String((c as any).type)}):`);
-      lines.push(safeFnSource((c as any).conditionalStyle) ?? "");
+      const _c = c as unknown as Record<string, unknown>;
+      lines.push(`- ${String(_c.key)} (${String(_c.type)}):`);
+      lines.push(safeFnSource(_c.conditionalStyle) ?? "");
     }
     lines.push("");
   }
   if (uniqueCols.length) {
     lines.push("Unique columns (unique: true):");
     for (const c of uniqueCols) {
-      lines.push(
-        `- ${String((c as any).key)} (${String((c as any).type)}): duplicates -> validation errors`,
-      );
+      const _c = c as unknown as Record<string, unknown>;
+      lines.push(`- ${String(_c.key)} (${String(_c.type)}): duplicates -> validation errors`);
     }
     lines.push("");
   }

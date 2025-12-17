@@ -42,7 +42,7 @@ describe("select-all corner hit-test", () => {
       document.body.appendChild(root);
       const core = createTablePlaceholder(
         {
-          data: { rows: [{ a: "x" }, { a: "y" }] },
+          data: [{ a: "x" }, { a: "y" }],
           schema: { columns: [{ key: "a", type: "string", width: 120 }] },
           view: {},
         },
@@ -72,4 +72,3 @@ describe("select-all corner hit-test", () => {
     }
   });
 });
-

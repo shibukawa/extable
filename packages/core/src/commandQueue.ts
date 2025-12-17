@@ -1,13 +1,13 @@
-import type { Command } from './types';
+import type { Command } from "./types";
 
 type CommandGroup = { batchId: string | null; commands: Command[] };
 export type CommandGroupSnapshot = { batchId: string | null; commands: Command[] };
 
 function getBatchId(cmd: Command) {
-  const p = cmd.payload as any;
+  const p = cmd.payload as Record<string, unknown> | null | undefined;
   if (!p) return null;
   const id = p.batchId;
-  return typeof id === 'string' && id.length ? id : null;
+  return typeof id === "string" && id.length ? id : null;
 }
 
 export class CommandQueue {

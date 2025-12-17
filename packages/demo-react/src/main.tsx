@@ -4,13 +4,13 @@ import { Extable, type ExtableHandle } from "@extable/react";
 import type {
   Command,
   CoreOptions,
-  DataSet,
-  NullableDataSet,
+  NullableData,
   Schema,
   ServerAdapter,
   UserInfo,
   UndoRedoHistory,
   View,
+  TableState,
 } from "@extable/core";
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -35,6 +35,7 @@ import {
   uniqueCheckSchema,
   uniqueCheckView,
 } from "./data/fixtures";
+import type { DemoRow } from "./data/fixtures";
 
 type RenderMode = "auto" | "html" | "canvas";
 type EditMode = "direct" | "commit" | "readonly";
@@ -58,9 +59,9 @@ export function App() {
   const [dataMode, setDataMode] = useState<DataMode>("standard");
   const [tableInstanceKey, setTableInstanceKey] = useState(0);
   const tableRef = useRef<ExtableHandle>(null);
-  const [tableState, setTableState] = useState<any>(null);
+  const [tableState, setTableState] = useState<TableState | null>(null);
   const [history, setHistory] = useState<UndoRedoHistory>({ undo: [], redo: [] });
-  const [asyncData, setAsyncData] = useState<NullableDataSet>(null);
+  const [asyncData, setAsyncData] = useState<NullableData<DemoRow[]>>(null);
   const loadGenerationRef = useRef(0);
   const loadTimerRef = useRef<number | null>(null);
   const renderModeFirstRef = useRef(true);
@@ -96,8 +97,8 @@ export function App() {
     [renderMode, editMode, lockMode, serverStub],
   );
 
-  const perfRowsRef = useRef<any[] | null>(null);
-  const cloneConfig = (mode: DataMode): { data: NullableDataSet; view: View; schema: Schema } => {
+  const perfRowsRef = useRef<DemoRow[] | null>(null);
+  const cloneConfig = (mode: DataMode): { data: NullableData<any>; view: View; schema: Schema } => {
     if (mode === "loading-async") {
       return {
         data: null,
@@ -108,48 +109,48 @@ export function App() {
     if (mode === "performance-10k") {
       if (!perfRowsRef.current) perfRowsRef.current = makePerformanceDemoRows(10000);
       return {
-        data: { rows: perfRowsRef.current } as DataSet,
+        data: perfRowsRef.current,
         schema: demoSchema as Schema,
         view: { ...demoView },
       };
     }
     if (mode === "data-format") {
       return {
-        data: { rows: dataFormatRows.map((r) => ({ ...r })) },
+        data: dataFormatRows.map((r) => ({ ...r })),
         schema: dataFormatSchema as Schema,
         view: { ...dataFormatView },
       };
     }
     if (mode === "formula") {
       return {
-        data: { rows: formulaRows.map((r) => ({ ...r })) },
+        data: formulaRows.map((r) => ({ ...r })),
         schema: formulaSchema as Schema,
         view: { ...formulaView },
       };
     }
     if (mode === "conditional-style") {
       return {
-        data: { rows: conditionalStyleRows.map((r) => ({ ...r })) },
+        data: conditionalStyleRows.map((r) => ({ ...r })),
         schema: conditionalStyleSchema as Schema,
         view: { ...conditionalStyleView },
       };
     }
     if (mode === "unique-check") {
       return {
-        data: { rows: uniqueCheckRows.map((r) => ({ ...r })) },
+        data: uniqueCheckRows.map((r) => ({ ...r })),
         schema: uniqueCheckSchema as Schema,
         view: { ...uniqueCheckView },
       };
     }
     if (mode === "filter-sort") {
       return {
-        data: { rows: filterSortRows.map((r) => ({ ...r })) },
+        data: filterSortRows.map((r) => ({ ...r })),
         schema: filterSortSchema as Schema,
         view: { ...filterSortView },
       };
     }
     return {
-      data: { rows: demoRows.map((r) => ({ ...r })) },
+      data: demoRows.map((r) => ({ ...r })),
       schema: demoSchema as Schema,
       view: { ...demoView },
     };
@@ -169,40 +170,49 @@ export function App() {
 
   const dataNoteForSchema = (schema: Schema) => {
     const lines: string[] = [];
-    const metaRow = schema.columns.find((c: any) => String(c.key) === "__row__");
-    if ((metaRow as any)?.conditionalStyle) {
+    const metaRow = schema.columns.find((c) => String(c.key) === "__row__");
+    if ((metaRow as unknown as Record<string, unknown>)?.conditionalStyle) {
       lines.push("Row conditionalStyle (__row__):");
-      lines.push(safeFnSource((metaRow as any).conditionalStyle) ?? "");
+      lines.push(
+        safeFnSource((metaRow as unknown as Record<string, unknown>).conditionalStyle) ?? "",
+      );
       lines.push("");
     }
 
-    const cols = schema.columns.filter((c: any) => String(c.key) !== "__row__");
-    const formulaCols = cols.filter((c: any) => Boolean((c as any).formula));
-    const condCols = cols.filter((c: any) => Boolean((c as any).conditionalStyle));
-    const uniqueCols = cols.filter((c: any) => Boolean((c as any).unique));
+    const cols = schema.columns.filter((c) => String(c.key) !== "__row__");
+    const formulaCols = cols.filter((c) =>
+      Boolean((c as unknown as Record<string, unknown>).formula),
+    );
+    const condCols = cols.filter((c) =>
+      Boolean((c as unknown as Record<string, unknown>).conditionalStyle),
+    );
+    const uniqueCols = cols.filter((c) =>
+      Boolean((c as unknown as Record<string, unknown>).unique),
+    );
 
     if (formulaCols.length) {
       lines.push("Computed columns (formula):");
       for (const c of formulaCols) {
-        lines.push(`- ${String((c as any).key)} (${String((c as any).type)}):`);
-        lines.push(safeFnSource((c as any).formula) ?? "");
+        const _c = c as unknown as Record<string, unknown>;
+        lines.push(`- ${String(_c.key)} (${String(_c.type)}):`);
+        lines.push(safeFnSource(_c.formula) ?? "");
       }
       lines.push("");
     }
     if (condCols.length) {
       lines.push("Conditional styles (conditionalStyle):");
       for (const c of condCols) {
-        lines.push(`- ${String((c as any).key)} (${String((c as any).type)}):`);
-        lines.push(safeFnSource((c as any).conditionalStyle) ?? "");
+        const _c = c as unknown as Record<string, unknown>;
+        lines.push(`- ${String(_c.key)} (${String(_c.type)}):`);
+        lines.push(safeFnSource(_c.conditionalStyle) ?? "");
       }
       lines.push("");
     }
     if (uniqueCols.length) {
       lines.push("Unique columns (unique: true):");
       for (const c of uniqueCols) {
-        lines.push(
-          `- ${String((c as any).key)} (${String((c as any).type)}): duplicates -> validation errors`,
-        );
+        const _c = c as unknown as Record<string, unknown>;
+        lines.push(`- ${String(_c.key)} (${String(_c.type)}): duplicates -> validation errors`);
       }
       lines.push("");
     }
@@ -231,7 +241,7 @@ export function App() {
     const handle = tableRef.current;
     const core = handle?.getCore();
     if (!handle || !core) return;
-    (window as any).__extableCore = core;
+    (window as unknown as Record<string, unknown>).__extableCore = core;
   }, []);
 
   useEffect(() => {
@@ -250,7 +260,7 @@ export function App() {
       const gen = loadGenerationRef.current;
       loadTimerRef.current = window.setTimeout(() => {
         if (gen !== loadGenerationRef.current) return;
-        setAsyncData({ rows: demoRows.map((r) => ({ ...r })) } as DataSet);
+        setAsyncData(structuredClone(demoRows));
       }, 3000);
     }
   }, [renderMode]);
@@ -283,7 +293,7 @@ export function App() {
     const gen = loadGenerationRef.current;
     loadTimerRef.current = window.setTimeout(() => {
       if (gen !== loadGenerationRef.current) return;
-      setAsyncData({ rows: demoRows.map((r) => ({ ...r })) } as DataSet);
+      setAsyncData(demoRows.map((r) => ({ ...r })));
     }, 3000);
     return () => {
       if (loadTimerRef.current !== null) {
@@ -520,7 +530,7 @@ export function App() {
                   onTableState={(next) => {
                     setTableState(next);
                     const core = tableRef.current?.getCore();
-                    if (core) (window as any).__extableCore = core;
+                    if (core) (window as unknown as Record<string, unknown>).__extableCore = core;
                   }}
                   className="min-h-0 h-full w-full"
                 />

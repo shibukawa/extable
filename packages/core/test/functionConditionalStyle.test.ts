@@ -7,7 +7,7 @@ describe("function formula + conditional style", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ price: 10, qty: 2 }] },
+        data: [{ price: 10, qty: 2 }],
         schema: {
           columns: [
             { key: "price", type: "number" },
@@ -35,7 +35,7 @@ describe("function formula + conditional style", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ a: "x", b: "y" }] },
+        data: [{ a: "x", b: "y" }],
         schema: {
           columns: [
             { key: "__row__", type: "string", conditionalStyle: () => ({ background: "#ffff00" }) },
@@ -50,7 +50,10 @@ describe("function formula + conditional style", () => {
     mountTable(root, core);
 
     // Cell-level should win over column/row.
-    core.setCellConditionalStyle({ rowIndex: 0, colKey: "b" }, () => ({ background: "#00ff00" }));
+    (core as any).setCellConditionalStyle(
+      { rowIndex: 0, colKey: "b" },
+      () => ({ background: "#00ff00" }),
+    );
 
     const a = root.querySelector('td[data-col-key="a"]') as HTMLTableCellElement | null;
     const b = root.querySelector('td[data-col-key="b"]') as HTMLTableCellElement | null;
@@ -73,7 +76,7 @@ describe("function formula + conditional style", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ a: 1 }] },
+        data: [{ a: 1 }],
         schema: {
           columns: [
             { key: "a", type: "number" },
@@ -109,7 +112,7 @@ describe("function formula + conditional style", () => {
     document.body.appendChild(root);
     const core = createTablePlaceholder(
       {
-        data: { rows: [{ a: 1 }] },
+        data: [{ a: 1 }],
         schema: { columns: [{ key: "a", type: "number", conditionalStyle: () => { throw new Error("bad"); } }] },
         view: {},
       },
