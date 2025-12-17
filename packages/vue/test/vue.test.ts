@@ -6,7 +6,9 @@ describe('vue wrapper', () => {
   test('renders container', () => {
     const wrapper = mount(Extable, {
       props: {
-        config: { data: { rows: [] }, schema: { columns: [] }, view: {} },
+        schema: { columns: [] },
+        defaultData: { rows: [] },
+        defaultView: {},
         options: { renderMode: 'html', editMode: 'direct', lockMode: 'none' }
       }
     });

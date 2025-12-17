@@ -6,7 +6,9 @@ describe('react wrapper', () => {
   test('renders container', () => {
     const { container } = render(
       <Extable
-        config={{ data: { rows: [] }, schema: { columns: [] }, view: {} }}
+        schema={{ columns: [] }}
+        defaultData={{ rows: [] }}
+        defaultView={{}}
         options={{ renderMode: 'html', editMode: 'direct', lockMode: 'none' }}
       />
     );

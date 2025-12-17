@@ -15,6 +15,7 @@ import type {
   ConditionalStyleFn,
   ExcelRef,
   DataSet,
+  NullableDataSet,
   EditMode,
   LockMode,
   RenderMode,
@@ -40,12 +41,17 @@ import type {
 } from "./types";
 
 export * from "./types";
-export type { FindReplaceMatch, FindReplaceMode, FindReplaceOptions, FindReplaceState } from "./findReplace";
+export type {
+  FindReplaceMatch,
+  FindReplaceMode,
+  FindReplaceOptions,
+  FindReplaceState,
+} from "./findReplace";
 export { FindReplaceController } from "./findReplace";
 
 export interface CoreInit<T extends Record<string, unknown> = Record<string, unknown>> {
   root: HTMLElement;
-  defaultData: DataSet<T>;
+  defaultData: NullableDataSet<T>;
   defaultView: View;
   schema: Schema;
   options?: CoreOptions;
@@ -57,6 +63,8 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   private viewportEl: HTMLDivElement | null = null;
   private viewportResizeObserver: ResizeObserver | null = null;
   private dataModel: DataModel;
+  private dataLoaded: boolean;
+  private loadingEnabled: boolean;
   private commandQueue: CommandQueue;
   private lockManager: LockManager;
   private renderer: Renderer;
@@ -80,10 +88,17 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   private findReplace: FindReplaceController | null = null;
   private findReplaceSidebar: HTMLElement | null = null;
   private findReplaceSidebarUnsub: (() => void) | null = null;
-  private findReplaceKeydown: ((ev: KeyboardEvent) => void) | null = null;
   private findReplaceEnabled = true;
   private findReplaceUiEnabled = true;
   private findReplaceEnableSearch = false;
+  private findReplaceOpenedAt = 0;
+
+  private readonlyAll = false;
+  private mounted = false;
+
+  private isCellReadonly(rowId: string, colKey: string | number) {
+    return this.readonlyAll || this.dataModel.isReadonly(rowId, colKey);
+  }
 
   private filterSortSidebar: HTMLElement | null = null;
   private filterSortSidebarUnsub: (() => void) | null = null;
@@ -91,18 +106,16 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   private filterSortClickCapture: ((ev: MouseEvent) => void) | null = null;
   private filterSortOpenEvent: ((ev: Event) => void) | null = null;
   private filterSortActiveColumnKey: string | number | null = null;
-  private filterSortDraft:
-    | {
-        colKey: string | number;
-        values: Array<{ key: string; value: unknown; label: string }>;
-        hasBlanks: boolean;
-        selected: Set<string>;
-        includeBlanks: boolean;
-        diagErrors: boolean;
-        diagWarnings: boolean;
-        search: string;
-      }
-    | null = null;
+  private filterSortDraft: {
+    colKey: string | number;
+    values: Array<{ key: string; value: unknown; label: string }>;
+    hasBlanks: boolean;
+    selected: Set<string>;
+    includeBlanks: boolean;
+    diagErrors: boolean;
+    diagWarnings: boolean;
+    search: string;
+  } | null = null;
 
   private tableStateListeners = new Set<TableStateListener>();
   private selectionListeners = new Set<SelectionListener>();
@@ -143,17 +156,24 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.renderMode = init.options?.renderMode ?? "auto";
     this.editMode = init.options?.editMode ?? "direct";
     this.lockMode = init.options?.lockMode ?? "none";
+    this.readonlyAll = init.options?.readonly ?? false;
+    this.loadingEnabled = init.options?.loading?.enabled ?? true;
     this.findReplaceEnabled = init.options?.findReplace?.enabled ?? true;
     this.findReplaceUiEnabled =
       init.options?.findReplace?.sidebar ?? init.options?.findReplace?.dialog ?? true;
     this.findReplaceEnableSearch = init.options?.findReplace?.enableSearch ?? true;
     this.server = init.options?.server;
     this.user = init.options?.user;
-    this.dataModel = new DataModel(init.defaultData, init.schema, init.defaultView);
+
+    const empty: DataSet<T> = { rows: [] };
+    const initialData = init.defaultData ?? empty;
+    this.dataLoaded = init.defaultData !== null;
+    this.dataModel = new DataModel(initialData, init.schema, init.defaultView);
     this.commandQueue = new CommandQueue();
     this.lockManager = new LockManager(this.lockMode, this.server, this.user);
     this.renderer = this.chooseRenderer(this.renderMode);
     this.applyRootDecor(init.options);
+    this.applyReadonlyAllClass();
     void this.loadInitial();
   }
 
@@ -187,6 +207,10 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     }
   }
 
+  private applyReadonlyAllClass() {
+    this.root.classList.toggle("extable-readonly-all", this.readonlyAll);
+  }
+
   private chooseRenderer(mode: RenderMode): Renderer {
     if (mode === "auto") {
       const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
@@ -213,7 +237,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.viewportEl = viewport;
 
     this.viewportResizeObserver?.disconnect();
-    const anyRO = (globalThis as any).ResizeObserver as (typeof ResizeObserver) | undefined;
+    const anyRO = (globalThis as any).ResizeObserver as typeof ResizeObserver | undefined;
     if (typeof anyRO === "function") {
       this.viewportResizeObserver = new anyRO(() => {
         this.updateViewportFromRoot();
@@ -228,13 +252,25 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     return this.viewportEl ?? this.root;
   }
 
-  private mount() {
+  private mount(force = false) {
+    if (this.mounted && !force) return;
     this.ensureShell();
     const host = this.viewportEl ?? this.root;
     this.renderer.mount(host);
     this.ensureContextMenu();
     this.ensureToast();
     this.initViewportState();
+
+    this.root.classList.toggle("extable-loading", !this.dataLoaded && this.loadingEnabled);
+    if (!this.dataLoaded && this.loadingEnabled) {
+      this.root.dataset.extable = "loading";
+      this.bindViewport();
+      this.ensureFindReplace();
+      this.ensureFilterSort();
+      this.emitTableState();
+      this.emitSelection("data");
+      return;
+    }
     this.selectionManager = new SelectionManager(
       host,
       this.editMode,
@@ -243,6 +279,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       (rowId) => void this.lockManager.unlockOnMove(rowId),
       (ev) => this.renderer.hitTest(ev),
       this.dataModel,
+      (rowId, colKey) => this.isCellReadonly(rowId, colKey),
       (rowId, colKey) => {
         this.renderer.setActiveCell(rowId, colKey);
         if (rowId && colKey !== null) this.activeCell = { rowId, colKey };
@@ -267,6 +304,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     }
     this.emitTableState();
     this.emitSelection("selection");
+    this.mounted = true;
   }
 
   destroy() {
@@ -278,13 +316,15 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.unbindViewport();
     this.viewportResizeObserver?.disconnect();
     this.viewportResizeObserver = null;
+    this.mounted = false;
   }
 
   setRenderMode(mode: RenderMode) {
+    if (this.renderMode === mode && this.renderer) return;
     this.renderMode = mode;
     this.renderer.destroy();
     this.renderer = this.chooseRenderer(mode);
-    this.mount();
+    this.mount(true);
     this.emitTableState();
   }
 
@@ -312,12 +352,42 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     }
   }
 
-  setData(data: DataSet<T>) {
+  setData(data: NullableDataSet<T>) {
+    if (data === null) {
+      // Allow null only before the first successful data load.
+      if (this.dataLoaded) return;
+      this.dataLoaded = false;
+      this.safeRender(this.viewportState ?? undefined);
+      this.emitSelection("data");
+      this.emitTableState();
+      return;
+    }
+    const wasLoaded = this.dataLoaded;
+    this.dataLoaded = true;
     this.dataModel.setData(data);
     this.safeRender(this.viewportState ?? undefined);
     this.selectionManager?.syncAfterRowsChanged();
     this.emitSelection("data");
     this.emitTableState();
+
+    if (!wasLoaded && this.loadingEnabled) {
+      this.root.classList.remove("extable-loading");
+      this.selectionManager?.destroy();
+      this.selectionManager = null;
+      this.mount();
+    }
+  }
+
+  setReadonlyAll(readonly: boolean) {
+    this.readonlyAll = readonly;
+    this.root.classList.toggle("extable-readonly-all", this.readonlyAll);
+    this.safeRender(this.viewportState ?? undefined);
+    this.emitSelection("unknown");
+    this.emitTableState();
+  }
+
+  getReadonlyAll() {
+    return this.readonlyAll;
   }
 
   setView(view: View) {
@@ -499,7 +569,8 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   }
 
   private ensureContextMenu() {
-    if (this.contextMenu) return;
+    if (this.contextMenu && (this.contextMenu as any).isConnected) return;
+    this.contextMenu = null;
     const pop = document.createElement("div");
     pop.className = "extable-context-menu";
     pop.setAttribute("popover", "manual");
@@ -541,6 +612,12 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   ) {
     this.ensureContextMenu();
     if (!this.contextMenu) return;
+    if (!(this.contextMenu as any).isConnected) {
+      // Host may have been rebuilt (e.g. renderer switch). Recreate.
+      this.contextMenu = null;
+      this.ensureContextMenu();
+      if (!this.contextMenu) return;
+    }
     this.contextMenuRowId = rowId;
     this.contextMenuColKey = colKey;
     // Update enable/disable state for undo/redo.
@@ -628,7 +705,8 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   }
 
   private ensureToast() {
-    if (this.toast) return;
+    if (this.toast && (this.toast as any).isConnected) return;
+    this.toast = null;
     const toast = document.createElement("div");
     toast.className = "extable-toast";
     toast.setAttribute("popover", "manual");
@@ -681,16 +759,16 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       document.removeEventListener("pointerdown", this.handleGlobalPointer, true);
       this.handleGlobalPointer = null;
     }
-    if (this.contextMenu?.parentElement) {
+    if (this.contextMenu) {
       const anyPopover = this.contextMenu as any;
       if (anyPopover.hidePopover) anyPopover.hidePopover();
-      removeFromParent(this.contextMenu);
+      if (this.contextMenu.parentElement) removeFromParent(this.contextMenu);
       this.contextMenu = null;
     }
-    if (this.toast?.parentElement) {
+    if (this.toast) {
       const anyToast = this.toast as any;
       if (anyToast.hidePopover) anyToast.hidePopover();
-      removeFromParent(this.toast);
+      if (this.toast.parentElement) removeFromParent(this.toast);
       this.toast = null;
     }
   }
@@ -702,12 +780,14 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.selectionManager?.destroy();
     this.renderer.destroy();
     this.root = target;
+    this.applyReadonlyAllClass();
     this.shell = null;
     this.viewportEl = null;
     this.viewportResizeObserver?.disconnect();
     this.viewportResizeObserver = null;
     this.renderer = this.chooseRenderer(this.renderMode);
-    this.mount();
+    this.mounted = false;
+    this.mount(true);
   }
 
   getFindReplaceController() {
@@ -719,24 +799,34 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     if (!this.findReplaceEnabled || !this.findReplaceUiEnabled) return;
     this.ensureFindReplace();
     if (!this.findReplace || !this.findReplaceSidebar) return;
+    this.hideFilterSortPanel();
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
     this.findReplace.setMode(mode);
+    this.findReplaceOpenedAt = now;
     this.root.classList.toggle("extable-search-open", true);
     this.updateViewportFromRoot();
     this.safeRender(this.viewportState ?? undefined);
     this.emitTableState();
-    const input = this.findReplaceSidebar.querySelector<HTMLInputElement>('input[data-extable-fr="query"]');
+    const input = this.findReplaceSidebar.querySelector<HTMLInputElement>(
+      'input[data-extable-fr="query"]',
+    );
     input?.focus({ preventScroll: true });
     input?.select();
   }
 
   hideSearchPanel() {
     if (!this.findReplaceSidebar) return;
+    this.findReplaceOpenedAt = 0;
     this.root.classList.toggle("extable-search-open", false);
     this.updateViewportFromRoot();
     this.safeRender(this.viewportState ?? undefined);
     this.emitTableState();
     // Restore focus to table selection.
-    (this.getScrollHost().querySelector('input[data-extable-selection="1"]') as HTMLInputElement | null)?.focus?.({
+    (
+      this.getScrollHost().querySelector(
+        'input[data-extable-selection="1"]',
+      ) as HTMLInputElement | null
+    )?.focus?.({
       preventScroll: true,
     });
   }
@@ -776,13 +866,19 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       const ar = a.target?.rowId ? this.dataModel.getRowIndex(a.target.rowId) : -1;
       const br = b.target?.rowId ? this.dataModel.getRowIndex(b.target.rowId) : -1;
       if (ar !== br) return ar - br;
-      const ac = a.target?.colKey !== undefined ? this.dataModel.getColumnIndex(a.target.colKey) : -1;
-      const bc = b.target?.colKey !== undefined ? this.dataModel.getColumnIndex(b.target.colKey) : -1;
+      const ac =
+        a.target?.colKey !== undefined ? this.dataModel.getColumnIndex(a.target.colKey) : -1;
+      const bc =
+        b.target?.colKey !== undefined ? this.dataModel.getColumnIndex(b.target.colKey) : -1;
       if (ac !== bc) return ac - bc;
       if (a.scope !== b.scope) return a.scope < b.scope ? -1 : 1;
       return a.message < b.message ? -1 : a.message > b.message ? 1 : 0;
     });
-    const activeErrors = [...validationErrors, ...diagnosticErrors.slice(0, 200), ...this.activeErrors];
+    const activeErrors = [
+      ...validationErrors,
+      ...diagnosticErrors.slice(0, 200),
+      ...this.activeErrors,
+    ];
     return {
       canCommit: this.editMode === "commit" && pendingCommandCount > 0,
       pendingCommandCount,
@@ -845,11 +941,16 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     const activeColKey = active?.colKey ?? null;
     const activeRowIndex = activeRowId ? this.dataModel.getRowIndex(activeRowId) : null;
     const activeColIndex =
-      activeColKey !== null ? schema.columns.findIndex((c) => String(c.key) === String(activeColKey)) : null;
-    const col = activeColIndex !== null && activeColIndex >= 0 ? schema.columns[activeColIndex] : null;
+      activeColKey !== null
+        ? schema.columns.findIndex((c) => String(c.key) === String(activeColKey))
+        : null;
+    const col =
+      activeColIndex !== null && activeColIndex >= 0 ? schema.columns[activeColIndex] : null;
 
-    const activeValueRes = activeRowId && col ? this.dataModel.resolveCellValue(activeRowId, col) : null;
-    const activeCondRes = activeRowId && col ? this.dataModel.resolveConditionalStyle(activeRowId, col) : null;
+    const activeValueRes =
+      activeRowId && col ? this.dataModel.resolveCellValue(activeRowId, col) : null;
+    const activeCondRes =
+      activeRowId && col ? this.dataModel.resolveConditionalStyle(activeRowId, col) : null;
     const activeTextOverride =
       activeValueRes?.textOverride ?? (activeCondRes?.forceErrorText ? "#ERROR" : undefined);
     const activeValueRaw = activeValueRes ? activeValueRes.value : null;
@@ -869,13 +970,19 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     })();
     const activeValueType = col?.type ?? null;
     const diagnostic =
-      activeRowId && activeColKey !== null ? this.dataModel.getCellDiagnostic(activeRowId, activeColKey) : null;
+      activeRowId && activeColKey !== null
+        ? this.dataModel.getCellDiagnostic(activeRowId, activeColKey)
+        : null;
 
     const activeStyles = (() => {
       if (!activeRowId || !col) {
         return { columnStyle: {}, cellStyle: {}, resolved: {} };
       }
-      const { columnStyle, cellStyle, resolved } = resolveCellStyles(this.dataModel, activeRowId, col);
+      const { columnStyle, cellStyle, resolved } = resolveCellStyles(
+        this.dataModel,
+        activeRowId,
+        col,
+      );
       return { columnStyle, cellStyle, resolved };
     })();
 
@@ -904,7 +1011,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
 
     const selected = listSelectedCells();
     const canStyle =
-      selected.length > 0 && selected.every((c) => !this.dataModel.isReadonly(c.rowId, c.colKey));
+      selected.length > 0 && selected.every((c) => !this.isCellReadonly(c.rowId, c.colKey));
 
     const disabledStyleState = {
       bold: "disabled" as ToggleState,
@@ -981,14 +1088,22 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   setCellValue(target: CellAddress, next: Updater<unknown>) {
     const resolved = resolveCellAddress(this.dataModel, target);
     if (!resolved) return;
-    if (this.dataModel.isReadonly(resolved.rowId, resolved.colKey)) return;
+    if (this.isCellReadonly(resolved.rowId, resolved.colKey)) return;
     const current = this.dataModel.getCell(resolved.rowId, resolved.colKey);
     const computed = typeof next === "function" ? next(current) : next;
-    this.handleEdit({ kind: "edit", rowId: resolved.rowId, colKey: resolved.colKey, next: computed }, this.editMode === "direct");
+    this.handleEdit(
+      { kind: "edit", rowId: resolved.rowId, colKey: resolved.colKey, next: computed },
+      this.editMode === "direct",
+    );
   }
 
-  updateColumnFormat(colKey: string | number, next: Updater<Schema["columns"][number]["format"] | undefined>) {
-    this.dataModel.updateColumnFormat(colKey, (old) => (typeof next === "function" ? next(old) : next));
+  updateColumnFormat(
+    colKey: string | number,
+    next: Updater<Schema["columns"][number]["format"] | undefined>,
+  ) {
+    this.dataModel.updateColumnFormat(colKey, (old) =>
+      typeof next === "function" ? next(old) : next,
+    );
     this.safeRender(this.viewportState ?? undefined);
     this.emitSelection("schema");
     this.emitTableState();
@@ -997,7 +1112,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   applyCellStyle(target: CellAddress, delta: Updater<StyleDelta>) {
     const resolved = resolveCellAddress(this.dataModel, target);
     if (!resolved) return;
-    if (this.dataModel.isReadonly(resolved.rowId, resolved.colKey)) return;
+    if (this.isCellReadonly(resolved.rowId, resolved.colKey)) return;
     const old = this.dataModel.getCellStyle(resolved.rowId, resolved.colKey) ?? {};
     const next = typeof delta === "function" ? delta(old) : { ...old, ...delta };
     this.dataModel.setCellStyle(resolved.rowId, resolved.colKey, next);
@@ -1026,7 +1141,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
             const k = `${row.id}::${String(col.key)}`;
             if (unique.has(k)) continue;
             unique.add(k);
-            if (this.dataModel.isReadonly(row.id, col.key)) continue;
+            if (this.isCellReadonly(row.id, col.key)) continue;
             const old = this.dataModel.getCellStyle(row.id, col.key) ?? {};
             const next = typeof delta === "function" ? delta(old) : { ...old, ...delta };
             this.dataModel.setCellStyle(row.id, col.key, next);
@@ -1067,10 +1182,13 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
           const key = `${row.id}::${String(col.key)}`;
           if (unique.has(key)) continue;
           unique.add(key);
-          if (this.dataModel.isReadonly(row.id, col.key)) continue;
+          if (this.isCellReadonly(row.id, col.key)) continue;
           const current = this.dataModel.getCell(row.id, col.key);
           const computed = typeof next === "function" ? next(current) : next;
-          this.handleEdit({ kind: "edit", rowId: row.id, colKey: col.key, next: computed }, this.editMode === "direct");
+          this.handleEdit(
+            { kind: "edit", rowId: row.id, colKey: col.key, next: computed },
+            this.editMode === "direct",
+          );
         }
       }
     }
@@ -1093,46 +1211,20 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
         (rowId, colKey) => this.selectionManager?.navigateToCell(rowId, colKey),
         (rowId, colKey, next) =>
           this.handleEdit({ kind: "edit", rowId, colKey, next }, this.editMode === "direct"),
-        (rowId, colKey) => !this.dataModel.isReadonly(rowId, colKey),
+        (rowId, colKey) => !this.isCellReadonly(rowId, colKey),
       );
     }
     if (this.findReplaceUiEnabled) {
       this.ensureFindReplaceSidebar();
-      this.ensureFindReplaceShortcuts();
     }
   }
 
-  private ensureFindReplaceShortcuts() {
-    if (this.findReplaceKeydown) return;
-    this.findReplaceKeydown = (ev: KeyboardEvent) => {
-      if (!this.findReplaceEnabled || !this.findReplaceUiEnabled) return;
-      const key = ev.key.toLowerCase();
-      const isMod = ev.metaKey || ev.ctrlKey;
-      if (!isMod) return;
-      if (key !== "f" && key !== "r") return;
-      // Toggle close on Ctrl/Cmd+F when sidebar is already visible.
-      if (key === "f" && this.isSearchPanelVisible()) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        this.hideSearchPanel();
-        return;
-      }
-      if (!this.findReplaceEnableSearch) {
-        const target = ev.target as Node | null;
-        const active = (typeof document !== "undefined" && document.activeElement) as Element | null;
-        const isActive =
-          (target && this.root.contains(target)) || (active && this.root.contains(active));
-        if (!isActive) return;
-      }
-      ev.preventDefault();
-      ev.stopPropagation();
-      this.showSearchPanel(key === "r" ? "replace" : "find");
-    };
-    document.addEventListener("keydown", this.findReplaceKeydown, true);
-  }
-
   private ensureFindReplaceSidebar() {
-    if (this.findReplaceSidebar) return;
+    if (this.findReplaceSidebar) {
+      if (this.findReplaceSidebar.isConnected) return;
+      // If detached (e.g., React dev tools/fast refresh), drop reference and recreate.
+      this.findReplaceSidebar = null;
+    }
     this.ensureShell();
     const shell = this.shell ?? this.root;
 
@@ -1186,20 +1278,30 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
 
     const query = aside.querySelector<HTMLInputElement>('input[data-extable-fr="query"]')!;
     const replace = aside.querySelector<HTMLInputElement>('input[data-extable-fr="replace"]')!;
-    const toggleReplace = aside.querySelector<HTMLInputElement>('input[data-extable-fr="replace-toggle"]')!;
+    const toggleReplace = aside.querySelector<HTMLInputElement>(
+      'input[data-extable-fr="replace-toggle"]',
+    )!;
     const caseCb = aside.querySelector<HTMLInputElement>('input[data-extable-fr="case"]')!;
     const regexCb = aside.querySelector<HTMLInputElement>('input[data-extable-fr="regex"]')!;
     const btnPrev = aside.querySelector<HTMLButtonElement>('button[data-extable-fr="prev"]')!;
     const btnNext = aside.querySelector<HTMLButtonElement>('button[data-extable-fr="next"]')!;
-    const btnReplace = aside.querySelector<HTMLButtonElement>('button[data-extable-fr="replace-current"]')!;
-    const btnReplaceAll = aside.querySelector<HTMLButtonElement>('button[data-extable-fr="replace-all"]')!;
+    const btnReplace = aside.querySelector<HTMLButtonElement>(
+      'button[data-extable-fr="replace-current"]',
+    )!;
+    const btnReplaceAll = aside.querySelector<HTMLButtonElement>(
+      'button[data-extable-fr="replace-all"]',
+    )!;
     const btnClose = aside.querySelector<HTMLButtonElement>('button[data-extable-fr="close"]')!;
     const tbody = aside.querySelector<HTMLElement>('[data-extable-fr="results-tbody"]')!;
 
     query.addEventListener("input", () => this.findReplace?.setQuery(query.value));
     replace.addEventListener("input", () => this.findReplace?.setReplace(replace.value));
-    caseCb.addEventListener("change", () => this.findReplace?.setOptions({ caseInsensitive: caseCb.checked }));
-    regexCb.addEventListener("change", () => this.findReplace?.setOptions({ regex: regexCb.checked }));
+    caseCb.addEventListener("change", () =>
+      this.findReplace?.setOptions({ caseInsensitive: caseCb.checked }),
+    );
+    regexCb.addEventListener("change", () =>
+      this.findReplace?.setOptions({ regex: regexCb.checked }),
+    );
     toggleReplace.addEventListener("change", () => {
       this.findReplace?.setMode(toggleReplace.checked ? "replace" : "find");
     });
@@ -1209,7 +1311,8 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     btnReplaceAll.addEventListener("click", () => this.findReplace?.replaceAll());
     btnClose.addEventListener("click", () => this.hideSearchPanel());
 
-    const truncate = (text: string, max = 140) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+    const truncate = (text: string, max = 140) =>
+      text.length > max ? `${text.slice(0, max - 1)}…` : text;
 
     tbody.addEventListener("click", (e) => {
       const tr = (e.target as HTMLElement | null)?.closest<HTMLElement>("tr[data-index]");
@@ -1274,12 +1377,17 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       removeFromParent(this.findReplaceSidebar);
       this.findReplaceSidebar = null;
     }
-    if (this.findReplaceKeydown) {
-      document.removeEventListener("keydown", this.findReplaceKeydown, true);
-      this.findReplaceKeydown = null;
-    }
     this.findReplace?.destroy();
     this.findReplace = null;
+  }
+
+  // External toggle for host apps.
+  toggleSearchPanel(mode: FindReplaceMode = "find") {
+    if (this.isSearchPanelVisible()) {
+      this.hideSearchPanel();
+    } else {
+      this.showSearchPanel(mode);
+    }
   }
 
   private stableValueKey(value: unknown) {
@@ -1292,7 +1400,8 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     if (typeof value === "object") {
       const anyV = value as any;
       if (anyV.kind === "enum" && typeof anyV.value === "string") return `enum:${anyV.value}`;
-      if (anyV.kind === "tags" && Array.isArray(anyV.values)) return `tags:${anyV.values.join("|")}`;
+      if (anyV.kind === "tags" && Array.isArray(anyV.values))
+        return `tags:${anyV.values.join("|")}`;
     }
     try {
       return `json:${JSON.stringify(value)}`;
@@ -1326,7 +1435,8 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       const el = ev.target as HTMLElement | null;
       const btn = el?.closest<HTMLButtonElement>('button[data-extable-fs-open="1"]');
       if (!btn) return;
-      const key = btn.dataset.extableColKey ?? btn.closest<HTMLElement>("th[data-col-key]")?.dataset.colKey;
+      const key =
+        btn.dataset.extableColKey ?? btn.closest<HTMLElement>("th[data-col-key]")?.dataset.colKey;
       if (!key) return;
       ev.preventDefault();
       ev.stopPropagation();
@@ -1343,7 +1453,10 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   }
 
   private ensureFilterSortSidebar() {
-    if (this.filterSortSidebar) return;
+    if (this.filterSortSidebar) {
+      if (this.filterSortSidebar.isConnected) return;
+      this.filterSortSidebar = null;
+    }
     this.ensureShell();
     const shell = this.shell ?? this.root;
 
@@ -1365,7 +1478,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
           </div>
           <input data-extable-fs="search" type="text" placeholder="Search values" />
           <div class="extable-filter-sort-values" data-extable-fs="values"></div>
-          <div class="extable-filter-sort-actions">
+          <div class="extable-filter-sort-actions" data-align="split">
             <button type="button" data-extable-fs="select-all">Select All</button>
             <button type="button" data-extable-fs="select-none">Select None</button>
             <button type="button" data-extable-fs="apply-filter">Apply</button>
@@ -1374,7 +1487,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
         </div>
         <div class="extable-filter-sort-section extable-filter-sort-section-sort">
           <div class="extable-filter-sort-section-title">Sort</div>
-          <div class="extable-filter-sort-actions">
+          <div class="extable-filter-sort-actions" data-align="right">
             <button type="button" data-extable-fs="sort-asc">Sort Asc</button>
             <button type="button" data-extable-fs="sort-desc">Sort Desc</button>
             <button type="button" data-extable-fs="clear-sort">Clear Sort</button>
@@ -1387,16 +1500,30 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
 
     const btnClose = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="close"]')!;
     const cbErrors = aside.querySelector<HTMLInputElement>('input[data-extable-fs="col-errors"]')!;
-    const cbWarnings = aside.querySelector<HTMLInputElement>('input[data-extable-fs="col-warnings"]')!;
+    const cbWarnings = aside.querySelector<HTMLInputElement>(
+      'input[data-extable-fs="col-warnings"]',
+    )!;
     const search = aside.querySelector<HTMLInputElement>('input[data-extable-fs="search"]')!;
     const values = aside.querySelector<HTMLElement>('[data-extable-fs="values"]')!;
     const btnAll = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="select-all"]')!;
-    const btnNone = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="select-none"]')!;
-    const btnApply = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="apply-filter"]')!;
-    const btnClear = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="clear-filter"]')!;
-    const btnSortAsc = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="sort-asc"]')!;
-    const btnSortDesc = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="sort-desc"]')!;
-    const btnSortClear = aside.querySelector<HTMLButtonElement>('button[data-extable-fs="clear-sort"]')!;
+    const btnNone = aside.querySelector<HTMLButtonElement>(
+      'button[data-extable-fs="select-none"]',
+    )!;
+    const btnApply = aside.querySelector<HTMLButtonElement>(
+      'button[data-extable-fs="apply-filter"]',
+    )!;
+    const btnClear = aside.querySelector<HTMLButtonElement>(
+      'button[data-extable-fs="clear-filter"]',
+    )!;
+    const btnSortAsc = aside.querySelector<HTMLButtonElement>(
+      'button[data-extable-fs="sort-asc"]',
+    )!;
+    const btnSortDesc = aside.querySelector<HTMLButtonElement>(
+      'button[data-extable-fs="sort-desc"]',
+    )!;
+    const btnSortClear = aside.querySelector<HTMLButtonElement>(
+      'button[data-extable-fs="clear-sort"]',
+    )!;
 
     btnClose.addEventListener("click", () => this.hideFilterSortPanel());
 
@@ -1415,7 +1542,9 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     });
 
     values.addEventListener("change", (e) => {
-      const input = (e.target as HTMLElement | null)?.closest<HTMLInputElement>('input[type="checkbox"][data-fs-val]');
+      const input = (e.target as HTMLElement | null)?.closest<HTMLInputElement>(
+        'input[type="checkbox"][data-fs-val]',
+      );
       if (!input || !this.filterSortDraft) return;
       const k = input.dataset.fsVal ?? "";
       if (!k) return;
@@ -1455,11 +1584,14 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   }
 
   private showFilterSortPanel(colKey: string | number) {
+    this.hideSearchPanel();
     this.filterSortActiveColumnKey = colKey;
     this.buildFilterSortDraft(colKey);
     this.root.classList.toggle("extable-filter-sort-open", true);
     this.renderFilterSortSidebar();
-    const input = this.filterSortSidebar?.querySelector<HTMLInputElement>('input[data-extable-fs="search"]') ?? null;
+    const input =
+      this.filterSortSidebar?.querySelector<HTMLInputElement>('input[data-extable-fs="search"]') ??
+      null;
     input?.focus();
   }
 
@@ -1484,7 +1616,9 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     const distinct = this.dataModel.getDistinctValuesForColumn(col.key);
     const values = distinct.values.map((v) => ({ ...v, key: this.stableValueKey(v.value) }));
     const existing = (view.filters ?? []).find(
-      (f) => (f as ViewFilterValues).kind === "values" && String((f as ViewFilterValues).key) === String(col.key),
+      (f) =>
+        (f as ViewFilterValues).kind === "values" &&
+        String((f as ViewFilterValues).key) === String(col.key),
     ) as ViewFilterValues | undefined;
 
     const selected = new Set<string>();
@@ -1510,15 +1644,29 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   private renderFilterSortSidebar() {
     if (!this.filterSortSidebar) return;
     const title = this.filterSortSidebar.querySelector<HTMLElement>('[data-extable-fs="title"]')!;
-    const cbErrors = this.filterSortSidebar.querySelector<HTMLInputElement>('input[data-extable-fs="col-errors"]')!;
-    const cbWarnings = this.filterSortSidebar.querySelector<HTMLInputElement>('input[data-extable-fs="col-warnings"]')!;
-    const search = this.filterSortSidebar.querySelector<HTMLInputElement>('input[data-extable-fs="search"]')!;
+    const cbErrors = this.filterSortSidebar.querySelector<HTMLInputElement>(
+      'input[data-extable-fs="col-errors"]',
+    )!;
+    const cbWarnings = this.filterSortSidebar.querySelector<HTMLInputElement>(
+      'input[data-extable-fs="col-warnings"]',
+    )!;
+    const search = this.filterSortSidebar.querySelector<HTMLInputElement>(
+      'input[data-extable-fs="search"]',
+    )!;
+    const btnSortAsc = this.filterSortSidebar.querySelector<HTMLButtonElement>(
+      'button[data-extable-fs="sort-asc"]',
+    );
+    const btnSortDesc = this.filterSortSidebar.querySelector<HTMLButtonElement>(
+      'button[data-extable-fs="sort-desc"]',
+    );
     const draft = this.filterSortDraft;
     if (!draft) {
       title.textContent = "Sort/Filter";
       cbErrors.checked = false;
       cbWarnings.checked = false;
       search.value = "";
+      if (btnSortAsc) btnSortAsc.dataset.active = "0";
+      if (btnSortDesc) btnSortDesc.dataset.active = "0";
       this.renderFilterSortValues();
       return;
     }
@@ -1529,6 +1677,10 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     cbErrors.checked = draft.diagErrors;
     cbWarnings.checked = draft.diagWarnings;
     search.value = draft.search;
+    const view = this.dataModel.getView();
+    const sort = view.sorts?.find((s) => String(s.key) === String(draft.colKey));
+    if (btnSortAsc) btnSortAsc.dataset.active = sort?.dir === "asc" ? "1" : "0";
+    if (btnSortDesc) btnSortDesc.dataset.active = sort?.dir === "desc" ? "1" : "0";
     this.renderFilterSortValues();
   }
 
@@ -1583,11 +1735,16 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     if (!draft) return;
     const view = this.dataModel.getView();
     const existingFilters = [...(view.filters ?? [])].filter(
-      (f) => !((f as ViewFilterValues).kind === "values" && String((f as ViewFilterValues).key) === String(draft.colKey)),
+      (f) =>
+        !(
+          (f as ViewFilterValues).kind === "values" &&
+          String((f as ViewFilterValues).key) === String(draft.colKey)
+        ),
     );
 
     const allSelected =
-      draft.selected.size === draft.values.length && draft.includeBlanks === Boolean(draft.hasBlanks);
+      draft.selected.size === draft.values.length &&
+      draft.includeBlanks === Boolean(draft.hasBlanks);
     const nextFilters = allSelected
       ? existingFilters
       : [
@@ -1602,7 +1759,10 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
 
     const nextDiagnostics = { ...(view.columnDiagnostics ?? {}) };
     if (draft.diagErrors || draft.diagWarnings) {
-      nextDiagnostics[String(draft.colKey)] = { errors: draft.diagErrors, warnings: draft.diagWarnings };
+      nextDiagnostics[String(draft.colKey)] = {
+        errors: draft.diagErrors,
+        warnings: draft.diagWarnings,
+      };
     } else {
       delete nextDiagnostics[String(draft.colKey)];
     }
@@ -1620,7 +1780,11 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     if (colKey === null || colKey === undefined) return;
     const view = this.dataModel.getView();
     const nextFilters = [...(view.filters ?? [])].filter(
-      (f) => !((f as ViewFilterValues).kind === "values" && String((f as ViewFilterValues).key) === String(colKey)),
+      (f) =>
+        !(
+          (f as ViewFilterValues).kind === "values" &&
+          String((f as ViewFilterValues).key) === String(colKey)
+        ),
     );
     const nextDiagnostics = { ...(view.columnDiagnostics ?? {}) };
     delete nextDiagnostics[String(colKey)];
@@ -1667,7 +1831,11 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       this.filterSortKeydown = null;
     }
     if (this.filterSortClickCapture) {
-      (this.viewportEl ?? this.root).removeEventListener("click", this.filterSortClickCapture, true);
+      (this.viewportEl ?? this.root).removeEventListener(
+        "click",
+        this.filterSortClickCapture,
+        true,
+      );
       this.filterSortClickCapture = null;
     }
     if (this.filterSortOpenEvent) {
@@ -1735,7 +1903,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
 // Compatibility helpers for wrappers/tests
 export function createTablePlaceholder<T extends Record<string, unknown> = Record<string, unknown>>(
   config: TableConfig<T>,
-  options: CoreOptions,
+  options?: CoreOptions,
 ) {
   const core = new ExtableCore<T>({
     root: document.createElement("div"),

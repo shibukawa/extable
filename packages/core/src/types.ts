@@ -3,10 +3,18 @@ export type CellPrimitive = string | number | boolean | null;
 export type CellValue =
   | CellPrimitive
   | Date
-  | { kind: 'enum'; value: string }
-  | { kind: 'tags'; values: string[] };
+  | { kind: "enum"; value: string }
+  | { kind: "tags"; values: string[] };
 
-export type ColumnType = 'string' | 'number' | 'boolean' | 'datetime' | 'date' | 'time' | 'enum' | 'tags';
+export type ColumnType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "datetime"
+  | "date"
+  | "time"
+  | "enum"
+  | "tags";
 
 export type ResolvedCellStyle = {
   background?: string;
@@ -19,19 +27,20 @@ export type ResolvedCellStyle = {
 
 export type StyleDelta = Partial<ResolvedCellStyle>;
 
-export type DiagnosticLevel = 'warning' | 'error';
+export type DiagnosticLevel = "warning" | "error";
 export type CellDiagnostic = {
   level: DiagnosticLevel;
   message: string;
-  source: 'formula' | 'conditionalStyle';
+  source: "formula" | "conditionalStyle";
 };
 
 export type FormulaOk = string | boolean | number | Date;
 export type FormulaWarn<T extends FormulaOk> = readonly [value: T, warning: Error];
 export type FormulaReturn<T extends FormulaOk = FormulaOk> = T | FormulaWarn<T>;
 
-export type ConditionalStyleFn<TData extends Record<string, unknown> = Record<string, unknown>> =
-  (data: TData) => StyleDelta | null | Error;
+export type ConditionalStyleFn<TData extends Record<string, unknown> = Record<string, unknown>> = (
+  data: TData,
+) => StyleDelta | null | Error;
 
 // A1 notation typing (MVP: single cell only)
 // NOTE: Using per-digit unions here can explode the type space and break `tsc --emitDeclarationOnly`.
@@ -39,32 +48,32 @@ export type ConditionalStyleFn<TData extends Record<string, unknown> = Record<st
 export type ExcelRow = `${number}`;
 
 export type Col1 =
-  | 'A'
-  | 'B'
-  | 'C'
-  | 'D'
-  | 'E'
-  | 'F'
-  | 'G'
-  | 'H'
-  | 'I'
-  | 'J'
-  | 'K'
-  | 'L'
-  | 'M'
-  | 'N'
-  | 'O'
-  | 'P'
-  | 'Q'
-  | 'R'
-  | 'S'
-  | 'T'
-  | 'U'
-  | 'V'
-  | 'W'
-  | 'X'
-  | 'Y'
-  | 'Z';
+  | "A"
+  | "B"
+  | "C"
+  | "D"
+  | "E"
+  | "F"
+  | "G"
+  | "H"
+  | "I"
+  | "J"
+  | "K"
+  | "L"
+  | "M"
+  | "N"
+  | "O"
+  | "P"
+  | "Q"
+  | "R"
+  | "S"
+  | "T"
+  | "U"
+  | "V"
+  | "W"
+  | "X"
+  | "Y"
+  | "Z";
 export type Col2 = `${Col1}${Col1}`;
 export type ExcelColumn = Col1 | Col2;
 export type ExcelRef = `${ExcelColumn}${ExcelRow}`;
@@ -103,7 +112,7 @@ export interface ColumnSchema<
   };
   enum?: { options: string[]; allowCustom?: boolean };
   tags?: { options: string[]; allowCustom?: boolean };
-  booleanDisplay?: 'checkbox' | string | [string, string]; // arbitrary label set; default checkbox when absent
+  booleanDisplay?: "checkbox" | string | [string, string]; // arbitrary label set; default checkbox when absent
   dateFormat?: string;
   timeFormat?: string;
   dateTimeFormat?: string;
@@ -112,10 +121,10 @@ export interface ColumnSchema<
   format?: {
     textColor?: string;
     background?: string;
-    align?: 'left' | 'right' | 'center';
+    align?: "left" | "right" | "center";
     decorations?: { strike?: boolean; underline?: boolean; bold?: boolean; italic?: boolean };
   };
-  conditionalFormat?: { expr: string; engine?: 'cel' };
+  conditionalFormat?: { expr: string; engine?: "cel" };
   formula?: (data: TData) => FormulaReturn;
   conditionalStyle?: ConditionalStyleFn<TData>;
 }
@@ -124,12 +133,17 @@ export interface Schema<TData extends Record<string, unknown> = Record<string, u
   columns: ColumnSchema<TData>[];
 }
 
-export type RowObject<T extends Record<string, unknown> = Record<string, unknown>> = { _readonly?: boolean } & T;
+export type RowObject<T extends Record<string, unknown> = Record<string, unknown>> = {
+  _readonly?: boolean;
+} & T;
 export type RowArray = CellValue[];
 
 export interface DataSet<T extends Record<string, unknown> = Record<string, unknown>> {
   rows: Array<RowObject<T> | RowArray>;
 }
+
+export type NullableDataSet<T extends Record<string, unknown> = Record<string, unknown>> =
+  DataSet<T> | null;
 
 export type ViewFilterOp = {
   kind: "op";
@@ -158,7 +172,7 @@ export type ColumnDiagnosticFilterMap = Record<string, ColumnDiagnosticFilter>;
 
 export interface ViewSort {
   key: string | number;
-  dir: 'asc' | 'desc';
+  dir: "asc" | "desc";
 }
 
 export interface View {
@@ -176,12 +190,12 @@ export interface View {
   wrapText?: Record<string, boolean>; // view override per column
 }
 
-export type RenderMode = 'html' | 'canvas' | 'auto';
-export type EditMode = 'direct' | 'commit';
-export type LockMode = 'none' | 'row';
+export type RenderMode = "html" | "canvas" | "auto";
+export type EditMode = "direct" | "commit";
+export type LockMode = "none" | "row";
 
 export interface Command {
-  kind: 'edit' | 'deleteRow' | 'insertRow' | 'updateView' | 'lock' | 'unlock';
+  kind: "edit" | "deleteRow" | "insertRow" | "updateView" | "lock" | "unlock";
   rowId?: string;
   colKey?: string | number;
   rowData?: RowObject | RowArray;
@@ -203,12 +217,19 @@ export interface ServerAdapter {
   subscribe: (onEvent: (event: ServerEvent) => void) => () => void;
 }
 
-export type ServerEvent = { type: 'update'; commands: Command[]; user: UserInfo };
+export type ServerEvent = { type: "update"; commands: Command[]; user: UserInfo };
 
 export interface CoreOptions {
   renderMode?: RenderMode;
   editMode?: EditMode;
   lockMode?: LockMode;
+  /** When true, all cells are treated as read-only (without changing their visual styles). */
+  readonly?: boolean;
+  /** Loading UI configuration used when `defaultData` is `null`. */
+  loading?: {
+    /** Enable built-in loading overlay/spinner. Default: true */
+    enabled?: boolean;
+  };
   defaultClass?: string | string[];
   defaultStyle?: Partial<CSSStyleDeclaration>;
   server?: ServerAdapter;
@@ -224,7 +245,7 @@ export interface CoreOptions {
     /** @deprecated Use `sidebar` instead. */
     dialog?: boolean;
     /**
-     * When true, always intercept `Ctrl/Cmd+F` and `Ctrl/Cmd+R` and show extable's search sidebar.
+     * When true, always intercept `Ctrl/Cmd+F` and show extable's search sidebar.
      * Use this when the table is the primary focus of the page and browser Find/Reload should be overridden.
      * Default: true (always intercept).
      */
@@ -244,7 +265,7 @@ export interface InternalRow {
   displayIndex: number;
 }
 
-export type SelectionKind = 'cells' | 'rows';
+export type SelectionKind = "cells" | "rows";
 
 export interface SelectionRange {
   kind: SelectionKind;
@@ -254,11 +275,11 @@ export interface SelectionRange {
   endCol: number;
 }
 
-export type ToggleState = 'on' | 'off' | 'mixed' | 'disabled';
-export type ColorState = string | 'mixed' | null | 'disabled';
+export type ToggleState = "on" | "off" | "mixed" | "disabled";
+export type ColorState = string | "mixed" | null | "disabled";
 
 export type TableError = {
-  scope: 'validation' | 'commit' | 'render' | 'formula' | 'conditionalStyle' | 'unknown';
+  scope: "validation" | "commit" | "render" | "formula" | "conditionalStyle" | "unknown";
   message: string;
   target?: { rowId?: string; colKey?: string | number };
 };
@@ -268,7 +289,7 @@ export type TableState = {
   pendingCommandCount: number;
   pendingCellCount?: number;
   undoRedo: { canUndo: boolean; canRedo: boolean };
-  renderMode: 'html' | 'canvas';
+  renderMode: "html" | "canvas";
   ui: { searchPanelOpen: boolean };
   activeErrors: TableError[];
 };
@@ -301,7 +322,14 @@ export type SelectionSnapshot = {
   };
 };
 
-export type SelectionChangeReason = 'selection' | 'edit' | 'style' | 'schema' | 'view' | 'data' | 'unknown';
+export type SelectionChangeReason =
+  | "selection"
+  | "edit"
+  | "style"
+  | "schema"
+  | "view"
+  | "data"
+  | "unknown";
 export type SelectionListener = (
   next: SelectionSnapshot,
   prev: SelectionSnapshot | null,

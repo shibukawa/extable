@@ -9,7 +9,12 @@ import {
   shouldShowFillHandle,
 } from "./fillHandle";
 import { removeFromParent } from "./utils";
-import { DEFAULT_ROW_HEIGHT_PX, HEADER_HEIGHT_PX, ROW_HEADER_WIDTH_PX, getColumnWidths } from "./geometry";
+import {
+  DEFAULT_ROW_HEIGHT_PX,
+  HEADER_HEIGHT_PX,
+  ROW_HEADER_WIDTH_PX,
+  getColumnWidths,
+} from "./geometry";
 
 type EditHandler = (cmd: Command, commit: boolean) => void;
 type RowSelectHandler = (rowId: string) => void;
@@ -65,6 +70,7 @@ export class SelectionManager {
   private composing = false;
   private lastCompositionEnd = 0;
   private readonly handleSelectionBlur = () => this.teardownSelectionInput();
+  private isCellReadonly: (rowId: string, colKey: string | number) => boolean;
 
   constructor(
     root: HTMLElement,
@@ -74,6 +80,7 @@ export class SelectionManager {
     onMove: MoveHandler,
     hitTest: HitTest,
     private dataModel: DataModel,
+    isCellReadonly: (rowId: string, colKey: string | number) => boolean,
     private onActiveChange: ActiveChange,
     onContextMenu: ContextMenuHandler,
     private onSelectionChange: SelectionChange,
@@ -86,6 +93,7 @@ export class SelectionManager {
     this.onRowSelect = onRowSelect;
     this.onMove = onMove;
     this.hitTest = hitTest;
+    this.isCellReadonly = isCellReadonly;
     this.onContextMenu = onContextMenu;
     this.bind();
   }
@@ -583,6 +591,7 @@ export class SelectionManager {
     if (ev.button !== 0) return;
     const el = ev.target as HTMLElement | null;
     if (el?.closest('button[data-extable-fs-open="1"]')) return;
+    if (el?.closest(".extable-filter-sort-trigger")) return;
     // Avoid starting a drag from inside an active editor.
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) return;
     // Commit current editor before starting a drag/select operation.
@@ -659,12 +668,42 @@ export class SelectionManager {
     }
 
     const schema = this.dataModel.getSchema();
-    const rowIndex = this.dataModel.getRowIndex(hit.rowId);
+    const rows = this.dataModel.listRows();
+    const rowIndex =
+      hit.rowId === "__header__" ? 0 : this.dataModel.getRowIndex(hit.rowId);
     const colIndex =
       hit.colKey === "__row__"
         ? 0
         : schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
-    if (rowIndex < 0 || colIndex < 0) return;
+    if (colIndex < 0) return;
+
+    if (hit.rowId === "__header__") {
+      // Select entire column when clicking column header.
+      if (!rows.length) return;
+      const range: SelectionRange = {
+        kind: "cells",
+        startRow: 0,
+        endRow: rows.length - 1,
+        startCol: colIndex,
+        endCol: colIndex,
+      };
+      this.selectionRanges = [range];
+      this.onSelectionChange(this.selectionRanges);
+      this.dragging = false;
+      this.selectionMode = false;
+      this.dragStart = null;
+      this.selectionAnchor = null;
+      this.suppressNextClick = true;
+      const targetRow = rows[0];
+      const targetCol = schema.columns[colIndex];
+      if (targetRow && targetCol) {
+        this.activeCell = { rowId: targetRow.id, colKey: targetCol.key };
+        this.onActiveChange(targetRow.id, targetCol.key);
+      }
+      return;
+    }
+
+    if (rowIndex < 0) return;
 
     const kind: "cells" | "rows" = hit.colKey === "__row__" ? "rows" : "cells";
     this.dragging = true;
@@ -710,6 +749,15 @@ export class SelectionManager {
             rect: rowHeader.getBoundingClientRect(),
           };
         }
+      }
+      const colHeader = el.closest<HTMLElement>("th[data-col-key]");
+      if (colHeader) {
+        return {
+          rowId: "__header__",
+          colKey: colHeader.dataset.colKey ?? "",
+          element: colHeader,
+          rect: colHeader.getBoundingClientRect(),
+        };
       }
       const cell = el.closest<HTMLElement>("td[data-col-key]");
       const row = cell?.closest<HTMLElement>("tr[data-row-id]");
@@ -940,7 +988,7 @@ export class SelectionManager {
     for (let r = source.endRowIndex + 1; r <= endRowIndex; r += 1) {
       const row = rows[r];
       if (!row) break;
-      if (this.dataModel.isReadonly(row.id, col.key)) continue;
+      if (this.isCellReadonly(row.id, col.key)) continue;
       const offset = r - source.endRowIndex;
       const next = getValue(offset);
       const cmd: Command = {
@@ -1236,7 +1284,7 @@ export class SelectionManager {
       for (let c = range.startCol; c <= range.endCol; c += 1) {
         const col = schema.columns[c];
         if (!col) continue;
-        if (this.dataModel.isReadonly(row.id, col.key)) continue;
+        if (this.isCellReadonly(row.id, col.key)) continue;
         const next = col.type === "boolean" ? false : "";
         const cmd: Command = {
           kind: "edit",
@@ -1324,7 +1372,7 @@ export class SelectionManager {
       for (let c = 0; c < line.length; c += 1) {
         const col = schema.columns[startCol + c];
         if (!col) break;
-        if (this.dataModel.isReadonly(row.id, col.key)) continue;
+        if (this.isCellReadonly(row.id, col.key)) continue;
         const next = this.coerceCellValue(line[c] ?? "", col.key);
         const cmd: Command = {
           kind: "edit",
@@ -1480,7 +1528,7 @@ export class SelectionManager {
     if (hit.colKey === "__row__" || hit.colKey === "__all__") {
       return;
     }
-    if (this.dataModel.isReadonly(hit.rowId, hit.colKey)) {
+    if (this.isCellReadonly(hit.rowId, hit.colKey)) {
       this.selectionMode = true;
       this.selectionAnchor = null;
       this.teardownInput(false);

@@ -24,7 +24,7 @@
     "dev:demo-vue": "npm run dev --workspace @extable/demo-vue",
     "dev:server": "npm run dev --workspace @extable/server-hono",
     "e2e": "npm run e2e --ws --if-present",
-    "postinstall": "playwright install chromium firefox webkit"
+    "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium firefox webkit"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

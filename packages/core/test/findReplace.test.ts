@@ -44,7 +44,7 @@ describe("find/replace", () => {
     root.remove();
   });
 
-  test("shortcut shows sidebar in replace mode", () => {
+  test("shortcut does not intercept Ctrl/Cmd+R (reload collision)", () => {
     const root = document.createElement("div");
     document.body.appendChild(root);
     const core = new ExtableCore({
@@ -60,17 +60,18 @@ describe("find/replace", () => {
       },
     });
 
-    // Default behavior: shortcut should be intercepted even from document.
+    // Ctrl/Cmd+R should not be intercepted (browser reload).
     const ev = new KeyboardEvent("keydown", { key: "r", ctrlKey: true, bubbles: true });
     document.dispatchEvent(ev);
 
     const sidebar = document.querySelector(".extable-search-sidebar") as HTMLElement | null;
+    // Sidebar DOM can exist even when hidden; rely on root open state.
     expect(sidebar).toBeTruthy();
-    expect(sidebar!.style.display).not.toBe("none");
+    expect(root.classList.contains("extable-search-open")).toBe(false);
     const replaceToggle = sidebar!.querySelector(
       'input[data-extable-fr="replace-toggle"]',
     ) as HTMLInputElement | null;
-    expect(replaceToggle?.checked).toBe(true);
+    expect(replaceToggle?.checked).toBe(false);
     core.destroy();
     root.remove();
   });

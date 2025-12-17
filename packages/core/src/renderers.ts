@@ -1,8 +1,20 @@
 import type { DataModel } from "./dataModel";
-import type { InternalRow, Schema, ColumnSchema, SelectionRange, View, ViewFilterValues } from "./types";
+import type {
+  InternalRow,
+  Schema,
+  ColumnSchema,
+  SelectionRange,
+  View,
+  ViewFilterValues,
+} from "./types";
 import { format as formatDate, parseISO } from "date-fns";
 import { toRawValue } from "./cellValueCodec";
-import { DEFAULT_ROW_HEIGHT_PX, HEADER_HEIGHT_PX, ROW_HEADER_WIDTH_PX, getColumnWidths } from "./geometry";
+import {
+  DEFAULT_ROW_HEIGHT_PX,
+  HEADER_HEIGHT_PX,
+  ROW_HEADER_WIDTH_PX,
+  getColumnWidths,
+} from "./geometry";
 import {
   FILL_HANDLE_HIT_SIZE_PX,
   FILL_HANDLE_VISUAL_SIZE_PX,
@@ -39,10 +51,7 @@ function svgFunnel() {
 }
 
 function svgArrow(dir: "asc" | "desc") {
-  const d =
-    dir === "asc"
-      ? "M12 6l6 8H6l6-8z"
-      : "M12 18l-6-8h12l-6 8z";
+  const d = dir === "asc" ? "M12 6l6 8H6l6-8z" : "M12 18l-6-8h12l-6 8z";
   return `
     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
       <path d="${d}" fill="currentColor"/>
@@ -94,7 +103,13 @@ class ValueFormatCache {
   }
 }
 
-function drawFunnelIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, alpha: number) {
+function drawFunnelIcon(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  alpha: number,
+) {
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.strokeStyle = "rgba(15,23,42,1)";
@@ -182,7 +197,6 @@ export class HTMLRenderer implements Renderer {
     this.tableEl = document.createElement("table");
     this.tableEl.dataset.extableRenderer = "html";
     root.innerHTML = "";
-    root.classList.add("extable-root");
     root.appendChild(this.tableEl);
     this.render();
   }
@@ -298,6 +312,7 @@ export class HTMLRenderer implements Renderer {
     for (let idx = 0; idx < schema.columns.length; idx += 1) {
       const col = schema.columns[idx]!;
       const th = document.createElement("th");
+      th.dataset.colKey = String(col.key);
       const sortDir = getColumnSortDir(view, col.key);
       const hasFilter = hasActiveColumnFilter(view, col.key);
       if (sortDir) th.dataset.extableSortDir = sortDir;
@@ -370,7 +385,7 @@ export class HTMLRenderer implements Renderer {
         const css = styleToCssText(forCss);
         if (css) td.style.cssText = css;
       }
-      const width = colWidths[idx] ?? (view.columnWidths?.[String(col.key)] ?? col.width);
+      const width = colWidths[idx] ?? view.columnWidths?.[String(col.key)] ?? col.width;
       if (width) td.style.width = `${width}px`;
       const wrap = view.wrapText?.[String(col.key)] ?? col.wrapText;
       td.classList.add(wrap ? "cell-wrap" : "cell-nowrap");
@@ -403,7 +418,7 @@ export class HTMLRenderer implements Renderer {
       }
       if (isPending) td.classList.add("pending");
       if (this.dataModel.isReadonly(row.id, col.key)) {
-        td.classList.add("extable-readonly");
+        td.classList.add("extable-readonly", "extable-readonly-muted");
       } else {
         td.classList.add("extable-editable");
       }
@@ -423,11 +438,16 @@ export class HTMLRenderer implements Renderer {
       for (let idx = 0; idx < schema.columns.length; idx += 1) {
         const col = schema.columns[idx]!;
         if (!col.wrapText) continue;
-        const width = colWidths[idx] ?? (view.columnWidths?.[String(col.key)] ?? col.width ?? 100);
+        const width = colWidths[idx] ?? view.columnWidths?.[String(col.key)] ?? col.width ?? 100;
         const valueRes = this.dataModel.resolveCellValue(row.id, col);
         const condRes = this.dataModel.resolveConditionalStyle(row.id, col);
-        const textOverride = valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
-        const text = textOverride ? "#ERROR" : (valueRes.value === null || valueRes.value === undefined ? "" : String(valueRes.value));
+        const textOverride =
+          valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
+        const text = textOverride
+          ? "#ERROR"
+          : valueRes.value === null || valueRes.value === undefined
+            ? ""
+            : String(valueRes.value);
         const version = this.dataModel.getRowVersion(row.id);
         const key = `${row.id}|${String(col.key)}|${version}|${width}|${text}`;
         const cached = this.measureCache.get(key);
@@ -579,6 +599,7 @@ export class HTMLRenderer implements Renderer {
 }
 
 export class CanvasRenderer implements Renderer {
+  private static readonly MAX_CANVAS_DIM_PX = 8192;
   private root: HTMLElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private spacer: HTMLDivElement | null = null;
@@ -609,11 +630,10 @@ export class CanvasRenderer implements Renderer {
 
   mount(root: HTMLElement) {
     this.root = root;
-    this.root.classList.add("extable-root");
-    root.style.overflow = "auto";
     this.canvas = document.createElement("canvas");
-    this.canvas.width = root.clientWidth || 600;
-    this.canvas.height = root.clientHeight || 400;
+    const maxDim = CanvasRenderer.MAX_CANVAS_DIM_PX;
+    this.canvas.width = Math.max(1, Math.min(maxDim, Math.floor(root.clientWidth || 600)));
+    this.canvas.height = Math.max(1, Math.min(maxDim, Math.floor(root.clientHeight || 400)));
     this.canvas.style.width = `${this.canvas.width}px`;
     this.canvas.style.height = `${this.canvas.height}px`;
     this.canvas.dataset.extableRenderer = "canvas";
@@ -627,19 +647,19 @@ export class CanvasRenderer implements Renderer {
     this.canvas.addEventListener("click", this.handleClick);
     this.spacer = document.createElement("div");
     this.spacer.style.width = "1px";
-	    if (this.tooltip) this.tooltip.remove();
-	    if (this.overlayLayer) this.overlayLayer.remove();
-	    this.overlayLayer = document.createElement("div");
-	    this.overlayLayer.className = "extable-overlay-layer";
-	    this.tooltip = document.createElement("div");
-	    this.tooltip.className = "extable-tooltip";
-	    this.tooltip.dataset.visible = "0";
-	    this.overlayLayer.appendChild(this.tooltip);
-	    root.innerHTML = "";
-	    root.style.position = "relative";
-	    root.appendChild(this.overlayLayer);
-	    root.appendChild(this.canvas);
-	    root.appendChild(this.spacer);
+    if (this.tooltip) this.tooltip.remove();
+    if (this.overlayLayer) this.overlayLayer.remove();
+    this.overlayLayer = document.createElement("div");
+    this.overlayLayer.className = "extable-overlay-layer";
+    this.tooltip = document.createElement("div");
+    this.tooltip.className = "extable-tooltip";
+    this.tooltip.dataset.visible = "0";
+    this.overlayLayer.appendChild(this.tooltip);
+    root.innerHTML = "";
+    root.style.position = "relative";
+    root.appendChild(this.overlayLayer);
+    root.appendChild(this.canvas);
+    root.appendChild(this.spacer);
     this.render();
   }
 
@@ -655,12 +675,13 @@ export class CanvasRenderer implements Renderer {
   }
 
   render(state?: ViewportState) {
+    try {
     this.frame += 1;
     if (!this.canvas || !this.root) return;
     const ctx = this.canvas.getContext("2d");
     if (!ctx) return;
     ctx.font = "14px sans-serif";
-    const baseFont = ctx.font;
+    let baseFont = ctx.font;
     const selectAll = this.activeRowId === "__all__" && this.activeColKey === "__all__";
     const schema = this.dataModel.getSchema();
     const view = this.dataModel.getView();
@@ -681,10 +702,16 @@ export class CanvasRenderer implements Renderer {
     const desiredCanvasWidth = state?.clientWidth ?? (this.root.clientWidth || 600);
     const desiredCanvasHeight =
       state?.clientHeight ?? (this.root.clientHeight || this.canvas.height || 400);
-    if (this.canvas.width !== desiredCanvasWidth) this.canvas.width = desiredCanvasWidth;
-    if (this.canvas.height !== desiredCanvasHeight) this.canvas.height = desiredCanvasHeight;
-    this.canvas.style.width = `${desiredCanvasWidth}px`;
-    this.canvas.style.height = `${desiredCanvasHeight}px`;
+    const maxDim = CanvasRenderer.MAX_CANVAS_DIM_PX;
+    const nextWidth = Math.max(1, Math.min(maxDim, Math.floor(desiredCanvasWidth)));
+    const nextHeight = Math.max(1, Math.min(maxDim, Math.floor(desiredCanvasHeight)));
+    if (this.canvas.width !== nextWidth) this.canvas.width = nextWidth;
+    if (this.canvas.height !== nextHeight) this.canvas.height = nextHeight;
+    this.canvas.style.width = `${nextWidth}px`;
+    this.canvas.style.height = `${nextHeight}px`;
+    // Resizing resets 2D state, so reapply after size update.
+    ctx.font = "14px sans-serif";
+    baseFont = ctx.font;
     this.refreshTooltipPosition();
 
     const scrollTop = state?.scrollTop ?? this.root.scrollTop;
@@ -734,8 +761,12 @@ export class CanvasRenderer implements Renderer {
       }
       ctx.fillStyle = "#0f172a";
       ctx.font = "bold 14px sans-serif";
-      ctx.fillText(String(idxText), 8, yCursor + this.lineHeight);
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(String(idxText), this.rowHeaderWidth / 2, yCursor + rowH / 2);
       ctx.font = baseFont;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
 
       ctx.save();
       ctx.beginPath();
@@ -759,12 +790,13 @@ export class CanvasRenderer implements Renderer {
         const baseStyle = colBaseStyles[idx] ?? {};
         const withCond = condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
         const mergedStyle = cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
-        const bg = readOnly ? "#f3f4f6" : mergedStyle.background ?? "#ffffff";
+        const bg = readOnly ? "#f3f4f6" : (mergedStyle.background ?? "#ffffff");
         ctx.fillStyle = bg;
         ctx.fillRect(x, yCursor, w, rowH);
         ctx.strokeRect(x, yCursor, w, rowH);
         const valueRes = this.dataModel.resolveCellValue(row.id, c);
-        const textOverride = valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
+        const textOverride =
+          valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
         const formatted = textOverride ? { text: "#ERROR" } : this.formatValue(valueRes.value, c);
         const text = formatted.text;
         const align = c.format?.align ?? (c.type === "number" ? "right" : "left");
@@ -777,7 +809,14 @@ export class CanvasRenderer implements Renderer {
           ctx.lineWidth = 2;
           ctx.strokeRect(x + 1, yCursor + 1, w - 2, rowH - 2);
           ctx.lineWidth = 1;
-          if (shouldShowFillHandle(this.dataModel, this.selection, this.activeRowId, this.activeColKey)) {
+          if (
+            shouldShowFillHandle(
+              this.dataModel,
+              this.selection,
+              this.activeRowId,
+              this.activeColKey,
+            )
+          ) {
             const size = FILL_HANDLE_VISUAL_SIZE_PX;
             const left = x + w - size - 1;
             const top = yCursor + rowH - size - 1;
@@ -793,7 +832,7 @@ export class CanvasRenderer implements Renderer {
             ? formatted.color
             : readOnly
               ? "#94a3b8"
-              : mergedStyle.textColor ?? "#0f172a";
+              : (mergedStyle.textColor ?? "#0f172a");
         const wrap = view.wrapText?.[String(c.key)] ?? c.wrapText ?? false;
         const isBoolean =
           c.type === "boolean" && (!c.booleanDisplay || c.booleanDisplay === "checkbox");
@@ -883,7 +922,8 @@ export class CanvasRenderer implements Renderer {
 
       const sortDir = getColumnSortDir(view, c.key);
       const hasFilter = hasActiveColumnFilter(view, c.key);
-      const isHover = this.hoverHeaderColKey !== null && String(this.hoverHeaderColKey) === String(c.key);
+      const isHover =
+        this.hoverHeaderColKey !== null && String(this.hoverHeaderColKey) === String(c.key);
       const showIcon = Boolean(sortDir) || hasFilter || isHover;
       if (showIcon) {
         const alpha = isHover ? 0.9 : hasFilter || sortDir ? 0.75 : 0.45;
@@ -945,6 +985,11 @@ export class CanvasRenderer implements Renderer {
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
       ctx.restore();
     }
+    } catch {
+      // Ignore canvas rendering errors (e.g. context enters an error state after huge resize).
+      // A subsequent resize typically recovers.
+      return;
+    }
   }
 
   destroy() {
@@ -974,8 +1019,10 @@ export class CanvasRenderer implements Renderer {
   private handleClick = (ev: MouseEvent) => {
     if (!this.root || !this.canvas) return;
     const rect = this.canvas.getBoundingClientRect();
-    const x = ev.clientX - rect.left + this.root.scrollLeft;
-    const y = ev.clientY - rect.top + this.root.scrollTop;
+    const viewportX = ev.clientX - rect.left;
+    const viewportY = ev.clientY - rect.top;
+    const x = viewportX + this.root.scrollLeft;
+    const y = viewportY;
     if (y >= this.headerHeight) return;
     if (x < this.rowHeaderWidth) return;
     const schema = this.dataModel.getSchema();
@@ -1014,8 +1061,11 @@ export class CanvasRenderer implements Renderer {
   hitTest(event: MouseEvent) {
     if (!this.root || !this.canvas) return null;
     const rect = this.canvas.getBoundingClientRect();
-    const x = event.clientX - rect.left + this.root.scrollLeft;
-    const y = event.clientY - rect.top + this.root.scrollTop;
+    // Use viewport-relative coordinates first because headers are rendered as "sticky"
+    // (they should not be offset by scrollTop in hit-test).
+    const viewportX = event.clientX - rect.left;
+    const viewportY = event.clientY - rect.top;
+    const x = viewportX + this.root.scrollLeft;
     const schema = this.dataModel.getSchema();
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
@@ -1032,20 +1082,44 @@ export class CanvasRenderer implements Renderer {
         Math.max(0, totalRowsHeight - this.rowHeight),
       ),
     );
-    if (y < headerHeight && x < this.rowHeaderWidth) {
+    if (viewportY < headerHeight && viewportX < this.rowHeaderWidth) {
       return {
         rowId: "__all__",
         colKey: "__all__",
         rect: new DOMRect(rect.left, rect.top, this.rowHeaderWidth, headerHeight),
       };
     }
-    if (y < headerHeight) return null;
-    if (x < this.rowHeaderWidth) {
+    if (viewportY < headerHeight) {
+      // Column header region (canvas)
+      let xCursor = this.rowHeaderWidth;
+      let colIndex = -1;
+      for (let i = 0; i < colWidths.length; i += 1) {
+        const w = colWidths[i] ?? 100;
+        if (x >= xCursor && x <= xCursor + w) {
+          colIndex = i;
+          break;
+        }
+        xCursor += w;
+      }
+      if (colIndex >= 0) {
+        const col = schema.columns[colIndex];
+        const cellRect = new DOMRect(
+          rect.left + xCursor - this.root.scrollLeft,
+          rect.top,
+          colWidths[colIndex] ?? 100,
+          headerHeight,
+        );
+        return { rowId: "__header__", colKey: col.key, rect: cellRect };
+      }
+      return null;
+    }
+    if (viewportX < this.rowHeaderWidth) {
+      const y = viewportY - headerHeight + contentScrollTop;
       let accumHeight = 0;
       let rowIndex = -1;
       for (let i = 0; i < rows.length; i += 1) {
         const h = this.dataModel.getRowHeight(rows[i].id) ?? this.rowHeight;
-        if (y - headerHeight < accumHeight + h) {
+        if (y < accumHeight + h) {
           rowIndex = i;
           break;
         }
@@ -1062,11 +1136,12 @@ export class CanvasRenderer implements Renderer {
       );
       return { rowId: row.id, colKey: "__row__", rect: cellRect };
     }
+    const y = viewportY - headerHeight + contentScrollTop;
     let rowIndex = -1;
     let accumHeight = 0;
     for (let i = 0; i < rows.length; i += 1) {
       const h = this.dataModel.getRowHeight(rows[i].id) ?? this.rowHeight;
-      if (y - headerHeight < accumHeight + h) {
+      if (y < accumHeight + h) {
         rowIndex = i;
         break;
       }
@@ -1205,8 +1280,10 @@ export class CanvasRenderer implements Renderer {
     // Header hover (filter/sort icon affordance)
     {
       const rect = this.canvas.getBoundingClientRect();
-      const x = clientX - rect.left + this.root.scrollLeft;
-      const y = clientY - rect.top + this.root.scrollTop;
+      const viewportX = clientX - rect.left;
+      const viewportY = clientY - rect.top;
+      const x = viewportX + this.root.scrollLeft;
+      const y = viewportY;
       const prevKey = this.hoverHeaderColKey;
       const prevIcon = this.hoverHeaderIcon;
       let nextKey: string | number | null = null;
@@ -1242,7 +1319,7 @@ export class CanvasRenderer implements Renderer {
       this.hoverHeaderColKey = nextKey;
       this.hoverHeaderIcon = nextIcon;
       if (nextKey !== null) {
-        this.canvas.style.cursor = nextIcon ? "pointer" : "cell";
+        this.canvas.style.cursor = nextIcon ? "pointer" : "default";
         if (this.tooltip) this.tooltip.dataset.visible = "0";
         this.tooltipTarget = null;
         this.tooltipMessage = null;
@@ -1267,7 +1344,7 @@ export class CanvasRenderer implements Renderer {
       return;
     }
     if (hit.colKey === "__all__" || hit.colKey === "__row__") {
-      this.canvas.style.cursor = "cell";
+      this.canvas.style.cursor = "default";
       if (this.tooltip) this.tooltip.dataset.visible = "0";
       this.tooltipTarget = null;
       this.tooltipMessage = null;
