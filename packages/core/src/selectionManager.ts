@@ -21,11 +21,11 @@ type RowSelectHandler = (rowId: string) => void;
 type MoveHandler = (rowId?: string) => void;
 type HitTest = (
   event: MouseEvent,
-) => { rowId: string; colKey: string | number; element?: HTMLElement; rect: DOMRect } | null;
-type ActiveChange = (rowId: string | null, colKey: string | number | null) => void;
+) => { rowId: string; colKey: string; element?: HTMLElement; rect: DOMRect } | null;
+type ActiveChange = (rowId: string | null, colKey: string | null) => void;
 type ContextMenuHandler = (
   rowId: string | null,
-  colKey: string | number | null,
+  colKey: string | null,
   clientX: number,
   clientY: number,
 ) => void;
@@ -48,7 +48,7 @@ export class SelectionManager {
   private copyToastEl: HTMLDivElement | null = null;
   private copyToastTimer: number | null = null;
   private selectionMode = true;
-  private lastBooleanCell: { rowId: string; colKey: string | number } | null = null;
+  private lastBooleanCell: { rowId: string; colKey: string } | null = null;
   private selectionAnchor: { rowIndex: number; colIndex: number } | null = null;
   private dragging = false;
   private dragStart: { rowIndex: number; colIndex: number; kind: "cells" | "rows" } | null = null;
@@ -63,14 +63,13 @@ export class SelectionManager {
   private lastPointerClient: { x: number; y: number } | null = null;
   private autoScrollRaf: number | null = null;
   private autoScrollActive = false;
-  private autoScrollDelta: { dx: number; dy: number } = { dx: 0, dy: 0 };
-  private activeCell: { rowId: string; colKey: string | number } | null = null;
+  private activeCell: { rowId: string; colKey: string } | null = null;
   private activeHost: HTMLElement | null = null;
   private activeHostOriginalText: string | null = null;
   private composing = false;
   private lastCompositionEnd = 0;
   private readonly handleSelectionBlur = () => this.teardownSelectionInput();
-  private isCellReadonly: (rowId: string, colKey: string | number) => boolean;
+  private isCellReadonly: (rowId: string, colKey: string) => boolean;
 
   constructor(
     root: HTMLElement,
@@ -80,7 +79,7 @@ export class SelectionManager {
     onMove: MoveHandler,
     hitTest: HitTest,
     private dataModel: DataModel,
-    isCellReadonly: (rowId: string, colKey: string | number) => boolean,
+    isCellReadonly: (rowId: string, colKey: string) => boolean,
     private onActiveChange: ActiveChange,
     onContextMenu: ContextMenuHandler,
     private onSelectionChange: SelectionChange,
@@ -170,14 +169,15 @@ export class SelectionManager {
     }
 
     // Active row got filtered out (or active col disappeared): move to the nearest visible row/col.
-    const desiredColKey = activeColKey ?? schema.columns[0]!.key;
+    const desiredColKey = activeColKey ?? (schema.columns[0]?.key ?? "");
     let colIndex = schema.columns.findIndex((c) => String(c.key) === String(desiredColKey));
     if (colIndex < 0) colIndex = 0;
-    const colKey = schema.columns[colIndex]!.key;
+    const colKey = schema.columns[colIndex]?.key ?? "";
 
     const baseIndex = activeRowId ? this.dataModel.getBaseRowIndex(activeRowId) : 0;
-    const nextRow =
-      rows.find((r) => this.dataModel.getBaseRowIndex(r.id) >= baseIndex) ?? rows[rows.length - 1]!;
+    const fallbackRow = rows[rows.length - 1] ?? rows[0] ?? null;
+    const nextRow = rows.find((r) => this.dataModel.getBaseRowIndex(r.id) >= baseIndex) ?? fallbackRow;
+    if (!nextRow) return;
     const rowId = nextRow.id;
     const rowIndex = this.dataModel.getRowIndex(rowId);
 
@@ -202,7 +202,7 @@ export class SelectionManager {
     this.updateFillHandleFlag();
   }
 
-  navigateToCell(rowId: string, colKey: string | number) {
+  navigateToCell(rowId: string, colKey: string) {
     const schema = this.dataModel.getSchema();
     const rowIndex = this.dataModel.getRowIndex(rowId);
     const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
@@ -276,7 +276,7 @@ export class SelectionManager {
       : "";
   }
 
-  private findColumn(colKey: string | number) {
+  private findColumn(colKey: string) {
     const schema = this.dataModel.getSchema();
     return schema.columns.find((c) => c.key === colKey);
   }
@@ -303,7 +303,7 @@ export class SelectionManager {
 
     if (colType === "date") {
       const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
-      if (m) return m[1]!;
+      if (m) return m[1] ?? "";
       const d = new Date(value);
       if (!Number.isNaN(d.getTime())) return this.formatLocalDateForInput(d);
       return "";
@@ -311,7 +311,7 @@ export class SelectionManager {
 
     if (colType === "time") {
       const m = value.match(/(\d{2}:\d{2})(?::\d{2})?/);
-      if (m) return m[1]!;
+      if (m) return m[1] ?? "";
       const d = new Date(value);
       if (!Number.isNaN(d.getTime())) return this.formatLocalTimeForInput(d);
       return "";
@@ -361,8 +361,7 @@ export class SelectionManager {
       this.copyToastTimer = null;
     }
     if (!this.copyToastEl) return;
-    const anyPopover = this.copyToastEl as any;
-    if (anyPopover.hidePopover) anyPopover.hidePopover();
+    this.copyToastEl.hidePopover?.();
     removeFromParent(this.copyToastEl);
     this.copyToastEl = null;
   }
@@ -382,16 +381,15 @@ export class SelectionManager {
     const toast = this.ensureCopyToast();
     toast.textContent = message;
     toast.dataset.variant = variant;
-    const anyPopover = toast as any;
-    if (anyPopover.hidePopover) anyPopover.hidePopover();
-    if (anyPopover.showPopover) anyPopover.showPopover();
+    toast.hidePopover?.();
+    toast.showPopover?.();
     this.positionCopyToast();
     if (this.copyToastTimer) {
       window.clearTimeout(this.copyToastTimer);
       this.copyToastTimer = null;
     }
     this.copyToastTimer = window.setTimeout(() => {
-      if (anyPopover.hidePopover) anyPopover.hidePopover();
+      toast.hidePopover?.();
     }, durationMs);
   }
 
@@ -448,14 +446,14 @@ export class SelectionManager {
   }
 
   private escapeCssAttrValue(value: string) {
-    const anyCSS = (globalThis as any).CSS;
-    const escapeFn = anyCSS?.escape;
+    const css = (globalThis as unknown as { CSS?: { escape?: (s: string) => string } }).CSS;
+    const escapeFn = css?.escape;
     if (typeof escapeFn === "function") return escapeFn(value);
     // Minimal escaping for attribute selector values inside double quotes.
     return value.replace(/["\\]/g, "\\$&");
   }
 
-  private findHtmlCellElement(rowId: string, colKey: string | number) {
+  private findHtmlCellElement(rowId: string, colKey: string) {
     const key = String(colKey);
     const rowIdEsc = this.escapeCssAttrValue(rowId);
     const keyEsc = this.escapeCssAttrValue(key);
@@ -466,7 +464,7 @@ export class SelectionManager {
     );
   }
 
-  private computeCanvasCellRect(rowId: string, colKey: string | number) {
+  private computeCanvasCellRect(rowId: string, colKey: string) {
     const box = this.computeCanvasCellBoxContent(rowId, colKey);
     if (!box) return null;
     const rootRect = this.root.getBoundingClientRect();
@@ -478,7 +476,7 @@ export class SelectionManager {
     );
   }
 
-  private computeCanvasCellBoxContent(rowId: string, colKey: string | number) {
+  private computeCanvasCellBoxContent(rowId: string, colKey: string) {
     const canvas = this.root.querySelector<HTMLCanvasElement>(
       'canvas[data-extable-renderer="canvas"]',
     );
@@ -486,7 +484,7 @@ export class SelectionManager {
     return this.getCanvasCellMetrics(rowId, colKey);
   }
 
-  private getCanvasCellMetrics(rowId: string, colKey: string | number) {
+  private getCanvasCellMetrics(rowId: string, colKey: string) {
     const schema = this.dataModel.getSchema();
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
@@ -514,12 +512,11 @@ export class SelectionManager {
     return { left, top, width, height, rowIndex, colIndex };
   }
 
-  private ensureVisibleCell(rowId: string, colKey: string | number) {
+  private ensureVisibleCell(rowId: string, colKey: string) {
     const htmlCell = this.findHtmlCellElement(rowId, colKey);
     if (htmlCell) {
-      const anyCell = htmlCell as any;
-      if (typeof anyCell.scrollIntoView === "function") {
-        anyCell.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (typeof (htmlCell as HTMLElement).scrollIntoView === "function") {
+        (htmlCell as HTMLElement).scrollIntoView({ block: "nearest", inline: "nearest" });
       }
       return;
     }
@@ -557,34 +554,42 @@ export class SelectionManager {
     if (extendSelection && !this.selectionAnchor) this.selectionAnchor = { rowIndex, colIndex };
     const nextRowIndex = Math.max(0, Math.min(rows.length - 1, rowIndex + deltaRow));
     const nextColIndex = Math.max(0, Math.min(schema.columns.length - 1, colIndex + deltaCol));
-    const rowId = rows[nextRowIndex]!.id;
-    const colKey = schema.columns[nextColIndex]!.key;
+    {
+      const row = rows[nextRowIndex];
+      if (!row) return;
+      const col = schema.columns[nextColIndex];
+      if (!col) return;
+      const rowId = row.id;
+      const colKey = col.key;
 
-    const nextRange: SelectionRange = anchor
-      ? {
-          kind: "cells",
-          startRow: anchor.rowIndex,
-          endRow: nextRowIndex,
-          startCol: anchor.colIndex,
-          endCol: nextColIndex,
-        }
-      : {
-          kind: "cells",
-          startRow: nextRowIndex,
-          endRow: nextRowIndex,
-          startCol: nextColIndex,
-          endCol: nextColIndex,
-        };
-    this.selectionRanges = [nextRange];
-    this.activeCell = { rowId, colKey };
-    this.onActiveChange(rowId, colKey);
-    this.onSelectionChange(this.selectionRanges);
-    this.ensureVisibleCell(rowId, colKey);
+      const nextRange: SelectionRange = anchor
+        ? {
+            kind: "cells",
+            startRow: anchor.rowIndex,
+            endRow: nextRowIndex,
+            startCol: anchor.colIndex,
+            endCol: nextColIndex,
+          }
+        : {
+            kind: "cells",
+            startRow: nextRowIndex,
+            endRow: nextRowIndex,
+            startCol: nextColIndex,
+            endCol: nextColIndex,
+          };
+      this.selectionRanges = [nextRange];
+      this.activeCell = { rowId, colKey };
+      this.onActiveChange(rowId, colKey);
+      this.onSelectionChange(this.selectionRanges);
+      this.ensureVisibleCell(rowId, colKey);
 
-    const current = this.dataModel.getCell(rowId, colKey);
-    const currentText = this.cellToClipboardString(current);
-    this.focusSelectionInput(currentText);
-    this.updateFillHandleFlag();
+      const current = this.dataModel.getCell(rowId, colKey);
+      const currentText = this.cellToClipboardString(current);
+      this.focusSelectionInput(currentText);
+      this.updateFillHandleFlag();
+      return;
+    }
+    
   }
 
   private handlePointerDown = (ev: PointerEvent) => {
@@ -669,8 +674,7 @@ export class SelectionManager {
 
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
-    const rowIndex =
-      hit.rowId === "__header__" ? 0 : this.dataModel.getRowIndex(hit.rowId);
+    const rowIndex = hit.rowId === "__header__" ? 0 : this.dataModel.getRowIndex(hit.rowId);
     const colIndex =
       hit.colKey === "__row__"
         ? 0
@@ -743,7 +747,7 @@ export class SelectionManager {
         const row = rowHeader.closest<HTMLElement>("tr[data-row-id]");
         if (row) {
           return {
-            rowId: row.dataset.rowId!,
+            rowId: row.dataset.rowId ?? "",
             colKey: "__row__",
             element: rowHeader,
             rect: rowHeader.getBoundingClientRect(),
@@ -763,15 +767,15 @@ export class SelectionManager {
       const row = cell?.closest<HTMLElement>("tr[data-row-id]");
       if (cell && row) {
         return {
-          rowId: row.dataset.rowId!,
-          colKey: cell.dataset.colKey!,
+          rowId: row.dataset.rowId ?? "",
+          colKey: cell.dataset.colKey ?? "",
           element: cell,
           rect: cell.getBoundingClientRect(),
         };
       }
     }
     // Canvas renderer hitTest does not rely on target; a minimal shape is enough.
-    return this.hitTest({ clientX, clientY } as any as MouseEvent);
+    return this.hitTest({ clientX, clientY } as unknown as MouseEvent);
   }
 
   private updateDragFromClientPoint(clientX: number, clientY: number) {
@@ -833,7 +837,9 @@ export class SelectionManager {
     if (this.fillEndRowIndex !== nextEnd) {
       this.fillEndRowIndex = nextEnd;
       const activeRowId = rows[nextEnd]?.id ?? hit.rowId;
-      const colKey = schema.columns[this.fillSource.colIndex]!.key;
+      const col = schema.columns[this.fillSource.colIndex];
+      if (!col) return;
+      const colKey = col.key;
       this.activeCell = { rowId: activeRowId, colKey };
       this.onActiveChange(activeRowId, colKey);
       this.selectionRanges = [
@@ -880,7 +886,6 @@ export class SelectionManager {
         return;
       }
       const { dx, dy } = this.computeAutoScrollDelta(p.x, p.y);
-      this.autoScrollDelta = { dx, dy };
       if (dx !== 0 || dy !== 0) {
         const prevTop = this.root.scrollTop;
         const prevLeft = this.root.scrollLeft;
@@ -892,23 +897,22 @@ export class SelectionManager {
       }
       const raf =
         window.requestAnimationFrame ??
-        ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16) as any);
+        ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16));
       this.autoScrollRaf = raf(tick);
     };
-    const raf =
+    const raf2 =
       window.requestAnimationFrame ??
-      ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16) as any);
-    this.autoScrollRaf = raf(tick);
+      ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16));
+    this.autoScrollRaf = raf2(tick);
   }
 
   private stopAutoScroll() {
     this.autoScrollActive = false;
     if (this.autoScrollRaf !== null) {
       const caf = window.cancelAnimationFrame ?? ((id: number) => window.clearTimeout(id));
-      caf(this.autoScrollRaf as any);
+      caf(this.autoScrollRaf);
       this.autoScrollRaf = null;
     }
-    this.autoScrollDelta = { dx: 0, dy: 0 };
   }
 
   private handlePointerMove = (ev: PointerEvent) => {
@@ -1166,8 +1170,6 @@ export class SelectionManager {
       return;
     }
 
-    const isPrintable =
-      ev.key.length === 1 && !ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.repeat;
     this.selectionMode = false;
     this.selectionAnchor = null;
     this.teardownSelectionInput();
@@ -1179,11 +1181,10 @@ export class SelectionManager {
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
     const fallback = { rowIndex: 0, colIndex: 0 };
-    if (!this.activeCell) return fallback;
-    const rowIndex = rows.findIndex((r) => r.id === this.activeCell!.rowId);
-    const colIndex = schema.columns.findIndex(
-      (c) => String(c.key) === String(this.activeCell!.colKey),
-    );
+    const ac = this.activeCell;
+    if (!ac) return fallback;
+    const rowIndex = rows.findIndex((r) => r.id === ac.rowId);
+    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(ac.colKey));
     return { rowIndex: rowIndex >= 0 ? rowIndex : 0, colIndex: colIndex >= 0 ? colIndex : 0 };
   }
 
@@ -1200,13 +1201,15 @@ export class SelectionManager {
   private getCopyRange(): SelectionRange | null {
     const schema = this.dataModel.getSchema();
     if (this.selectionRanges.length > 0) {
-      return this.normalizeRange(this.selectionRanges[0]!);
+      const first = this.selectionRanges[0];
+      if (!first) return null;
+      return this.normalizeRange(first);
     }
     if (!this.activeCell) return null;
-    const rowIdx = this.dataModel.getRowIndex(this.activeCell.rowId);
-    const colIdx = schema.columns.findIndex(
-      (c) => String(c.key) === String(this.activeCell!.colKey),
-    );
+    const ac = this.activeCell;
+    if (!ac) return null;
+    const rowIdx = this.dataModel.getRowIndex(ac.rowId);
+    const colIdx = schema.columns.findIndex((c) => String(c.key) === String(ac.colKey));
     if (rowIdx < 0 || colIdx < 0) return null;
     return { kind: "cells", startRow: rowIdx, endRow: rowIdx, startCol: colIdx, endCol: colIdx };
   }
@@ -1217,9 +1220,12 @@ export class SelectionManager {
     if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
     if (typeof value === "number") return String(value);
     if (typeof value === "object") {
-      const maybe = value as any;
-      if (maybe.kind === "enum" && typeof maybe.value === "string") return maybe.value;
-      if (maybe.kind === "tags" && Array.isArray(maybe.values)) return maybe.values.join(", ");
+      const obj = value as Record<string, unknown>;
+      const kind = obj.kind;
+      if (kind === "enum" && typeof obj.value === "string") return obj.value;
+      if (kind === "tags" && Array.isArray(obj.values)) {
+        return obj.values.filter((x) => typeof x === "string").join(", ");
+      }
     }
     return String(value);
   }
@@ -1342,7 +1348,7 @@ export class SelectionManager {
     }
   }
 
-  private coerceCellValue(raw: string, colKey: string | number): unknown {
+  private coerceCellValue(raw: string, colKey: string): unknown {
     const col = this.findColumn(colKey);
     if (!col) return raw;
     if (raw === "") return "";
@@ -1386,7 +1392,7 @@ export class SelectionManager {
     }
   }
 
-  private createEditor(colKey: string | number, initial: string) {
+  private createEditor(colKey: string, initial: string) {
     const col = this.findColumn(colKey);
     const needsTextarea = col?.wrapText || initial.includes("\n");
     if (needsTextarea) {
@@ -1463,7 +1469,7 @@ export class SelectionManager {
 
   private autosize(ta: HTMLTextAreaElement) {
     const style = window.getComputedStyle(ta);
-    let lineHeight = parseFloat(style.lineHeight);
+    let lineHeight = Number.parseFloat(style.lineHeight);
     if (!Number.isFinite(lineHeight) || lineHeight <= 0) lineHeight = 16;
     ta.rows = 1; // shrink to measure
     const lines = Math.ceil(ta.scrollHeight / lineHeight);
@@ -1569,7 +1575,7 @@ export class SelectionManager {
     }
   };
 
-  private toggleBoolean(rowId: string, colKey: string | number) {
+  private toggleBoolean(rowId: string, colKey: string) {
     const current = this.dataModel.getCell(rowId, colKey);
     const currentBool = current === true || current === "true" || current === "1" || current === 1;
     const next = !currentBool;
@@ -1594,7 +1600,7 @@ export class SelectionManager {
     this.onContextMenu(rowId, colKey, ev.clientX, ev.clientY);
   };
 
-  private applySelectionFromHit(ev: MouseEvent, hit: { rowId: string; colKey: string | number }) {
+  private applySelectionFromHit(ev: MouseEvent, hit: { rowId: string; colKey: string }) {
     const schema = this.dataModel.getSchema();
     const rowIdx = this.dataModel.getRowIndex(hit.rowId);
     const colIdx = schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
@@ -1616,10 +1622,9 @@ export class SelectionManager {
         };
     let nextRanges: SelectionRange[] = [];
     if (ev.shiftKey && this.activeCell) {
-      const anchorRow = this.dataModel.getRowIndex(this.activeCell.rowId);
-      const anchorCol = schema.columns.findIndex(
-        (c) => String(c.key) === String(this.activeCell!.colKey),
-      );
+      const ac = this.activeCell;
+      const anchorRow = this.dataModel.getRowIndex(ac.rowId);
+      const anchorCol = schema.columns.findIndex((c) => String(c.key) === String(ac.colKey));
       const anchorRange: SelectionRange = isRow
         ? {
             kind: "rows",
@@ -1706,7 +1711,7 @@ export class SelectionManager {
   private activateCellElement(
     cell: HTMLElement,
     rowId: string,
-    colKey: string | number,
+    colKey: string,
     options?: { initialValueOverride?: string; placeCursorAtEnd?: boolean },
   ) {
     this.teardownInput();
@@ -1739,7 +1744,7 @@ export class SelectionManager {
     input.addEventListener("focus", () => {
       if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) input.select();
     });
-    this.bindImmediateCommit(input, cell);
+    this.bindImmediateCommit(input);
     cell.textContent = "";
     cell.appendChild(input);
     if (input.tagName.toLowerCase() === "textarea") {
@@ -1761,7 +1766,7 @@ export class SelectionManager {
   private activateFloating(
     rect: DOMRect,
     rowId: string,
-    colKey: string | number,
+    colKey: string,
     options?: { initialValueOverride?: string; placeCursorAtEnd?: boolean },
   ) {
     this.teardownInput();
@@ -1805,7 +1810,7 @@ export class SelectionManager {
     input.addEventListener("focus", () => {
       if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) input.select();
     });
-    this.bindImmediateCommit(input, wrapper);
+    this.bindImmediateCommit(input);
     wrapper.appendChild(input);
     if (input instanceof HTMLSelectElement) {
       // No auto focus/click for select; standard focus will allow selection on first interaction
@@ -1858,7 +1863,8 @@ export class SelectionManager {
       e.preventDefault();
       commitAndMove(e.shiftKey ? -1 : 1, 0);
       return;
-    } else if (e.key === "Escape") {
+    }
+    if (e.key === "Escape") {
       e.preventDefault();
       this.cancelEdit(cell);
       this.onMove();
@@ -1876,7 +1882,7 @@ export class SelectionManager {
     }
   }
 
-  private commitEdit(rowId: string, colKey: string | number, value: unknown) {
+  private commitEdit(rowId: string, colKey: string, value: unknown) {
     const cmd: Command = {
       kind: "edit",
       rowId,
@@ -1906,7 +1912,7 @@ export class SelectionManager {
     return (this.inputEl as HTMLTextAreaElement).value;
   }
 
-  private bindImmediateCommit(control: HTMLElement, host: HTMLElement) {
+  private bindImmediateCommit(control: HTMLElement) {
     if (!this.activeCell) return;
     const isInstant =
       control instanceof HTMLInputElement
@@ -1918,7 +1924,9 @@ export class SelectionManager {
         : control instanceof HTMLSelectElement;
     if (!isInstant) return;
     control.addEventListener("change", () => {
-      const { rowId, colKey } = this.activeCell!;
+      const ac = this.activeCell;
+      if (!ac) return;
+      const { rowId, colKey } = ac;
       const value = this.readActiveValue();
       this.commitEdit(rowId, colKey, value);
       this.onMove(rowId);

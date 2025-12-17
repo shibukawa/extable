@@ -26,19 +26,19 @@ import {
 import { removeFromParent } from "./utils";
 import { columnFormatToStyle, mergeStyle, styleToCssText } from "./styleResolver";
 
-function getColumnSortDir(view: View, colKey: string | number): "asc" | "desc" | null {
+function getColumnSortDir(view: View, colKey: string): "asc" | "desc" | null {
   const s = view.sorts?.[0];
   if (!s) return null;
-  return String(s.key) === String(colKey) ? s.dir : null;
+  return s.key === colKey ? s.dir : null;
 }
 
-function hasActiveColumnFilter(view: View, colKey: string | number): boolean {
+function hasActiveColumnFilter(view: View, colKey: string): boolean {
   const hasValues = (view.filters ?? []).some((f) => {
     const vf = f as ViewFilterValues;
-    return vf?.kind === "values" && String(vf.key) === String(colKey);
+    return vf?.kind === "values" && vf.key === colKey;
   });
   if (hasValues) return true;
-  const diag = view.columnDiagnostics?.[String(colKey)];
+  const diag = view.columnDiagnostics?.[colKey];
   return Boolean(diag?.errors || diag?.warnings);
 }
 
@@ -246,8 +246,8 @@ export interface Renderer {
   getCellElements(): NodeListOf<HTMLElement> | null;
   hitTest(
     event: MouseEvent,
-  ): { rowId: string; colKey: string | number; element?: HTMLElement; rect: DOMRect } | null;
-  setActiveCell(rowId: string | null, colKey: string | number | null): void;
+  ): { rowId: string; colKey: string; element?: HTMLElement; rect: DOMRect } | null;
+  setActiveCell(rowId: string | null, colKey: string | null): void;
   setSelection(ranges: SelectionRange[]): void;
 }
 
@@ -256,7 +256,7 @@ export class HTMLRenderer implements Renderer {
   private defaultRowHeight = DEFAULT_ROW_HEIGHT_PX;
   private rowHeaderWidth = ROW_HEADER_WIDTH_PX;
   private activeRowId: string | null = null;
-  private activeColKey: string | number | null = null;
+  private activeColKey: string | null = null;
   private selection: SelectionRange[] = [];
   private valueFormatCache = new ValueFormatCache();
   private measureCache = new Map<string, { height: number; frame: number }>();
@@ -271,7 +271,7 @@ export class HTMLRenderer implements Renderer {
     this.render();
   }
 
-  setActiveCell(rowId: string | null, colKey: string | number | null) {
+  setActiveCell(rowId: string | null, colKey: string | null) {
     this.activeRowId = rowId;
     this.activeColKey = colKey;
     this.updateActiveClasses();
@@ -350,7 +350,7 @@ export class HTMLRenderer implements Renderer {
       const row = rowHeader.closest<HTMLElement>("tr[data-row-id]");
       if (row) {
         return {
-          rowId: row.dataset.rowId!,
+          rowId: row.dataset.rowId ?? "",
           colKey: "__row__",
           element: rowHeader,
           rect: rowHeader.getBoundingClientRect(),
@@ -361,8 +361,8 @@ export class HTMLRenderer implements Renderer {
     const row = cell?.closest<HTMLElement>("tr[data-row-id]");
     if (!cell || !row) return null;
     return {
-      rowId: row.dataset.rowId!,
-      colKey: cell.dataset.colKey!,
+      rowId: row.dataset.rowId ?? "",
+      colKey: cell.dataset.colKey ?? "",
       element: cell,
       rect: cell.getBoundingClientRect(),
     };
@@ -380,9 +380,10 @@ export class HTMLRenderer implements Renderer {
     tr.appendChild(rowTh);
     const view = this.dataModel.getView();
     for (let idx = 0; idx < schema.columns.length; idx += 1) {
-      const col = schema.columns[idx]!;
+      const col = schema.columns[idx];
+      if (!col) continue;
       const th = document.createElement("th");
-      th.dataset.colKey = String(col.key);
+      th.dataset.colKey = col.key;
       const sortDir = getColumnSortDir(view, col.key);
       const hasFilter = hasActiveColumnFilter(view, col.key);
       if (sortDir) th.dataset.extableSortDir = sortDir;
@@ -394,12 +395,12 @@ export class HTMLRenderer implements Renderer {
       wrap.className = "extable-col-header";
       const label = document.createElement("span");
       label.className = "extable-col-header-text";
-      label.textContent = col.header ?? String(col.key);
+      label.textContent = col.header ?? col.key;
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "extable-filter-sort-trigger";
       btn.dataset.extableFsOpen = "1";
-      btn.dataset.extableColKey = String(col.key);
+      btn.dataset.extableColKey = col.key;
       btn.title = "Filter / Sort";
       btn.innerHTML = sortDir ? svgArrow(sortDir) : svgFunnel();
       wrap.appendChild(label);
@@ -407,8 +408,8 @@ export class HTMLRenderer implements Renderer {
       th.appendChild(wrap);
       const width = colWidths[idx] ?? col.width;
       if (width) th.style.width = `${width}px`;
-      th.dataset.colKey = String(col.key);
-      if (this.activeColKey !== null && String(this.activeColKey) === String(col.key)) {
+      th.dataset.colKey = col.key;
+      if (this.activeColKey !== null && this.activeColKey === col.key) {
         th.classList.add("extable-active-col-header");
       }
       tr.appendChild(th);
@@ -436,10 +437,11 @@ export class HTMLRenderer implements Renderer {
     if (this.activeRowId === row.id) rowHeader.classList.add("extable-active-row-header");
     tr.appendChild(rowHeader);
     for (let idx = 0; idx < schema.columns.length; idx += 1) {
-      const col = schema.columns[idx]!;
+      const col = schema.columns[idx];
+      if (!col) continue;
       const td = document.createElement("td");
       td.classList.add("extable-cell");
-      td.dataset.colKey = String(col.key);
+      td.dataset.colKey = col.key;
       if (col.type === "boolean") td.classList.add("extable-boolean");
       const isPending = this.dataModel.hasPending(row.id, col.key);
       const condRes = this.dataModel.resolveConditionalStyle(row.id, col);
@@ -455,9 +457,9 @@ export class HTMLRenderer implements Renderer {
         const css = styleToCssText(forCss);
         if (css) td.style.cssText = css;
       }
-      const width = colWidths[idx] ?? view.columnWidths?.[String(col.key)] ?? col.width;
+      const width = colWidths[idx] ?? view.columnWidths?.[col.key] ?? col.width;
       if (width) td.style.width = `${width}px`;
-      const wrap = view.wrapText?.[String(col.key)] ?? col.wrapText;
+      const wrap = view.wrapText?.[col.key] ?? col.wrapText;
       td.classList.add(wrap ? "cell-wrap" : "cell-nowrap");
       const raw = this.dataModel.getRawCell(row.id, col.key);
       const valueRes = this.dataModel.resolveCellValue(row.id, col);
@@ -467,7 +469,6 @@ export class HTMLRenderer implements Renderer {
         : this.formatValue(valueRes.value, col);
       td.textContent = formatted.text;
       if (formatted.color) td.style.color = formatted.color;
-      const diag = this.dataModel.getCellDiagnostic(row.id, col.key);
       const marker = this.dataModel.getCellMarker(row.id, col.key);
       if (marker) {
         td.classList.toggle("extable-diag-warning", marker.level === "warning");
@@ -495,20 +496,20 @@ export class HTMLRenderer implements Renderer {
       if (
         this.activeRowId === row.id &&
         this.activeColKey !== null &&
-        String(this.activeColKey) === String(col.key)
+        this.activeColKey === col.key
       ) {
         td.classList.add("extable-active-cell");
       }
       tr.appendChild(td);
     }
     // variable row height based on measured content when wrap enabled
-    const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
+    const wrapAny = schema.columns.some((c) => view.wrapText?.[c.key] ?? c.wrapText);
     if (wrapAny) {
       let maxHeight = this.defaultRowHeight;
       for (let idx = 0; idx < schema.columns.length; idx += 1) {
-        const col = schema.columns[idx]!;
-        if (!col.wrapText) continue;
-        const width = colWidths[idx] ?? view.columnWidths?.[String(col.key)] ?? col.width ?? 100;
+        const col = schema.columns[idx];
+        if (!col || !col.wrapText) continue;
+        const width = colWidths[idx] ?? view.columnWidths?.[col.key] ?? col.width ?? 100;
         const valueRes = this.dataModel.resolveCellValue(row.id, col);
         const condRes = this.dataModel.resolveConditionalStyle(row.id, col);
         const textOverride =
@@ -519,7 +520,7 @@ export class HTMLRenderer implements Renderer {
             ? ""
             : String(valueRes.value);
         const version = this.dataModel.getRowVersion(row.id);
-        const key = `${row.id}|${String(col.key)}|${version}|${width}|${text}`;
+        const key = `${row.id}|${col.key}|${version}|${width}|${text}`;
         const cached = this.measureCache.get(key);
         if (cached) {
           cached.frame = this.frame;
@@ -578,16 +579,14 @@ export class HTMLRenderer implements Renderer {
     }
     if (this.activeColKey !== null) {
       for (const el of Array.from(
-        this.tableEl.querySelectorAll<HTMLElement>(
-          `th[data-col-key="${String(this.activeColKey)}"]`,
-        ),
+        this.tableEl.querySelectorAll<HTMLElement>(`th[data-col-key="${this.activeColKey}"]`),
       )) {
         el.classList.add("extable-active-col-header");
       }
       if (this.activeRowId) {
         for (const el of Array.from(
           this.tableEl.querySelectorAll<HTMLElement>(
-            `tr[data-row-id="${this.activeRowId}"] td[data-col-key="${String(this.activeColKey)}"]`,
+            `tr[data-row-id="${this.activeRowId}"] td[data-col-key="${this.activeColKey}"]`,
           ),
         )) {
           el.classList.add("extable-active-cell");
@@ -678,7 +677,7 @@ export class CanvasRenderer implements Renderer {
   private spacer: HTMLDivElement | null = null;
   private overlayLayer: HTMLDivElement | null = null;
   private tooltip: HTMLDivElement | null = null;
-  private tooltipTarget: { rowId: string; colKey: string | number } | null = null;
+  private tooltipTarget: { rowId: string; colKey: string } | null = null;
   private tooltipMessage: string | null = null;
   private dataModel: DataModel;
   private readonly rowHeight = DEFAULT_ROW_HEIGHT_PX;
@@ -687,30 +686,31 @@ export class CanvasRenderer implements Renderer {
   private readonly padding = 12;
   private readonly rowHeaderWidth = ROW_HEADER_WIDTH_PX;
   private activeRowId: string | null = null;
-  private activeColKey: string | number | null = null;
+  private activeColKey: string | null = null;
   private selection: SelectionRange[] = [];
   private valueFormatCache = new ValueFormatCache();
   private textMeasureCache = new Map<string, { lines: string[] }>();
   private frame = 0;
   private cursorTimer: number | null = null;
   private pendingCursorPoint: { x: number; y: number } | null = null;
-  private hoverHeaderColKey: string | number | null = null;
+  private hoverHeaderColKey: string | null = null;
   private hoverHeaderIcon = false;
   private rowHeightCacheKey: string | null = null;
   private rowHeightMeasuredVersion = new Map<string, number>();
   private rowHeightMeasureRaf: number | null = null;
   private rowHeightMeasureTask: { key: string; nextIndex: number } | null = null;
-  private heightIndex:
-    | {
-        key: string | null;
-        rowsRef: InternalRow[];
-        idToIndex: Map<string, number>;
-        heights: number[];
-        fenwick: FenwickTree;
-      }
-    | null = null;
+  private heightIndex: {
+    key: string | null;
+    rowsRef: InternalRow[];
+    idToIndex: Map<string, number>;
+    heights: number[];
+    fenwick: FenwickTree;
+  } | null = null;
 
-  constructor(dataModel: DataModel, private getEditMode: () => EditMode = () => "direct") {
+  constructor(
+    dataModel: DataModel,
+    private getEditMode: () => EditMode = () => "direct",
+  ) {
     this.dataModel = dataModel;
   }
 
@@ -749,7 +749,7 @@ export class CanvasRenderer implements Renderer {
     this.render();
   }
 
-  setActiveCell(rowId: string | null, colKey: string | number | null) {
+  setActiveCell(rowId: string | null, colKey: string | null) {
     this.activeRowId = rowId;
     this.activeColKey = colKey;
     this.render();
@@ -762,323 +762,335 @@ export class CanvasRenderer implements Renderer {
 
   render(state?: ViewportState) {
     try {
-    this.frame += 1;
-    if (!this.canvas || !this.root) return;
-    const ctx = this.canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.font = "14px sans-serif";
-    let baseFont = ctx.font;
-    const selectAll = this.activeRowId === "__all__" && this.activeColKey === "__all__";
-    const schema = this.dataModel.getSchema();
-    const view = this.dataModel.getView();
-    const rows = this.dataModel.listRows();
-    const colWidths = getColumnWidths(schema, view);
-    const colBaseStyles = schema.columns.map((c) => columnFormatToStyle(c));
-    const fontCache = new Map<string, string>();
-    const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
-    const cacheKey = wrapAny ? this.getRowHeightCacheKey(schema, view, colWidths) : null;
-    if (cacheKey !== this.rowHeightCacheKey) {
-      this.rowHeightCacheKey = cacheKey;
-      this.rowHeightMeasuredVersion.clear();
-      this.rowHeightMeasureTask = null;
-    }
-    if (!wrapAny) this.cancelRowHeightMeasurement();
-
-    this.ensureHeightIndex(rows, wrapAny ? cacheKey : null, wrapAny);
-    const heightIndex = this.heightIndex;
-    if (!heightIndex) return;
-
-    const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
-    const desiredCanvasWidth = state?.clientWidth ?? (this.root.clientWidth || 600);
-    const desiredCanvasHeight =
-      state?.clientHeight ?? (this.root.clientHeight || this.canvas.height || 400);
-    const maxDim = CanvasRenderer.MAX_CANVAS_DIM_PX;
-    const nextWidth = Math.max(1, Math.min(maxDim, Math.floor(desiredCanvasWidth)));
-    const nextHeight = Math.max(1, Math.min(maxDim, Math.floor(desiredCanvasHeight)));
-    if (this.canvas.width !== nextWidth) this.canvas.width = nextWidth;
-    if (this.canvas.height !== nextHeight) this.canvas.height = nextHeight;
-    this.canvas.style.width = `${nextWidth}px`;
-    this.canvas.style.height = `${nextHeight}px`;
-    // Resizing resets 2D state, so reapply after size update.
-    ctx.font = "14px sans-serif";
-    baseFont = ctx.font;
-    this.refreshTooltipPosition();
-
-    const scrollTop = state?.scrollTop ?? this.root.scrollTop;
-    const scrollLeft = state?.scrollLeft ?? this.root.scrollLeft;
-    const computeVisibleRange = (contentTop: number) => {
-      const target = contentTop + 1;
-      const visibleStart = Math.max(0, Math.min(rows.length - 1, heightIndex.fenwick.lowerBound(target)));
-      const accum = heightIndex.fenwick.sum(visibleStart);
-      let visibleEnd = visibleStart;
-      let drawnHeight = 0;
-      const maxHeight = this.canvas!.height + this.rowHeight * 2;
-      for (let i = visibleStart; i < rows.length && drawnHeight < maxHeight; i += 1) {
-        drawnHeight += heightIndex.heights[i] ?? this.rowHeight;
-        visibleEnd = i + 1;
+      this.frame += 1;
+      if (!this.canvas || !this.root) return;
+      const ctx = this.canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.font = "14px sans-serif";
+      let baseFont = ctx.font;
+      const selectAll = this.activeRowId === "__all__" && this.activeColKey === "__all__";
+      const schema = this.dataModel.getSchema();
+      const view = this.dataModel.getView();
+      const rows = this.dataModel.listRows();
+      const colWidths = getColumnWidths(schema, view);
+      const colBaseStyles = schema.columns.map((c) => columnFormatToStyle(c));
+      const fontCache = new Map<string, string>();
+      const wrapAny = schema.columns.some((c) => view.wrapText?.[c.key] ?? c.wrapText);
+      const cacheKey = wrapAny ? this.getRowHeightCacheKey(schema, view, colWidths) : null;
+      if (cacheKey !== this.rowHeightCacheKey) {
+        this.rowHeightCacheKey = cacheKey;
+        this.rowHeightMeasuredVersion.clear();
+        this.rowHeightMeasureTask = null;
       }
-      return { accum, visibleStart, visibleEnd };
-    };
+      if (!wrapAny) this.cancelRowHeightMeasurement();
 
-    let totalRowsHeight = heightIndex.fenwick.total();
-    let contentScrollTop = Math.max(0, Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)));
-    let { accum, visibleStart, visibleEnd } = computeVisibleRange(contentScrollTop);
+      this.ensureHeightIndex(rows, wrapAny ? cacheKey : null, wrapAny);
+      const heightIndex = this.heightIndex;
+      if (!heightIndex) return;
 
-    if (wrapAny && cacheKey) {
-      const updates: Record<string, number> = {};
+      const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
+      const desiredCanvasWidth = state?.clientWidth ?? (this.root.clientWidth || 600);
+      const desiredCanvasHeight =
+        state?.clientHeight ?? (this.root.clientHeight || this.canvas.height || 400);
+      const maxDim = CanvasRenderer.MAX_CANVAS_DIM_PX;
+      const nextWidth = Math.max(1, Math.min(maxDim, Math.floor(desiredCanvasWidth)));
+      const nextHeight = Math.max(1, Math.min(maxDim, Math.floor(desiredCanvasHeight)));
+      if (this.canvas.width !== nextWidth) this.canvas.width = nextWidth;
+      if (this.canvas.height !== nextHeight) this.canvas.height = nextHeight;
+      this.canvas.style.width = `${nextWidth}px`;
+      this.canvas.style.height = `${nextHeight}px`;
+      // Resizing resets 2D state, so reapply after size update.
+      ctx.font = "14px sans-serif";
+      baseFont = ctx.font;
+      this.refreshTooltipPosition();
+
+      const scrollTop = state?.scrollTop ?? this.root.scrollTop;
+      const scrollLeft = state?.scrollLeft ?? this.root.scrollLeft;
+      const computeVisibleRange = (contentTop: number) => {
+        const target = contentTop + 1;
+        const visibleStart = Math.max(
+          0,
+          Math.min(rows.length - 1, heightIndex.fenwick.lowerBound(target)),
+        );
+        const accum = heightIndex.fenwick.sum(visibleStart);
+        let visibleEnd = visibleStart;
+        let drawnHeight = 0;
+          const maxHeight = (this.canvas?.height ?? 0) + this.rowHeight * 2;
+        for (let i = visibleStart; i < rows.length && drawnHeight < maxHeight; i += 1) {
+          drawnHeight += heightIndex.heights[i] ?? this.rowHeight;
+          visibleEnd = i + 1;
+        }
+        return { accum, visibleStart, visibleEnd };
+      };
+
+      let totalRowsHeight = heightIndex.fenwick.total();
+      let contentScrollTop = Math.max(
+        0,
+        Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)),
+      );
+      let { accum, visibleStart, visibleEnd } = computeVisibleRange(contentScrollTop);
+
+      if (wrapAny && cacheKey) {
+        const updates: Record<string, number> = {};
+        for (let i = visibleStart; i < visibleEnd; i += 1) {
+          const row = rows[i];
+          if (!row) continue;
+          const version = this.dataModel.getRowVersion(row.id);
+          if (this.rowHeightMeasuredVersion.get(row.id) === version) continue;
+          const nextH = this.measureRowHeight(ctx, row, schema, colWidths);
+          updates[row.id] = nextH;
+          this.rowHeightMeasuredVersion.set(row.id, version);
+        }
+        this.applyRowHeightUpdates(updates);
+        totalRowsHeight = heightIndex.fenwick.total();
+        this.dataModel.setRowHeightsBulk(updates);
+        contentScrollTop = Math.max(
+          0,
+          Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)),
+        );
+        ({ accum, visibleStart, visibleEnd } = computeVisibleRange(contentScrollTop));
+        if (this.rowHeightMeasureTask || Object.keys(updates).length > 0)
+          this.scheduleRowHeightMeasurement();
+      }
+
+      if (this.spacer) {
+        this.spacer.style.height = `${totalRowsHeight + this.headerHeight}px`;
+        this.spacer.style.width = `${totalWidth}px`;
+      }
+      const dataXOffset = this.rowHeaderWidth - scrollLeft;
+
+      ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      // Keep row-header column background visible across scroll
+      ctx.fillStyle = "#e5e7eb";
+      ctx.fillRect(0, 0, this.rowHeaderWidth, this.canvas.height);
+      // Body
+      let yCursor = this.headerHeight + accum - contentScrollTop;
       for (let i = visibleStart; i < visibleEnd; i += 1) {
         const row = rows[i];
-        if (!row) continue;
-        const version = this.dataModel.getRowVersion(row.id);
-        if (this.rowHeightMeasuredVersion.get(row.id) === version) continue;
-        const nextH = this.measureRowHeight(ctx, row, schema, colWidths);
-        updates[row.id] = nextH;
-        this.rowHeightMeasuredVersion.set(row.id, version);
-      }
-      this.applyRowHeightUpdates(updates);
-      totalRowsHeight = heightIndex.fenwick.total();
-      this.dataModel.setRowHeightsBulk(updates);
-      contentScrollTop = Math.max(0, Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)));
-      ({ accum, visibleStart, visibleEnd } = computeVisibleRange(contentScrollTop));
-      if (this.rowHeightMeasureTask || Object.keys(updates).length > 0) this.scheduleRowHeightMeasurement();
-    }
-
-    if (this.spacer) {
-      this.spacer.style.height = `${totalRowsHeight + this.headerHeight}px`;
-      this.spacer.style.width = `${totalWidth}px`;
-    }
-    const dataXOffset = this.rowHeaderWidth - scrollLeft;
-
-    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    // Keep row-header column background visible across scroll
-    ctx.fillStyle = "#e5e7eb";
-    ctx.fillRect(0, 0, this.rowHeaderWidth, this.canvas.height);
-    // Body
-    let yCursor = this.headerHeight + accum - contentScrollTop;
-    for (let i = visibleStart; i < visibleEnd; i += 1) {
-      const row = rows[i];
-      const rowH = heightIndex.heights[i] ?? this.rowHeight;
-      // row header cell
-      ctx.strokeStyle = "#d0d7de";
-      ctx.fillStyle = "#e5e7eb";
-      ctx.fillRect(0, yCursor, this.rowHeaderWidth, rowH);
-      ctx.strokeRect(0, yCursor, this.rowHeaderWidth, rowH);
-      const idxText = this.dataModel.getDisplayIndex(row.id) ?? "";
-      if (this.activeRowId === row.id) {
-        ctx.fillStyle = "rgba(59,130,246,0.16)";
+        const rowH = heightIndex.heights[i] ?? this.rowHeight;
+        // row header cell
+        ctx.strokeStyle = "#d0d7de";
+        ctx.fillStyle = "#e5e7eb";
         ctx.fillRect(0, yCursor, this.rowHeaderWidth, rowH);
+        ctx.strokeRect(0, yCursor, this.rowHeaderWidth, rowH);
+        const idxText = this.dataModel.getDisplayIndex(row.id) ?? "";
+        if (this.activeRowId === row.id) {
+          ctx.fillStyle = "rgba(59,130,246,0.16)";
+          ctx.fillRect(0, yCursor, this.rowHeaderWidth, rowH);
+        }
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "bold 14px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(String(idxText), this.rowHeaderWidth / 2, yCursor + rowH / 2);
+        ctx.font = baseFont;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(
+          this.rowHeaderWidth,
+          this.headerHeight,
+          this.canvas.width - this.rowHeaderWidth,
+          this.canvas.height - this.headerHeight,
+        );
+        ctx.clip();
+        ctx.translate(dataXOffset, 0);
+        let x = 0;
+        let lastFontKey = "";
+        for (let idx = 0; idx < schema.columns.length; idx += 1) {
+          const c = schema.columns[idx];
+          const w = colWidths[idx] ?? 100;
+          const readOnly = this.dataModel.isReadonly(row.id, c.key);
+          ctx.strokeStyle = "#d0d7de";
+          const condRes = this.dataModel.resolveConditionalStyle(row.id, c);
+          const cellStyle = this.dataModel.getCellStyle(row.id, c.key);
+          const baseStyle = colBaseStyles[idx] ?? {};
+          const withCond = condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
+          const mergedStyle = cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
+          const bg = readOnly ? "#f3f4f6" : (mergedStyle.background ?? "#ffffff");
+          ctx.fillStyle = bg;
+          ctx.fillRect(x, yCursor, w, rowH);
+          ctx.strokeRect(x, yCursor, w, rowH);
+          const valueRes = this.dataModel.resolveCellValue(row.id, c);
+          const textOverride =
+            valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
+          const formatted = textOverride ? { text: "#ERROR" } : this.formatValue(valueRes.value, c);
+          const text = formatted.text;
+          const align = c.format?.align ?? (c.type === "number" ? "right" : "left");
+          const isActiveCell =
+            this.activeRowId === row.id &&
+            this.activeColKey !== null &&
+            this.activeColKey === c.key;
+          if (isActiveCell) {
+            ctx.strokeStyle = "#3b82f6";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x + 1, yCursor + 1, w - 2, rowH - 2);
+            ctx.lineWidth = 1;
+            if (
+              shouldShowFillHandle(
+                this.dataModel,
+                this.selection,
+                this.activeRowId,
+                this.activeColKey,
+              )
+            ) {
+              const size = FILL_HANDLE_VISUAL_SIZE_PX;
+              const left = x + w - size - 1;
+              const top = yCursor + rowH - size - 1;
+              ctx.fillStyle = "#3b82f6";
+              ctx.fillRect(left, top, size, size);
+              ctx.strokeStyle = "#ffffff";
+              ctx.strokeRect(left + 0.5, top + 0.5, size - 1, size - 1);
+            }
+          }
+          ctx.fillStyle = this.dataModel.hasPending(row.id, c.key)
+            ? "#b91c1c"
+            : formatted.color
+              ? formatted.color
+              : readOnly
+                ? "#94a3b8"
+                : (mergedStyle.textColor ?? "#0f172a");
+          const wrap = view.wrapText?.[c.key] ?? c.wrapText ?? false;
+          const isBoolean =
+            c.type === "boolean" && (!c.booleanDisplay || c.booleanDisplay === "checkbox");
+          const isCustomBoolean =
+            c.type === "boolean" && Boolean(c.booleanDisplay && c.booleanDisplay !== "checkbox");
+          if (!isBoolean) {
+            const fontKey = `${mergedStyle.italic ? "i" : ""}${mergedStyle.bold ? "b" : ""}`;
+            if (fontKey !== lastFontKey) {
+              const cached = fontCache.get(fontKey);
+              if (cached) ctx.font = cached;
+              else {
+                const weight = mergedStyle.bold ? "600 " : "";
+                const ital = mergedStyle.italic ? "italic " : "";
+                const f = `${ital}${weight}14px sans-serif`.trim();
+                fontCache.set(fontKey, f);
+                ctx.font = f;
+              }
+              lastFontKey = fontKey;
+            }
+          } else {
+            ctx.font = baseFont;
+            lastFontKey = "";
+          }
+          this.drawCellText(
+            ctx,
+            text,
+            x + 8,
+            yCursor + 6,
+            w - 12,
+            rowH - 12,
+            wrap,
+            align,
+            isBoolean,
+            isCustomBoolean,
+            { underline: Boolean(mergedStyle.underline), strike: Boolean(mergedStyle.strike) },
+          );
+          const marker = this.dataModel.getCellMarker(row.id, c.key);
+          if (marker) drawDiagnosticCorner(ctx, x, yCursor, w, rowH, marker.level);
+          x += w;
+        }
+        ctx.restore();
+        yCursor += rowH;
       }
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "bold 14px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(String(idxText), this.rowHeaderWidth / 2, yCursor + rowH / 2);
-      ctx.font = baseFont;
-      ctx.textAlign = "left";
-      ctx.textBaseline = "alphabetic";
+
+      // Header (draw last to stay on top)
+      ctx.fillStyle = "#e5e7eb";
+      ctx.fillRect(0, 0, this.canvas.width, this.headerHeight);
+      ctx.strokeStyle = "#d0d7de";
+      // corner
+      ctx.strokeRect(0, 0, this.rowHeaderWidth, this.headerHeight);
+      ctx.fillStyle = "#9ca3af";
+      ctx.beginPath();
+      ctx.moveTo(4, 4);
+      ctx.lineTo(16, 4);
+      ctx.lineTo(4, 16);
+      ctx.closePath();
+      ctx.fill();
+      if (this.activeRowId) {
+        ctx.fillStyle = "rgba(59,130,246,0.16)";
+        ctx.fillRect(0, 0, this.rowHeaderWidth, this.headerHeight);
+      }
 
       ctx.save();
       ctx.beginPath();
-      ctx.rect(
-        this.rowHeaderWidth,
-        this.headerHeight,
-        this.canvas.width - this.rowHeaderWidth,
-        this.canvas.height - this.headerHeight,
-      );
+      ctx.rect(this.rowHeaderWidth, 0, this.canvas.width - this.rowHeaderWidth, this.headerHeight);
       ctx.clip();
       ctx.translate(dataXOffset, 0);
-      let x = 0;
-      let lastFontKey = "";
+      let xHeader = 0;
       for (let idx = 0; idx < schema.columns.length; idx += 1) {
         const c = schema.columns[idx];
         const w = colWidths[idx] ?? 100;
-        const readOnly = this.dataModel.isReadonly(row.id, c.key);
+        const isActiveCol = this.activeColKey !== null && this.activeColKey === c.key;
+        if (isActiveCol) {
+          ctx.fillStyle = "rgba(59,130,246,0.16)";
+          ctx.fillRect(xHeader, 0, w, this.headerHeight);
+        }
         ctx.strokeStyle = "#d0d7de";
-        const condRes = this.dataModel.resolveConditionalStyle(row.id, c);
-        const cellStyle = this.dataModel.getCellStyle(row.id, c.key);
-        const baseStyle = colBaseStyles[idx] ?? {};
-        const withCond = condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
-        const mergedStyle = cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
-        const bg = readOnly ? "#f3f4f6" : (mergedStyle.background ?? "#ffffff");
-        ctx.fillStyle = bg;
-        ctx.fillRect(x, yCursor, w, rowH);
-        ctx.strokeRect(x, yCursor, w, rowH);
-        const valueRes = this.dataModel.resolveCellValue(row.id, c);
-        const textOverride =
-          valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
-        const formatted = textOverride ? { text: "#ERROR" } : this.formatValue(valueRes.value, c);
-        const text = formatted.text;
-        const align = c.format?.align ?? (c.type === "number" ? "right" : "left");
-        const isActiveCell =
-          this.activeRowId === row.id &&
-          this.activeColKey !== null &&
-          String(this.activeColKey) === String(c.key);
-        if (isActiveCell) {
-          ctx.strokeStyle = "#3b82f6";
-          ctx.lineWidth = 2;
-          ctx.strokeRect(x + 1, yCursor + 1, w - 2, rowH - 2);
-          ctx.lineWidth = 1;
-          if (
-            shouldShowFillHandle(
-              this.dataModel,
-              this.selection,
-              this.activeRowId,
-              this.activeColKey,
-            )
-          ) {
-            const size = FILL_HANDLE_VISUAL_SIZE_PX;
-            const left = x + w - size - 1;
-            const top = yCursor + rowH - size - 1;
-            ctx.fillStyle = "#3b82f6";
-            ctx.fillRect(left, top, size, size);
-            ctx.strokeStyle = "#ffffff";
-            ctx.strokeRect(left + 0.5, top + 0.5, size - 1, size - 1);
+        ctx.strokeRect(xHeader, 0, w, this.headerHeight);
+        ctx.fillStyle = "#0f172a";
+        ctx.font = "bold 14px sans-serif";
+        ctx.fillText(c.header ?? c.key, xHeader + 8, this.headerHeight - 8);
+        ctx.font = baseFont;
+
+        const sortDir = getColumnSortDir(view, c.key);
+        const hasFilter = hasActiveColumnFilter(view, c.key);
+        const isHover = this.hoverHeaderColKey !== null && this.hoverHeaderColKey === c.key;
+        const showIcon = Boolean(sortDir) || hasFilter || isHover;
+        if (showIcon) {
+          const alpha = isHover ? 0.9 : hasFilter || sortDir ? 0.75 : 0.45;
+          const iconBox = 16;
+          const pad = 6;
+          const ix = xHeader + w - iconBox - pad;
+          const iy = Math.floor((this.headerHeight - iconBox) / 2);
+          if (sortDir) {
+            drawSortArrowIcon(ctx, ix + 3, iy + 3, iconBox - 6, alpha, sortDir);
+          } else {
+            drawFunnelIcon(ctx, ix + 2, iy + 2, iconBox - 4, alpha);
           }
         }
-        ctx.fillStyle = this.dataModel.hasPending(row.id, c.key)
-          ? "#b91c1c"
-          : formatted.color
-            ? formatted.color
-            : readOnly
-              ? "#94a3b8"
-              : (mergedStyle.textColor ?? "#0f172a");
-        const wrap = view.wrapText?.[String(c.key)] ?? c.wrapText ?? false;
-        const isBoolean =
-          c.type === "boolean" && (!c.booleanDisplay || c.booleanDisplay === "checkbox");
-        const isCustomBoolean =
-          c.type === "boolean" && Boolean(c.booleanDisplay && c.booleanDisplay !== "checkbox");
-        if (!isBoolean) {
-          const fontKey = `${mergedStyle.italic ? "i" : ""}${mergedStyle.bold ? "b" : ""}`;
-          if (fontKey !== lastFontKey) {
-            const cached = fontCache.get(fontKey);
-            if (cached) ctx.font = cached;
-            else {
-              const weight = mergedStyle.bold ? "600 " : "";
-              const ital = mergedStyle.italic ? "italic " : "";
-              const f = `${ital}${weight}14px sans-serif`.trim();
-              fontCache.set(fontKey, f);
-              ctx.font = f;
-            }
-            lastFontKey = fontKey;
+        xHeader += w;
+      }
+      ctx.restore();
+
+      // selection overlay
+      if (this.selection.length) {
+        ctx.save();
+        ctx.strokeStyle = "#3b82f6";
+        ctx.fillStyle = "rgba(59,130,246,0.12)";
+        for (const range of this.selection) {
+          const startRow = Math.max(0, Math.min(range.startRow, range.endRow));
+          const endRow = Math.min(rows.length - 1, Math.max(range.startRow, range.endRow));
+          const startCol = Math.max(0, Math.min(range.startCol, range.endCol));
+          const endCol = Math.min(
+            schema.columns.length - 1,
+            Math.max(range.startCol, range.endCol),
+          );
+          const yTop = this.headerHeight + heightIndex.fenwick.sum(startRow) - contentScrollTop;
+          const height = heightIndex.fenwick.sum(endRow + 1) - heightIndex.fenwick.sum(startRow);
+          let xLeft = this.rowHeaderWidth;
+          for (let c = 0; c < startCol; c += 1) {
+            xLeft += colWidths[c] ?? 100;
           }
-        } else {
-          ctx.font = baseFont;
-          lastFontKey = "";
+          let width = 0;
+          for (let c = startCol; c <= endCol; c += 1) {
+            width += colWidths[c] ?? 100;
+          }
+          xLeft -= scrollLeft;
+          ctx.fillRect(xLeft, yTop, width, height);
+          ctx.strokeRect(xLeft + 0.5, yTop + 0.5, width - 1, height - 1);
         }
-        this.drawCellText(
-          ctx,
-          text,
-          x + 8,
-          yCursor + 6,
-          w - 12,
-          rowH - 12,
-          wrap,
-          align,
-          isBoolean,
-          isCustomBoolean,
-          { underline: Boolean(mergedStyle.underline), strike: Boolean(mergedStyle.strike) },
-        );
-        const marker = this.dataModel.getCellMarker(row.id, c.key);
-        if (marker) drawDiagnosticCorner(ctx, x, yCursor, w, rowH, marker.level);
-        x += w;
+        ctx.restore();
       }
-      ctx.restore();
-      yCursor += rowH;
-    }
 
-    // Header (draw last to stay on top)
-    ctx.fillStyle = "#e5e7eb";
-    ctx.fillRect(0, 0, this.canvas.width, this.headerHeight);
-    ctx.strokeStyle = "#d0d7de";
-    // corner
-    ctx.strokeRect(0, 0, this.rowHeaderWidth, this.headerHeight);
-    ctx.fillStyle = "#9ca3af";
-    ctx.beginPath();
-    ctx.moveTo(4, 4);
-    ctx.lineTo(16, 4);
-    ctx.lineTo(4, 16);
-    ctx.closePath();
-    ctx.fill();
-    if (this.activeRowId) {
-      ctx.fillStyle = "rgba(59,130,246,0.16)";
-      ctx.fillRect(0, 0, this.rowHeaderWidth, this.headerHeight);
-    }
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(this.rowHeaderWidth, 0, this.canvas.width - this.rowHeaderWidth, this.headerHeight);
-    ctx.clip();
-    ctx.translate(dataXOffset, 0);
-    let xHeader = 0;
-    for (let idx = 0; idx < schema.columns.length; idx += 1) {
-      const c = schema.columns[idx];
-      const w = colWidths[idx] ?? 100;
-      const isActiveCol = this.activeColKey !== null && String(this.activeColKey) === String(c.key);
-      if (isActiveCol) {
-        ctx.fillStyle = "rgba(59,130,246,0.16)";
-        ctx.fillRect(xHeader, 0, w, this.headerHeight);
+      if (selectAll) {
+        ctx.save();
+        ctx.fillStyle = "rgba(59,130,246,0.08)";
+        ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        ctx.restore();
       }
-      ctx.strokeStyle = "#d0d7de";
-      ctx.strokeRect(xHeader, 0, w, this.headerHeight);
-      ctx.fillStyle = "#0f172a";
-      ctx.font = "bold 14px sans-serif";
-      ctx.fillText(c.header ?? String(c.key), xHeader + 8, this.headerHeight - 8);
-      ctx.font = baseFont;
-
-      const sortDir = getColumnSortDir(view, c.key);
-      const hasFilter = hasActiveColumnFilter(view, c.key);
-      const isHover =
-        this.hoverHeaderColKey !== null && String(this.hoverHeaderColKey) === String(c.key);
-      const showIcon = Boolean(sortDir) || hasFilter || isHover;
-      if (showIcon) {
-        const alpha = isHover ? 0.9 : hasFilter || sortDir ? 0.75 : 0.45;
-        const iconBox = 16;
-        const pad = 6;
-        const ix = xHeader + w - iconBox - pad;
-        const iy = Math.floor((this.headerHeight - iconBox) / 2);
-        if (sortDir) {
-          drawSortArrowIcon(ctx, ix + 3, iy + 3, iconBox - 6, alpha, sortDir);
-        } else {
-          drawFunnelIcon(ctx, ix + 2, iy + 2, iconBox - 4, alpha);
-        }
-      }
-      xHeader += w;
-    }
-    ctx.restore();
-
-    // selection overlay
-    if (this.selection.length) {
-      ctx.save();
-      ctx.strokeStyle = "#3b82f6";
-      ctx.fillStyle = "rgba(59,130,246,0.12)";
-      for (const range of this.selection) {
-        const startRow = Math.max(0, Math.min(range.startRow, range.endRow));
-        const endRow = Math.min(rows.length - 1, Math.max(range.startRow, range.endRow));
-        const startCol = Math.max(0, Math.min(range.startCol, range.endCol));
-        const endCol = Math.min(schema.columns.length - 1, Math.max(range.startCol, range.endCol));
-        const yTop = this.headerHeight + heightIndex.fenwick.sum(startRow) - contentScrollTop;
-        const height = heightIndex.fenwick.sum(endRow + 1) - heightIndex.fenwick.sum(startRow);
-        let xLeft = this.rowHeaderWidth;
-        for (let c = 0; c < startCol; c += 1) {
-          xLeft += colWidths[c] ?? 100;
-        }
-        let width = 0;
-        for (let c = startCol; c <= endCol; c += 1) {
-          width += colWidths[c] ?? 100;
-        }
-        xLeft -= scrollLeft;
-        ctx.fillRect(xLeft, yTop, width, height);
-        ctx.strokeRect(xLeft + 0.5, yTop + 0.5, width - 1, height - 1);
-      }
-      ctx.restore();
-    }
-
-    if (selectAll) {
-      ctx.save();
-      ctx.fillStyle = "rgba(59,130,246,0.08)";
-      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-      ctx.restore();
-    }
     } catch {
       // Ignore canvas rendering errors (e.g. context enters an error state after huge resize).
       // A subsequent resize typically recovers.
@@ -1130,7 +1142,13 @@ export class CanvasRenderer implements Renderer {
       }
       heights[i] = h;
     }
-    this.heightIndex = { key, rowsRef: rows, idToIndex, heights, fenwick: FenwickTree.from(heights) };
+    this.heightIndex = {
+      key,
+      rowsRef: rows,
+      idToIndex,
+      heights,
+      fenwick: FenwickTree.from(heights),
+    };
   }
 
   private applyRowHeightUpdates(updates: Record<string, number>) {
@@ -1147,7 +1165,9 @@ export class CanvasRenderer implements Renderer {
   }
 
   private getRowHeightCacheKey(schema: Schema, view: View, colWidths: number[]) {
-    const wraps = schema.columns.map((c) => ((view.wrapText?.[String(c.key)] ?? c.wrapText) ? "1" : "0")).join("");
+    const wraps = schema.columns
+      .map((c) => ((view.wrapText?.[c.key] ?? c.wrapText) ? "1" : "0"))
+      .join("");
     const widths = colWidths.map((w) => String(w ?? 0)).join(",");
     return `${wraps}|${widths}`;
   }
@@ -1176,7 +1196,7 @@ export class CanvasRenderer implements Renderer {
     const schema = this.dataModel.getSchema();
     const view = this.dataModel.getView();
     const colWidths = getColumnWidths(schema, view);
-    const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
+    const wrapAny = schema.columns.some((c) => view.wrapText?.[c.key] ?? c.wrapText);
     if (!wrapAny) return;
     const key = this.getRowHeightCacheKey(schema, view, colWidths);
     if (this.rowHeightCacheKey !== key) {
@@ -1265,7 +1285,7 @@ export class CanvasRenderer implements Renderer {
     const rows = this.dataModel.listRows();
     const headerHeight = this.headerHeight;
     const colWidths = getColumnWidths(schema, view);
-    const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
+    const wrapAny = schema.columns.some((c) => view.wrapText?.[c.key] ?? c.wrapText);
     const key = wrapAny ? this.getRowHeightCacheKey(schema, view, colWidths) : null;
     this.ensureHeightIndex(rows, key, wrapAny);
     const heightIndex = this.heightIndex;
@@ -1311,7 +1331,10 @@ export class CanvasRenderer implements Renderer {
     }
     if (viewportX < this.rowHeaderWidth) {
       const y = viewportY - headerHeight + contentScrollTop;
-      const rowIndex = Math.max(0, Math.min(rows.length - 1, heightIndex.fenwick.lowerBound(y + 1)));
+      const rowIndex = Math.max(
+        0,
+        Math.min(rows.length - 1, heightIndex.fenwick.lowerBound(y + 1)),
+      );
       const accumHeight = heightIndex.fenwick.sum(rowIndex);
       if (rowIndex < 0 || rowIndex >= rows.length) return null;
       const row = rows[rowIndex];
@@ -1351,11 +1374,11 @@ export class CanvasRenderer implements Renderer {
     return { rowId: row.id, colKey: col.key, rect: cellRect };
   }
 
-  private isPointInSelection(rowId: string, colKey: string | number) {
+  private isPointInSelection(rowId: string, colKey: string) {
     if (!this.selection.length) return false;
     const schema = this.dataModel.getSchema();
     const rowIndex = this.dataModel.getRowIndex(rowId);
-    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
+    const colIndex = schema.columns.findIndex((c) => c.key === colKey);
     if (rowIndex < 0 || colIndex < 0) return false;
     for (const range of this.selection) {
       if (range.kind !== "cells") continue;
@@ -1423,17 +1446,17 @@ export class CanvasRenderer implements Renderer {
     this.positionTooltipAtRect(rect);
   }
 
-  private getCellRect(rowId: string, colKey: string | number): DOMRect | null {
+  private getCellRect(rowId: string, colKey: string): DOMRect | null {
     if (!this.root || !this.canvas) return null;
     const rect = this.canvas.getBoundingClientRect();
     const schema = this.dataModel.getSchema();
     const view = this.dataModel.getView();
     const rows = this.dataModel.listRows();
     const rowIndex = this.dataModel.getRowIndex(rowId);
-    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
+    const colIndex = schema.columns.findIndex((c) => c.key === colKey);
     if (rowIndex < 0 || colIndex < 0) return null;
     const colWidths = getColumnWidths(schema, view);
-    const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
+    const wrapAny = schema.columns.some((c) => view.wrapText?.[c.key] ?? c.wrapText);
     const key = wrapAny ? this.getRowHeightCacheKey(schema, view, colWidths) : null;
     this.ensureHeightIndex(rows, key, wrapAny);
     const heightIndex = this.heightIndex;
@@ -1466,7 +1489,7 @@ export class CanvasRenderer implements Renderer {
       const y = viewportY;
       const prevKey = this.hoverHeaderColKey;
       const prevIcon = this.hoverHeaderIcon;
-      let nextKey: string | number | null = null;
+      let nextKey: string | null = null;
       let nextIcon = false;
       if (y >= 0 && y < this.headerHeight && x >= this.rowHeaderWidth) {
         const schema = this.dataModel.getSchema();
@@ -1541,7 +1564,7 @@ export class CanvasRenderer implements Renderer {
       const sameCell =
         this.tooltipTarget &&
         this.tooltipTarget.rowId === hit.rowId &&
-        String(this.tooltipTarget.colKey) === String(hit.colKey);
+        this.tooltipTarget.colKey === hit.colKey;
       const sameMessage = this.tooltipMessage === marker.message;
       if (!sameCell || !sameMessage || this.tooltip.dataset.visible !== "1") {
         this.tooltipTarget = { rowId: hit.rowId, colKey: hit.colKey };
@@ -1570,7 +1593,7 @@ export class CanvasRenderer implements Renderer {
     const isActiveCell =
       this.activeRowId === hit.rowId &&
       this.activeColKey !== null &&
-      String(this.activeColKey) === String(hit.colKey);
+      this.activeColKey === hit.colKey;
     if (!isActiveCell) {
       this.canvas.style.cursor = "cell";
       return;
@@ -1595,9 +1618,7 @@ export class CanvasRenderer implements Renderer {
       }
     }
 
-    const col = this.dataModel
-      .getSchema()
-      .columns.find((c) => String(c.key) === String(hit.colKey));
+    const col = this.dataModel.getSchema().columns.find((c) => c.key === hit.colKey);
     const readOnly = this.dataModel.isReadonly(hit.rowId, hit.colKey);
     if (readOnly || col?.type === "boolean") cursor = "default";
     else cursor = "text";
@@ -1614,7 +1635,7 @@ export class CanvasRenderer implements Renderer {
     const view = this.dataModel.getView();
     for (let idx = 0; idx < schema.columns.length; idx += 1) {
       const c = schema.columns[idx];
-      const wrap = view.wrapText?.[String(c.key)] ?? c.wrapText;
+      const wrap = view.wrapText?.[c.key] ?? c.wrapText;
       if (!wrap) continue;
       const w = (colWidths[idx] ?? 100) - this.padding;
       const valueRes = this.dataModel.resolveCellValue(row.id, c);
@@ -1708,7 +1729,7 @@ export class CanvasRenderer implements Renderer {
       if (decorations?.underline || decorations?.strike) {
         const strokeBackup = ctx.strokeStyle;
         const lineWidthBackup = ctx.lineWidth;
-        ctx.strokeStyle = ctx.fillStyle as any;
+        ctx.strokeStyle = ctx.fillStyle;
         ctx.lineWidth = 1;
         ctx.beginPath();
         if (decorations.underline) {
@@ -1734,7 +1755,7 @@ export class CanvasRenderer implements Renderer {
     } else {
       let out = text;
       while (ctx.measureText(out).width > width && out.length > 1) {
-        out = out.slice(0, -2) + "…";
+        out = `${out.slice(0, -2)}…`;
       }
       renderLine(out, 1);
     }

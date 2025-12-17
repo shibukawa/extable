@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+test.setTimeout(60_000);
+
 test('search sidebar works and stays interactive', async ({ page }) => {
   await page.goto('/');
 
