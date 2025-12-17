@@ -35,6 +35,10 @@
               <input v-model="editMode" name="edit-mode" type="radio" value="commit" />
               <span>Commit</span>
             </label>
+            <label class="flex items-center gap-2">
+              <input v-model="editMode" name="edit-mode" type="radio" value="readonly" />
+              <span>Readonly</span>
+            </label>
           </div>
         </div>
         <div class="min-w-[220px]">
@@ -63,6 +67,22 @@
           <h2 class="mb-2 text-sm font-semibold text-slate-700">Actions</h2>
           <div class="flex items-center gap-3">
             <button
+              type="button"
+              class="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-40"
+              :disabled="!tableState?.undoRedo?.canUndo"
+              @click="undo"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              class="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-40"
+              :disabled="!tableState?.undoRedo?.canRedo"
+              @click="redo"
+            >
+              Redo
+            </button>
+            <button
               v-if="editMode === 'commit'"
               type="button"
               class="rounded-md bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40"
@@ -83,94 +103,7 @@
             </div>
           </div>
         </div>
-        <div class="min-w-[340px]">
-          <h2 class="mb-2 text-sm font-semibold text-slate-700">Style</h2>
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm"
-              :class="selection?.styleState?.bold === 'on' ? 'ring-2 ring-slate-900' : ''"
-              :disabled="!selection?.canStyle"
-              @click="toggleFromSelection('bold')"
-            >
-              <strong>B</strong>
-            </button>
-            <button
-              type="button"
-              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm"
-              :class="selection?.styleState?.italic === 'on' ? 'ring-2 ring-slate-900' : ''"
-              :disabled="!selection?.canStyle"
-              @click="toggleFromSelection('italic')"
-            >
-              <em>I</em>
-            </button>
-            <button
-              type="button"
-              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm"
-              :class="selection?.styleState?.underline === 'on' ? 'ring-2 ring-slate-900' : ''"
-              :disabled="!selection?.canStyle"
-              @click="toggleFromSelection('underline')"
-            >
-              <span class="underline">U</span>
-            </button>
-            <button
-              type="button"
-              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm"
-              :class="selection?.styleState?.strike === 'on' ? 'ring-2 ring-slate-900' : ''"
-              :disabled="!selection?.canStyle"
-              @click="toggleFromSelection('strike')"
-            >
-              <span class="line-through">S</span>
-            </button>
-
-            <div class="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1">
-              <span class="text-xs text-slate-500">Text</span>
-              <button
-                type="button"
-                class="rounded border border-slate-200 px-2 py-1 text-xs"
-                :disabled="!selection?.canStyle"
-                @click="applyTextColor(lastTextColor)"
-              >
-                Apply
-              </button>
-              <input
-                class="h-6 w-8 cursor-pointer"
-                type="color"
-                v-model="lastTextColor"
-                :disabled="!selection?.canStyle"
-                aria-label="Pick text color"
-              />
-            </div>
-
-            <div class="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1">
-              <span class="text-xs text-slate-500">Bg</span>
-              <button
-                type="button"
-                class="rounded border border-slate-200 px-2 py-1 text-xs"
-                :disabled="!selection?.canStyle"
-                @click="applyBgColor(lastBgColor)"
-              >
-                Apply
-              </button>
-              <input
-                class="h-6 w-8 cursor-pointer"
-                type="color"
-                v-model="lastBgColor"
-                :disabled="!selection?.canStyle"
-                aria-label="Pick background color"
-              />
-            </div>
-
-            <button
-              type="button"
-              class="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm"
-              :disabled="!selection?.canStyle"
-              @click="clearStyle"
-            >
-              Clear
-            </button>
-          </div>
-        </div>
+        <!-- Style controls removed (user-applied styling API removed) -->
       </section>
 
       <section class="min-h-0 flex-1 overflow-hidden">
@@ -180,13 +113,13 @@
             <div class="min-h-0 flex-1 overflow-visible p-5">
               <Extable
                 ref="tableRef"
+                :key="tableInstanceKey"
                 :schema="currentConfig.schema"
-                :defaultData="currentConfig.data"
+                :defaultData="defaultData"
                 :defaultView="currentConfig.view"
                 :options="options"
                 class="min-h-0 h-full w-full"
                 @tableState="handleTableState"
-                @cellEvent="handleCellEvent"
               />
             </div>
           </div>
@@ -197,6 +130,28 @@
             }}</pre>
             <h2 class="mb-3 text-sm font-semibold text-slate-700">Data Note</h2>
             <pre class="max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">{{ dataNote }}</pre>
+            <h2 class="mt-4 mb-2 text-sm font-semibold text-slate-700">Undo history</h2>
+            <ul class="mb-3 max-h-40 overflow-auto rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800">
+              <li v-if="!history.undo.length" class="py-1 text-slate-500">—</li>
+              <li
+                v-for="(step, idx) in history.undo"
+                :key="`${step.batchId ?? 'no-batch'}-${idx}`"
+                class="py-1"
+              >
+                {{ step.label }}<span v-if="step.batchId"> [{{ step.batchId }}]</span>
+              </li>
+            </ul>
+            <h2 class="mb-2 text-sm font-semibold text-slate-700">Redo history</h2>
+            <ul class="max-h-40 overflow-auto rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800">
+              <li v-if="!history.redo.length" class="py-1 text-slate-500">—</li>
+              <li
+                v-for="(step, idx) in history.redo"
+                :key="`${step.batchId ?? 'no-batch'}-${idx}`"
+                class="py-1"
+              >
+                {{ step.label }}<span v-if="step.batchId"> [{{ step.batchId }}]</span>
+              </li>
+            </ul>
           </div>
         </div>
       </section>
@@ -209,9 +164,11 @@ import type {
   Command,
   CoreOptions,
   DataSet,
+  NullableDataSet,
   Schema,
   ServerAdapter,
   UserInfo,
+  UndoRedoHistory,
   View,
 } from "@extable/core";
 import { computed, ref, watch, onMounted, onBeforeUnmount } from "vue";
@@ -232,13 +189,14 @@ import {
   formulaRows,
   formulaSchema,
   formulaView,
+  makePerformanceDemoRows,
   uniqueCheckRows,
   uniqueCheckSchema,
   uniqueCheckView,
 } from "./data/fixtures";
 
 type RenderMode = "auto" | "html" | "canvas";
-type EditMode = "direct" | "commit";
+type EditMode = "direct" | "commit" | "readonly";
 type LockMode = "none" | "row";
 type DataMode =
   | "standard"
@@ -246,7 +204,9 @@ type DataMode =
   | "formula"
   | "conditional-style"
   | "unique-check"
-  | "filter-sort";
+  | "filter-sort"
+  | "loading-async"
+  | "performance-10k";
 
 const user: UserInfo = { id: "demo-user", name: "Demo User" };
 
@@ -261,24 +221,21 @@ const dataModes = [
   { key: "conditional-style", label: "Conditional Style" },
   { key: "unique-check", label: "Unique Check" },
   { key: "filter-sort", label: "Filter / Sort" },
+  { key: "loading-async", label: "Loading async data" },
+  { key: "performance-10k", label: "Performance (10k rows)" },
 ] as const;
 
 const tableRef = ref<ExtableVueHandle | null>(null);
+const tableInstanceKey = ref(0);
 const tableState = ref<any>(null);
-const selection = ref<any>(null);
-const lastTextColor = ref("#000000");
-const lastBgColor = ref("#ffffff");
-
-const currentConfigRef = ref<{ data: DataSet; view: View; schema: Schema }>({
-  data: { rows: demoRows.map((r) => ({ ...r })) } as DataSet,
-  view: { ...demoView } as View,
-  schema: demoSchema as Schema,
-});
+const history = ref<UndoRedoHistory>({ undo: [], redo: [] });
+const asyncData = ref<NullableDataSet>(null);
+const perfRows = ref<any[] | null>(null);
+let loadGeneration = 0;
+let firstRenderMode = true;
+let asyncTimer: number | null = null;
 
 const serverStub: ServerAdapter = {
-  async fetchInitial() {
-    return { ...currentConfigRef.value, user };
-  },
   async lockRow(rowId) {
     console.log("lockRow", rowId);
   },
@@ -304,6 +261,21 @@ const options = computed<CoreOptions>(() => ({
 }));
 
 const cloneConfig = (mode: DataMode) => {
+  if (mode === "loading-async") {
+    return {
+      data: null as NullableDataSet,
+      schema: demoSchema as Schema,
+      view: { ...demoView },
+    };
+  }
+  if (mode === "performance-10k") {
+    if (!perfRows.value) perfRows.value = makePerformanceDemoRows(10000);
+    return {
+      data: { rows: perfRows.value } as DataSet,
+      schema: demoSchema as Schema,
+      view: { ...demoView },
+    };
+  }
   if (mode === "data-format") {
     return {
       data: { rows: dataFormatRows.map((r) => ({ ...r })) },
@@ -347,17 +319,32 @@ const cloneConfig = (mode: DataMode) => {
 };
 
 const currentConfig = computed(() => cloneConfig(dataMode.value));
-watch(
-  () => currentConfig.value,
-  (next) => {
-    currentConfigRef.value = next;
-  },
-  { deep: true, immediate: true },
+const defaultData = computed(() =>
+  dataMode.value === "loading-async" ? asyncData.value : currentConfig.value.data,
 );
 
 watch(
   () => renderMode.value,
-  (next) => tableRef.value?.setRenderMode(next),
+  () => {
+    if (firstRenderMode) {
+      firstRenderMode = false;
+      return;
+    }
+    loadGeneration += 1;
+    if (asyncTimer !== null) {
+      window.clearTimeout(asyncTimer);
+      asyncTimer = null;
+    }
+    tableInstanceKey.value += 1;
+    if (dataMode.value === "loading-async") {
+      asyncData.value = null;
+      const gen = loadGeneration;
+      asyncTimer = window.setTimeout(() => {
+        if (gen !== loadGeneration) return;
+        asyncData.value = { rows: demoRows.map((r) => ({ ...r })) } as DataSet;
+      }, 3000);
+    }
+  },
   { immediate: true },
 );
 watch(
@@ -371,13 +358,41 @@ watch(
   { immediate: true },
 );
 watch(
+  () => dataMode.value,
+  (next, _prev, onInvalidate) => {
+    loadGeneration += 1;
+    if (asyncTimer !== null) {
+      window.clearTimeout(asyncTimer);
+      asyncTimer = null;
+    }
+    if (next !== "loading-async") {
+      asyncData.value = null;
+      return;
+    }
+    asyncData.value = null;
+    tableInstanceKey.value += 1;
+    const gen = loadGeneration;
+    asyncTimer = window.setTimeout(() => {
+      if (gen !== loadGeneration) return;
+      asyncData.value = { rows: demoRows.map((r) => ({ ...r })) } as DataSet;
+    }, 3000);
+    onInvalidate(() => {
+      if (asyncTimer !== null) {
+        window.clearTimeout(asyncTimer);
+        asyncTimer = null;
+      }
+    });
+  },
+  { immediate: true },
+);
+watch(
   () => currentConfig.value,
   (cfg) => {
     const handle = tableRef.value;
     if (!handle) return;
     handle.setSchema(cfg.schema);
     handle.setView({ ...cfg.view });
-    handle.setData(cfg.data);
+    handle.setData(defaultData.value);
   },
   { deep: true },
 );
@@ -387,19 +402,10 @@ const commit = () => {
   void core?.commit();
 };
 
-const toggleFromSelection = (prop: "bold" | "italic" | "underline" | "strike") => {
-  const core = tableRef.value?.getCore();
-  const snap = selection.value;
-  if (!core || !snap) return;
-  const current = snap.styleState?.[prop];
-  const nextVal = current === "on" ? false : true;
-  core.applyStyleToSelection({ [prop]: nextVal } as any);
-};
+const undo = () => tableRef.value?.getCore()?.undo();
+const redo = () => tableRef.value?.getCore()?.redo();
 
-const applyTextColor = (color: string) =>
-  tableRef.value?.getCore()?.applyStyleToSelection({ textColor: color } as any);
-const applyBgColor = (color: string) =>
-  tableRef.value?.getCore()?.applyStyleToSelection({ background: color } as any);
+// Style controls removed (user-applied styling API removed).
 onMounted(() => {
   const onKey = (e: KeyboardEvent) => {
     const key = e.key.toLowerCase();
@@ -416,15 +422,15 @@ onMounted(() => {
     document.removeEventListener("keydown", onKey, true);
   });
 });
-const clearStyle = () => tableRef.value?.getCore()?.applyStyleToSelection(() => ({}));
-
 const handleTableState = (next: any) => {
   tableState.value = next;
   const core = tableRef.value?.getCore?.();
-  if (core) (window as any).__extableCore = core;
-};
-const handleCellEvent = (next: any) => {
-  selection.value = next;
+  if (core) {
+    (window as any).__extableCore = core;
+    history.value = core.getUndoRedoHistory();
+  } else {
+    history.value = { undo: [], redo: [] };
+  }
 };
 
 const safeFnSource = (fn: unknown) => {

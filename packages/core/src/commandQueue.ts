@@ -1,6 +1,7 @@
 import type { Command } from './types';
 
 type CommandGroup = { batchId: string | null; commands: Command[] };
+export type CommandGroupSnapshot = { batchId: string | null; commands: Command[] };
 
 function getBatchId(cmd: Command) {
   const p = cmd.payload as any;
@@ -42,6 +43,22 @@ export class CommandQueue {
     const out: Command[] = [];
     for (const group of this.applied) out.push(...group.commands);
     return out;
+  }
+
+  listUndoGroups(): CommandGroupSnapshot[] {
+    // Return top = next undo.
+    return this.applied
+      .slice()
+      .reverse()
+      .map((g) => ({ batchId: g.batchId, commands: g.commands.slice() }));
+  }
+
+  listRedoGroups(): CommandGroupSnapshot[] {
+    // Return top = next redo.
+    return this.undone
+      .slice()
+      .reverse()
+      .map((g) => ({ batchId: g.batchId, commands: g.commands.slice() }));
   }
 
   undo() {

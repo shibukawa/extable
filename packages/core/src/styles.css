@@ -104,6 +104,17 @@ table[data-extable-renderer="canvas-html-overlay"] {
     cursor: text;
   }
 
+  /* In readonly mode, body cells should keep a spreadsheet-like cursor (cell). */
+  .extable-readonly-all td.extable-active-cell.extable-editable,
+  .extable-readonly-all td.extable-active-cell.extable-readonly,
+  .extable-readonly-all td.extable-active-cell.extable-boolean {
+    cursor: cell;
+  }
+
+  .extable-readonly-all .extable-active-cell::after {
+    cursor: cell;
+  }
+
   /* Active readonly/boolean cells should not look editable. */
   td.extable-active-cell.extable-readonly {
     cursor: default;

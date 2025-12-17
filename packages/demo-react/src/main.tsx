@@ -5,9 +5,11 @@ import type {
   Command,
   CoreOptions,
   DataSet,
+  NullableDataSet,
   Schema,
   ServerAdapter,
   UserInfo,
+  UndoRedoHistory,
   View,
 } from "@extable/core";
 import { StrictMode, useEffect, useMemo, useRef, useState } from "react";
@@ -28,13 +30,14 @@ import {
   formulaRows,
   formulaSchema,
   formulaView,
+  makePerformanceDemoRows,
   uniqueCheckRows,
   uniqueCheckSchema,
   uniqueCheckView,
 } from "./data/fixtures";
 
 type RenderMode = "auto" | "html" | "canvas";
-type EditMode = "direct" | "commit";
+type EditMode = "direct" | "commit" | "readonly";
 type LockMode = "none" | "row";
 type DataMode =
   | "standard"
@@ -42,7 +45,9 @@ type DataMode =
   | "formula"
   | "conditional-style"
   | "unique-check"
-  | "filter-sort";
+  | "filter-sort"
+  | "loading-async"
+  | "performance-10k";
 
 const user: UserInfo = { id: "demo-user", name: "Demo User" };
 
@@ -51,23 +56,17 @@ export function App() {
   const [editMode, setEditMode] = useState<EditMode>("direct");
   const [lockMode, setLockMode] = useState<LockMode>("none");
   const [dataMode, setDataMode] = useState<DataMode>("standard");
+  const [tableInstanceKey, setTableInstanceKey] = useState(0);
   const tableRef = useRef<ExtableHandle>(null);
   const [tableState, setTableState] = useState<any>(null);
-  const [selection, setSelection] = useState<any>(null);
-  const [lastTextColor, setLastTextColor] = useState("#000000");
-  const [lastBgColor, setLastBgColor] = useState("#ffffff");
-
-  const currentConfigRef = useRef<{ data: DataSet; view: View; schema: Schema }>({
-    data: { rows: demoRows.map((r) => ({ ...r })) },
-    view: { ...demoView },
-    schema: demoSchema as Schema,
-  });
+  const [history, setHistory] = useState<UndoRedoHistory>({ undo: [], redo: [] });
+  const [asyncData, setAsyncData] = useState<NullableDataSet>(null);
+  const loadGenerationRef = useRef(0);
+  const loadTimerRef = useRef<number | null>(null);
+  const renderModeFirstRef = useRef(true);
 
   const serverStub = useMemo<ServerAdapter>(
     () => ({
-      async fetchInitial() {
-        return { ...currentConfigRef.current, user };
-      },
       async lockRow(rowId) {
         console.log("lockRow", rowId);
       },
@@ -97,7 +96,23 @@ export function App() {
     [renderMode, editMode, lockMode, serverStub],
   );
 
-  const cloneConfig = (mode: DataMode) => {
+  const perfRowsRef = useRef<any[] | null>(null);
+  const cloneConfig = (mode: DataMode): { data: NullableDataSet; view: View; schema: Schema } => {
+    if (mode === "loading-async") {
+      return {
+        data: null,
+        schema: demoSchema as Schema,
+        view: { ...demoView },
+      };
+    }
+    if (mode === "performance-10k") {
+      if (!perfRowsRef.current) perfRowsRef.current = makePerformanceDemoRows(10000);
+      return {
+        data: { rows: perfRowsRef.current } as DataSet,
+        schema: demoSchema as Schema,
+        view: { ...demoView },
+      };
+    }
     if (mode === "data-format") {
       return {
         data: { rows: dataFormatRows.map((r) => ({ ...r })) },
@@ -141,8 +156,7 @@ export function App() {
   };
 
   const currentConfig = useMemo(() => cloneConfig(dataMode), [dataMode]);
-  // Keep server stub fetchInitial in sync.
-  currentConfigRef.current = currentConfig;
+  const defaultData = dataMode === "loading-async" ? asyncData : currentConfig.data;
 
   const safeFnSource = (fn: unknown) => {
     if (typeof fn !== "function") return null;
@@ -221,9 +235,24 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const handle = tableRef.current;
-    if (!handle) return;
-    handle.setRenderMode(renderMode);
+    if (renderModeFirstRef.current) {
+      renderModeFirstRef.current = false;
+      return;
+    }
+    loadGenerationRef.current += 1;
+    if (loadTimerRef.current !== null) {
+      window.clearTimeout(loadTimerRef.current);
+      loadTimerRef.current = null;
+    }
+    setTableInstanceKey((k) => k + 1);
+    if (dataMode === "loading-async") {
+      setAsyncData(null);
+      const gen = loadGenerationRef.current;
+      loadTimerRef.current = window.setTimeout(() => {
+        if (gen !== loadGenerationRef.current) return;
+        setAsyncData({ rows: demoRows.map((r) => ({ ...r })) } as DataSet);
+      }, 3000);
+    }
   }, [renderMode]);
   useEffect(() => {
     const handle = tableRef.current;
@@ -235,6 +264,34 @@ export function App() {
     if (!handle) return;
     handle.setLockMode(lockMode);
   }, [lockMode]);
+
+  useEffect(() => {
+    loadGenerationRef.current += 1;
+    if (loadTimerRef.current !== null) {
+      window.clearTimeout(loadTimerRef.current);
+      loadTimerRef.current = null;
+    }
+    if (dataMode !== "loading-async") {
+      setAsyncData(null);
+      return;
+    }
+
+    // Ensure the instance starts in loading state (defaultData=null).
+    setAsyncData(null);
+    setTableInstanceKey((k) => k + 1);
+
+    const gen = loadGenerationRef.current;
+    loadTimerRef.current = window.setTimeout(() => {
+      if (gen !== loadGenerationRef.current) return;
+      setAsyncData({ rows: demoRows.map((r) => ({ ...r })) } as DataSet);
+    }, 3000);
+    return () => {
+      if (loadTimerRef.current !== null) {
+        window.clearTimeout(loadTimerRef.current);
+        loadTimerRef.current = null;
+      }
+    };
+  }, [dataMode]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -257,31 +314,21 @@ export function App() {
     const next = currentConfig;
     handle.setSchema(next.schema);
     handle.setView({ ...next.view });
-    handle.setData(next.data);
-  }, [currentConfig]);
+    handle.setData(defaultData);
+  }, [currentConfig, defaultData]);
+
+  useEffect(() => {
+    const core = tableRef.current?.getCore();
+    if (!core) {
+      setHistory({ undo: [], redo: [] });
+      return;
+    }
+    setHistory(core.getUndoRedoHistory());
+  }, [tableState]);
 
   const commit = () => {
     const core = tableRef.current?.getCore();
     void core?.commit();
-  };
-
-  const toggleFromSelection = (prop: "bold" | "italic" | "underline" | "strike") => {
-    const core = tableRef.current?.getCore();
-    if (!core || !selection) return;
-    const current = selection.styleState?.[prop];
-    const nextVal = current === "on" ? false : true;
-    core.applyStyleToSelection({ [prop]: nextVal } as any);
-  };
-
-  const applyTextColor = (color: string) => {
-    const core = tableRef.current?.getCore();
-    if (!core) return;
-    core.applyStyleToSelection({ textColor: color } as any);
-  };
-  const applyBgColor = (color: string) => {
-    const core = tableRef.current?.getCore();
-    if (!core) return;
-    core.applyStyleToSelection({ background: color } as any);
   };
 
   return (
@@ -351,6 +398,16 @@ export function App() {
                 />
                 <span>Commit</span>
               </label>
+              <label className="flex items-center gap-2">
+                <input
+                  checked={editMode === "readonly"}
+                  name="edit-mode"
+                  type="radio"
+                  value="readonly"
+                  onChange={() => setEditMode("readonly")}
+                />
+                <span>Readonly</span>
+              </label>
             </div>
           </div>
           <div className="min-w-[220px]">
@@ -389,6 +446,8 @@ export function App() {
                   ["conditional-style", "Conditional Style"],
                   ["unique-check", "Unique Check"],
                   ["filter-sort", "Filter / Sort"],
+                  ["loading-async", "Loading async data"],
+                  ["performance-10k", "Performance (10k rows)"],
                 ] as const
               ).map(([key, label]) => (
                 <label key={key} className="flex items-center gap-2">
@@ -407,6 +466,22 @@ export function App() {
           <div className="min-w-[260px]">
             <h2 className="mb-2 text-sm font-semibold text-slate-700">Actions</h2>
             <div className="flex items-center gap-3">
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-40"
+                onClick={() => tableRef.current?.getCore()?.undo()}
+                disabled={!tableState?.undoRedo?.canUndo}
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-40"
+                onClick={() => tableRef.current?.getCore()?.redo()}
+                disabled={!tableState?.undoRedo?.canRedo}
+              >
+                Redo
+              </button>
               {editMode === "commit" ? (
                 <button
                   type="button"
@@ -428,104 +503,6 @@ export function App() {
               </div>
             </div>
           </div>
-          <div className="min-w-[340px]">
-            <h2 className="mb-2 text-sm font-semibold text-slate-700">Style</h2>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className={`rounded-md border border-slate-200 bg-white px-2 py-1 text-sm ${
-                  selection?.styleState?.bold === "on" ? "ring-2 ring-slate-900" : ""
-                }`}
-                onClick={() => toggleFromSelection("bold")}
-                disabled={!selection?.canStyle}
-              >
-                <strong>B</strong>
-              </button>
-              <button
-                type="button"
-                className={`rounded-md border border-slate-200 bg-white px-2 py-1 text-sm ${
-                  selection?.styleState?.italic === "on" ? "ring-2 ring-slate-900" : ""
-                }`}
-                onClick={() => toggleFromSelection("italic")}
-                disabled={!selection?.canStyle}
-              >
-                <em>I</em>
-              </button>
-              <button
-                type="button"
-                className={`rounded-md border border-slate-200 bg-white px-2 py-1 text-sm ${
-                  selection?.styleState?.underline === "on" ? "ring-2 ring-slate-900" : ""
-                }`}
-                onClick={() => toggleFromSelection("underline")}
-                disabled={!selection?.canStyle}
-              >
-                <span className="underline">U</span>
-              </button>
-              <button
-                type="button"
-                className={`rounded-md border border-slate-200 bg-white px-2 py-1 text-sm ${
-                  selection?.styleState?.strike === "on" ? "ring-2 ring-slate-900" : ""
-                }`}
-                onClick={() => toggleFromSelection("strike")}
-                disabled={!selection?.canStyle}
-              >
-                <span className="line-through">S</span>
-              </button>
-
-              <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1">
-                <span className="text-xs text-slate-500">Text</span>
-                <button
-                  type="button"
-                  className="rounded border border-slate-200 px-2 py-1 text-xs"
-                  onClick={() => applyTextColor(lastTextColor)}
-                  disabled={!selection?.canStyle}
-                >
-                  Apply
-                </button>
-                <label className="flex items-center gap-1 text-xs">
-                  <input
-                    className="h-6 w-8 cursor-pointer"
-                    type="color"
-                    value={lastTextColor}
-                    onChange={(e) => setLastTextColor(e.target.value)}
-                    disabled={!selection?.canStyle}
-                    aria-label="Pick text color"
-                  />
-                </label>
-              </div>
-
-              <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1">
-                <span className="text-xs text-slate-500">Bg</span>
-                <button
-                  type="button"
-                  className="rounded border border-slate-200 px-2 py-1 text-xs"
-                  onClick={() => applyBgColor(lastBgColor)}
-                  disabled={!selection?.canStyle}
-                >
-                  Apply
-                </button>
-                <label className="flex items-center gap-1 text-xs">
-                  <input
-                    className="h-6 w-8 cursor-pointer"
-                    type="color"
-                    value={lastBgColor}
-                    onChange={(e) => setLastBgColor(e.target.value)}
-                    disabled={!selection?.canStyle}
-                    aria-label="Pick background color"
-                  />
-                </label>
-              </div>
-
-              <button
-                type="button"
-                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm"
-                onClick={() => tableRef.current?.getCore()?.applyStyleToSelection(() => ({}))}
-                disabled={!selection?.canStyle}
-              >
-                Clear
-              </button>
-            </div>
-          </div>
         </section>
 
         <section className="min-h-0 flex-1 overflow-visible">
@@ -534,9 +511,10 @@ export function App() {
               <h2 className="mb-3 text-sm font-semibold text-slate-700">Table</h2>
               <div className="min-h-0 flex-1 overflow-visible p-5">
                 <Extable
+                  key={tableInstanceKey}
                   ref={tableRef}
                   schema={currentConfig.schema}
-                  defaultData={currentConfig.data}
+                  defaultData={defaultData}
                   defaultView={currentConfig.view}
                   options={options}
                   onTableState={(next) => {
@@ -544,7 +522,6 @@ export function App() {
                     const core = tableRef.current?.getCore();
                     if (core) (window as any).__extableCore = core;
                   }}
-                  onCellEvent={(next) => setSelection(next)}
                   className="min-h-0 h-full w-full"
                 />
               </div>
@@ -567,6 +544,32 @@ export function App() {
               <pre className="max-h-72 overflow-auto rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
                 {dataNote}
               </pre>
+              <h2 className="mt-4 mb-2 text-sm font-semibold text-slate-700">Undo history</h2>
+              <ul className="mb-3 max-h-40 overflow-auto rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800">
+                {history.undo.length ? (
+                  history.undo.map((step, idx) => (
+                    <li key={`${step.batchId ?? "no-batch"}-${idx}`} className="py-1">
+                      {step.label}
+                      {step.batchId ? ` [${step.batchId}]` : ""}
+                    </li>
+                  ))
+                ) : (
+                  <li className="py-1 text-slate-500">—</li>
+                )}
+              </ul>
+              <h2 className="mb-2 text-sm font-semibold text-slate-700">Redo history</h2>
+              <ul className="max-h-40 overflow-auto rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-800">
+                {history.redo.length ? (
+                  history.redo.map((step, idx) => (
+                    <li key={`${step.batchId ?? "no-batch"}-${idx}`} className="py-1">
+                      {step.label}
+                      {step.batchId ? ` [${step.batchId}]` : ""}
+                    </li>
+                  ))
+                ) : (
+                  <li className="py-1 text-slate-500">—</li>
+                )}
+              </ul>
             </div>
           </div>
         </section>

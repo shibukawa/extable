@@ -24,6 +24,9 @@
     "dev:demo-vue": "npm run dev --workspace @extable/demo-vue",
     "dev:server": "npm run dev --workspace @extable/server-hono",
     "e2e": "npm run e2e --ws --if-present",
+    "docs:dev": "BASE_PATH=/ vitepress dev docs/pages",
+    "docs:build": "vitepress build docs/pages && node scripts/vitepress-fix-preload-stylesheet.mjs",
+    "docs:preview": "BASE_PATH=/ npm run docs:build && BASE_PATH=/ vitepress preview docs/pages",
     "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium firefox webkit"
   },
   "devDependencies": {
@@ -35,6 +38,7 @@
     "playwright": "^1.46.0",
     "typescript": "^5.6.3",
     "vite": "^7.2.4",
+    "vitepress": "^1.6.4",
     "vitest": "^2.1.4"
   },
   "browserslist": [

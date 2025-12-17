@@ -15,11 +15,11 @@ import type {
   ConditionalStyleFn,
   ExcelRef,
   DataSet,
+  HistoryCommandKind,
   NullableDataSet,
   EditMode,
   LockMode,
   RenderMode,
-  ResolvedCellStyle,
   Schema,
   ServerAdapter,
   SelectionChangeReason,
@@ -31,7 +31,8 @@ import type {
   TableError,
   TableState,
   TableStateListener,
-  ToggleState,
+  UndoRedoHistory,
+  UndoRedoStep,
   UserInfo,
   Updater,
   View,
@@ -92,12 +93,12 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   private findReplaceUiEnabled = true;
   private findReplaceEnableSearch = false;
   private findReplaceOpenedAt = 0;
+  private findReplaceKeydown: ((ev: KeyboardEvent) => void) | null = null;
 
-  private readonlyAll = false;
   private mounted = false;
 
   private isCellReadonly(rowId: string, colKey: string | number) {
-    return this.readonlyAll || this.dataModel.isReadonly(rowId, colKey);
+    return this.editMode === "readonly" || this.dataModel.isReadonly(rowId, colKey);
   }
 
   private filterSortSidebar: HTMLElement | null = null;
@@ -156,7 +157,6 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.renderMode = init.options?.renderMode ?? "auto";
     this.editMode = init.options?.editMode ?? "direct";
     this.lockMode = init.options?.lockMode ?? "none";
-    this.readonlyAll = init.options?.readonly ?? false;
     this.loadingEnabled = init.options?.loading?.enabled ?? true;
     this.findReplaceEnabled = init.options?.findReplace?.enabled ?? true;
     this.findReplaceUiEnabled =
@@ -173,7 +173,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.lockManager = new LockManager(this.lockMode, this.server, this.user);
     this.renderer = this.chooseRenderer(this.renderMode);
     this.applyRootDecor(init.options);
-    this.applyReadonlyAllClass();
+    this.applyReadonlyClass();
     void this.loadInitial();
   }
 
@@ -207,8 +207,8 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     }
   }
 
-  private applyReadonlyAllClass() {
-    this.root.classList.toggle("extable-readonly-all", this.readonlyAll);
+  private applyReadonlyClass() {
+    this.root.classList.toggle("extable-readonly-all", this.editMode === "readonly");
   }
 
   private chooseRenderer(mode: RenderMode): Renderer {
@@ -319,19 +319,17 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.mounted = false;
   }
 
-  setRenderMode(mode: RenderMode) {
-    if (this.renderMode === mode && this.renderer) return;
-    this.renderMode = mode;
-    this.renderer.destroy();
-    this.renderer = this.chooseRenderer(mode);
-    this.mount(true);
-    this.emitTableState();
-  }
-
   setEditMode(mode: EditMode) {
+    const wasReadonly = this.editMode === "readonly";
     this.editMode = mode;
+    this.applyReadonlyClass();
     this.selectionManager?.setEditMode(mode);
     this.emitTableState();
+    const isReadonly = this.editMode === "readonly";
+    if (wasReadonly !== isReadonly) {
+      this.safeRender(this.viewportState ?? undefined);
+      this.emitSelection("unknown");
+    }
   }
 
   setLockMode(mode: LockMode) {
@@ -378,18 +376,6 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     }
   }
 
-  setReadonlyAll(readonly: boolean) {
-    this.readonlyAll = readonly;
-    this.root.classList.toggle("extable-readonly-all", this.readonlyAll);
-    this.safeRender(this.viewportState ?? undefined);
-    this.emitSelection("unknown");
-    this.emitTableState();
-  }
-
-  getReadonlyAll() {
-    return this.readonlyAll;
-  }
-
   setView(view: View) {
     this.dataModel.setView(view);
     this.safeRender(this.viewportState ?? undefined);
@@ -407,6 +393,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
   }
 
   private handleEdit(cmd: Command, commitNow: boolean) {
+    if (this.editMode === "readonly") return;
     if (!cmd.rowId || cmd.colKey === undefined) return;
     const prev = this.dataModel.getCell(cmd.rowId, cmd.colKey);
     this.commandQueue.enqueue({ ...cmd, prev });
@@ -446,6 +433,52 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.selectionManager?.syncAfterRowsChanged();
     this.emitTableState();
     this.emitSelection("edit");
+  }
+
+  getUndoRedoHistory(): UndoRedoHistory {
+    const toKinds = (cmds: Command[]): HistoryCommandKind[] => {
+      const seen = new Set<HistoryCommandKind>();
+      const kinds: HistoryCommandKind[] = [];
+      for (const c of cmds) {
+        if (seen.has(c.kind)) continue;
+        seen.add(c.kind);
+        kinds.push(c.kind);
+      }
+      return kinds;
+    };
+
+    const labelFor = (kinds: HistoryCommandKind[], commandCount: number) => {
+      if (kinds.length === 1 && kinds[0] === "edit") {
+        return `Edit ${commandCount} cell(s)`;
+      }
+      if (kinds.length === 1 && kinds[0] === "insertRow") {
+        return commandCount === 1 ? "Insert row" : `Insert row (${commandCount})`;
+      }
+      if (kinds.length === 1 && kinds[0] === "deleteRow") {
+        return commandCount === 1 ? "Delete row" : `Delete row (${commandCount})`;
+      }
+      if (kinds.length === 1 && kinds[0] === "updateView") {
+        return "Update view";
+      }
+      return `Command: ${kinds.join(", ")} (${commandCount})`;
+    };
+
+    const toSteps = (groups: { batchId: string | null; commands: Command[] }[]): UndoRedoStep[] =>
+      groups.map((g) => {
+        const kinds = toKinds(g.commands);
+        const commandCount = g.commands.length;
+        return {
+          batchId: g.batchId,
+          kinds,
+          commandCount,
+          label: labelFor(kinds, commandCount),
+        };
+      });
+
+    return {
+      undo: toSteps(this.commandQueue.listUndoGroups()),
+      redo: toSteps(this.commandQueue.listRedoGroups()),
+    };
   }
 
   private applyInverse(cmd: Command) {
@@ -780,7 +813,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.selectionManager?.destroy();
     this.renderer.destroy();
     this.root = target;
-    this.applyReadonlyAllClass();
+    this.applyReadonlyClass();
     this.shell = null;
     this.viewportEl = null;
     this.viewportResizeObserver?.disconnect();
@@ -986,75 +1019,6 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       return { columnStyle, cellStyle, resolved };
     })();
 
-    const listSelectedCells = (): Array<{ rowId: string; colKey: string | number; col: any }> => {
-      const out: Array<{ rowId: string; colKey: string | number; col: any }> = [];
-      if (!ranges.length) return out;
-      const rows = this.dataModel.listRows();
-      for (const r of ranges) {
-        if (r.kind !== "cells") continue;
-        const sr = Math.min(r.startRow, r.endRow);
-        const er = Math.max(r.startRow, r.endRow);
-        const sc = Math.min(r.startCol, r.endCol);
-        const ec = Math.max(r.startCol, r.endCol);
-        for (let rowIndex = sr; rowIndex <= er; rowIndex += 1) {
-          const row = rows[rowIndex];
-          if (!row) continue;
-          for (let colIndex = sc; colIndex <= ec; colIndex += 1) {
-            const col2 = schema.columns[colIndex];
-            if (!col2) continue;
-            out.push({ rowId: row.id, colKey: col2.key, col: col2 });
-          }
-        }
-      }
-      return out;
-    };
-
-    const selected = listSelectedCells();
-    const canStyle =
-      selected.length > 0 && selected.every((c) => !this.isCellReadonly(c.rowId, c.colKey));
-
-    const disabledStyleState = {
-      bold: "disabled" as ToggleState,
-      italic: "disabled" as ToggleState,
-      underline: "disabled" as ToggleState,
-      strike: "disabled" as ToggleState,
-      textColor: "disabled" as any,
-      background: "disabled" as any,
-    };
-
-    const aggregateToggle = (values: boolean[]): ToggleState => {
-      const allOn = values.every(Boolean);
-      const allOff = values.every((v) => !v);
-      if (allOn) return "on";
-      if (allOff) return "off";
-      return "mixed";
-    };
-
-    const aggregateColor = (values: Array<string | null>): any => {
-      const uniq = new Set(values.map((v) => v ?? ""));
-      if (uniq.size === 1) {
-        const only = values[0] ?? null;
-        return only;
-      }
-      return "mixed";
-    };
-
-    const styleState = (() => {
-      if (!canStyle) return disabledStyleState;
-      const resolvedStyles: ResolvedCellStyle[] = [];
-      for (const c of selected) {
-        resolvedStyles.push(resolveCellStyles(this.dataModel, c.rowId, c.col).resolved);
-      }
-      return {
-        bold: aggregateToggle(resolvedStyles.map((s) => Boolean(s.bold))),
-        italic: aggregateToggle(resolvedStyles.map((s) => Boolean(s.italic))),
-        underline: aggregateToggle(resolvedStyles.map((s) => Boolean(s.underline))),
-        strike: aggregateToggle(resolvedStyles.map((s) => Boolean(s.strike))),
-        textColor: aggregateColor(resolvedStyles.map((s) => s.textColor ?? null)),
-        background: aggregateColor(resolvedStyles.map((s) => s.background ?? null)),
-      } as SelectionSnapshot["styleState"];
-    })();
-
     return {
       ranges: [...ranges],
       activeRowIndex: activeRowIndex !== null && activeRowIndex >= 0 ? activeRowIndex : null,
@@ -1066,8 +1030,6 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
       activeValueType,
       diagnostic,
       styles: activeStyles,
-      canStyle,
-      styleState,
     };
   }
 
@@ -1084,7 +1046,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     for (const l of this.selectionListeners) l(next, prev, reason);
   }
 
-  // Public API: value/style updates
+  // Public API: value updates
   setCellValue(target: CellAddress, next: Updater<unknown>) {
     const resolved = resolveCellAddress(this.dataModel, target);
     if (!resolved) return;
@@ -1106,51 +1068,6 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     );
     this.safeRender(this.viewportState ?? undefined);
     this.emitSelection("schema");
-    this.emitTableState();
-  }
-
-  applyCellStyle(target: CellAddress, delta: Updater<StyleDelta>) {
-    const resolved = resolveCellAddress(this.dataModel, target);
-    if (!resolved) return;
-    if (this.isCellReadonly(resolved.rowId, resolved.colKey)) return;
-    const old = this.dataModel.getCellStyle(resolved.rowId, resolved.colKey) ?? {};
-    const next = typeof delta === "function" ? delta(old) : { ...old, ...delta };
-    this.dataModel.setCellStyle(resolved.rowId, resolved.colKey, next);
-    this.safeRender(this.viewportState ?? undefined);
-    this.emitSelection("style");
-    this.emitTableState();
-  }
-
-  applyStyleToSelection(delta: Updater<StyleDelta>) {
-    const schema = this.dataModel.getSchema();
-    const rows = this.dataModel.listRows();
-    const unique = new Set<string>();
-    this.dataModel.batchUpdate(() => {
-      for (const r of this.selectionRanges) {
-        if (r.kind !== "cells") continue;
-        const sr = Math.min(r.startRow, r.endRow);
-        const er = Math.max(r.startRow, r.endRow);
-        const sc = Math.min(r.startCol, r.endCol);
-        const ec = Math.max(r.startCol, r.endCol);
-        for (let rowIndex = sr; rowIndex <= er; rowIndex += 1) {
-          const row = rows[rowIndex];
-          if (!row) continue;
-          for (let colIndex = sc; colIndex <= ec; colIndex += 1) {
-            const col = schema.columns[colIndex];
-            if (!col) continue;
-            const k = `${row.id}::${String(col.key)}`;
-            if (unique.has(k)) continue;
-            unique.add(k);
-            if (this.isCellReadonly(row.id, col.key)) continue;
-            const old = this.dataModel.getCellStyle(row.id, col.key) ?? {};
-            const next = typeof delta === "function" ? delta(old) : { ...old, ...delta };
-            this.dataModel.setCellStyle(row.id, col.key, next);
-          }
-        }
-      }
-    });
-    this.safeRender(this.viewportState ?? undefined);
-    this.emitSelection("style");
     this.emitTableState();
   }
 
@@ -1368,9 +1285,34 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
           tbody.appendChild(tr);
         }
       }) ?? null;
+
+    this.ensureFindReplaceShortcut();
+  }
+
+  private ensureFindReplaceShortcut() {
+    if (!this.findReplaceEnableSearch) return;
+    if (this.findReplaceKeydown) return;
+    this.findReplaceKeydown = (ev: KeyboardEvent) => {
+      const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+      const accel = isMac ? ev.metaKey : ev.ctrlKey;
+      if (!accel) return;
+      if (ev.isComposing) return;
+      const key = ev.key.toLowerCase();
+      // Avoid colliding with browser reload shortcuts (Ctrl/Cmd+R).
+      if (key === "r") return;
+      if (key !== "f") return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.toggleSearchPanel("find");
+    };
+    document.addEventListener("keydown", this.findReplaceKeydown, true);
   }
 
   private teardownFindReplace() {
+    if (this.findReplaceKeydown) {
+      document.removeEventListener("keydown", this.findReplaceKeydown, true);
+      this.findReplaceKeydown = null;
+    }
     this.findReplaceSidebarUnsub?.();
     this.findReplaceSidebarUnsub = null;
     if (this.findReplaceSidebar) {

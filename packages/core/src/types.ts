@@ -191,7 +191,7 @@ export interface View {
 }
 
 export type RenderMode = "html" | "canvas" | "auto";
-export type EditMode = "direct" | "commit";
+export type EditMode = "direct" | "commit" | "readonly";
 export type LockMode = "none" | "row";
 
 export interface Command {
@@ -223,8 +223,6 @@ export interface CoreOptions {
   renderMode?: RenderMode;
   editMode?: EditMode;
   lockMode?: LockMode;
-  /** When true, all cells are treated as read-only (without changing their visual styles). */
-  readonly?: boolean;
   /** Loading UI configuration used when `defaultData` is `null`. */
   loading?: {
     /** Enable built-in loading overlay/spinner. Default: true */
@@ -258,6 +256,22 @@ export interface TableConfig<T extends Record<string, unknown> = Record<string, 
   view: View;
   schema: Schema;
 }
+
+export type HistoryCommandKind = Command["kind"];
+
+export type UndoRedoStep = {
+  batchId: string | null;
+  kinds: HistoryCommandKind[];
+  commandCount: number;
+  label: string;
+};
+
+export type UndoRedoHistory = {
+  /** Top (index 0) is the next undo step. */
+  undo: UndoRedoStep[];
+  /** Top (index 0) is the next redo step. */
+  redo: UndoRedoStep[];
+};
 
 export interface InternalRow {
   id: string;
@@ -310,15 +324,6 @@ export type SelectionSnapshot = {
     columnStyle: Partial<ResolvedCellStyle>;
     cellStyle: Partial<ResolvedCellStyle>;
     resolved: Partial<ResolvedCellStyle>;
-  };
-  canStyle: boolean;
-  styleState: {
-    bold: ToggleState;
-    italic: ToggleState;
-    underline: ToggleState;
-    strike: ToggleState;
-    textColor: ColorState;
-    background: ColorState;
   };
 };
 

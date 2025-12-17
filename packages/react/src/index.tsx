@@ -5,7 +5,6 @@ import type {
   EditMode,
   LockMode,
   NullableDataSet,
-  RenderMode,
   Schema,
   SelectionChangeReason,
   SelectionSnapshot,
@@ -22,7 +21,6 @@ export type ExtableHandle<T extends Record<string, unknown> = Record<string, unk
   setView(view: View): void;
   setSchema(schema: Schema): void;
 
-  setRenderMode(mode: RenderMode): void;
   setEditMode(mode: EditMode): void;
   setLockMode(mode: LockMode): void;
 };
@@ -61,7 +59,8 @@ export const Extable = forwardRef(function ExtableInner<
 
   const containerRef = useRef<HTMLDivElement>(null);
   const coreRef = useRef<ExtableCore<T> | null>(null);
-  const prevDefaultDataRef = useRef<NullableDataSet<T>>(defaultData);
+  const initialDefaultDataWasNullRef = useRef(defaultData === null);
+  const consumedDefaultDataLoadRef = useRef(false);
   const onTableStateRef = useRef<typeof onTableState>(onTableState);
   const onCellEventRef = useRef<typeof onCellEvent>(onCellEvent);
 
@@ -100,9 +99,12 @@ export const Extable = forwardRef(function ExtableInner<
   useEffect(() => {
     const core = coreRef.current;
     if (!core) return;
-    const prev = prevDefaultDataRef.current;
-    if (prev === null && defaultData !== null) core.setData(defaultData);
-    prevDefaultDataRef.current = defaultData;
+    if (!initialDefaultDataWasNullRef.current) return;
+    if (consumedDefaultDataLoadRef.current) return;
+    if (defaultData !== null) {
+      core.setData(defaultData);
+      consumedDefaultDataLoadRef.current = true;
+    }
   }, [defaultData]);
 
   useImperativeHandle(
@@ -118,7 +120,6 @@ export const Extable = forwardRef(function ExtableInner<
       setView: (view) => coreRef.current?.setView(view),
       setSchema: (nextSchema) => coreRef.current?.setSchema(nextSchema),
 
-      setRenderMode: (mode) => coreRef.current?.setRenderMode(mode),
       setEditMode: (mode) => coreRef.current?.setEditMode(mode),
       setLockMode: (mode) => coreRef.current?.setLockMode(mode),
     }),
@@ -134,7 +135,6 @@ export type {
   EditMode,
   LockMode,
   NullableDataSet,
-  RenderMode,
   Schema,
   SelectionChangeReason,
   SelectionSnapshot,

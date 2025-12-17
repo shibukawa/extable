@@ -3,7 +3,6 @@ import type {
   EditMode,
   LockMode,
   NullableDataSet,
-  RenderMode,
   Schema,
   SelectionChangeReason,
   SelectionSnapshot,
@@ -47,6 +46,8 @@ export const Extable = defineComponent({
     let core: ExtableCore | null = null;
     let unsubTable: (() => void) | null = null;
     let unsubSel: (() => void) | null = null;
+    const initialDefaultDataWasNull = props.defaultData === null;
+    let consumedDefaultDataLoad = false;
 
     onMounted(() => {
       if (!root.value) return;
@@ -74,7 +75,12 @@ export const Extable = defineComponent({
       () => props.defaultData,
       (next, prev) => {
         if (!core) return;
-        if (prev === null && next !== null) core.setData(next);
+        if (!initialDefaultDataWasNull) return;
+        if (consumedDefaultDataLoad) return;
+        if (next !== null) {
+          core.setData(next);
+          consumedDefaultDataLoad = true;
+        }
       },
     );
 
@@ -87,7 +93,6 @@ export const Extable = defineComponent({
       setData: (data: NullableDataSet) => core?.setData(data),
       setView: (view: View) => core?.setView(view),
       setSchema: (schema: Schema) => core?.setSchema(schema),
-      setRenderMode: (mode: RenderMode) => core?.setRenderMode(mode),
       setEditMode: (mode: EditMode) => core?.setEditMode(mode),
       setLockMode: (mode: LockMode) => core?.setLockMode(mode),
     });
@@ -107,7 +112,6 @@ export type {
   EditMode,
   LockMode,
   NullableDataSet,
-  RenderMode,
   Schema,
   SelectionChangeReason,
   SelectionSnapshot,
@@ -123,7 +127,6 @@ export type ExtableVueHandle<T extends Record<string, unknown> = Record<string, 
   setView(view: View): void;
   setSchema(schema: Schema): void;
 
-  setRenderMode(mode: RenderMode): void;
   setEditMode(mode: EditMode): void;
   setLockMode(mode: LockMode): void;
 };

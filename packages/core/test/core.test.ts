@@ -66,19 +66,18 @@ describe("core placeholder", () => {
     expect(target.dataset.extable).toBe("ready");
   });
 
-  test("global readonly prevents editing without muting styles", () => {
+  test("readonly editMode prevents editing without muting styles", () => {
     const placeholder = createTablePlaceholder(
       {
         data: { rows: [{ name: "Alice" }] },
         schema: { columns: [{ key: "name", header: "Name", type: "string" }] },
         view: {},
       },
-      { renderMode: "html", editMode: "direct", lockMode: "none", readonly: true },
+      { renderMode: "html", editMode: "readonly", lockMode: "none" },
     );
 
     const target = document.createElement("div");
     mountTable(target, placeholder);
-    expect((placeholder as any).getReadonlyAll()).toBe(true);
     expect(target.classList.contains("extable-readonly-all")).toBe(true);
 
     const cell = target.querySelector('td[data-col-key="name"]') as HTMLTableCellElement | null;
@@ -90,7 +89,7 @@ describe("core placeholder", () => {
     const input = cell!.querySelector("input") as HTMLInputElement | null;
     expect(input).toBeFalsy();
 
-    // Global readonly should not visually mute.
+    // Readonly should not visually mute.
     expect(target.classList.contains("extable-readonly-all")).toBe(true);
   });
 });

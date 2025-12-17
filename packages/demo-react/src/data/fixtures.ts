@@ -43,6 +43,32 @@ for (let i = 1; i <= 100; i += 1) {
   });
 }
 
+export function makePerformanceDemoRows(count = 10000): DemoRow[] {
+  const rows: DemoRow[] = [];
+  const base = new Date(2024, 10, 1, 9, 30, 0); // local time
+  const shortDescription = 'Short text';
+  const longNote =
+    'This is an extremely long single-line note intended to verify ellipsis when wrapping is disabled.';
+  const longNoWrap = 'A very very long text that should stay single-line and demonstrate ellipsis.';
+  for (let i = 1; i <= count; i += 1) {
+    rows.push({
+      id: i,
+      name: `User ${i}`,
+      active: i % 2 === 0,
+      date: new Date(base.getFullYear(), base.getMonth(), base.getDate()),
+      time: new Date(1970, 0, 1, base.getHours(), base.getMinutes(), base.getSeconds()),
+      datetime: new Date(base.getTime() + i * 60_000),
+      role: i % 3 === 0 ? 'owner' : i % 3 === 1 ? 'editor' : 'viewer',
+      tags: i % 4 === 0 ? ['priority'] : i % 3 === 0 ? ['alpha'] : ['beta'],
+      score: Math.round((50 + (i % 50)) * 100) / 100,
+      description: shortDescription,
+      longNote,
+      longNoWrap
+    });
+  }
+  return rows;
+}
+
 export const demoSchema = {
   columns: [
     { key: 'id', header: 'ID', type: 'number', readonly: true, width: 60 },

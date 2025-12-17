@@ -200,24 +200,5 @@ describe("renderer style application", () => {
     }
   });
 
-  test("selection snapshot reflects styleState after applyStyleToSelection", () => {
-    const root = document.createElement("div");
-    document.body.appendChild(root);
-    const core = createTablePlaceholder(
-      { data: { rows: [{ a: "x" }] }, schema: { columns: [{ key: "a", type: "string" }] }, view: {} },
-      { renderMode: "html", editMode: "direct", lockMode: "none" },
-    );
-    mountTable(root, core);
-
-    const td = root.querySelector('td[data-col-key="a"]') as HTMLTableCellElement | null;
-    expect(td).toBeTruthy();
-    td!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
-
-    expect(core.getSelectionSnapshot().styleState.bold).toBe("off");
-    core.applyStyleToSelection({ bold: true });
-    expect(core.getSelectionSnapshot().styleState.bold).toBe("on");
-
-    core.destroy();
-    root.remove();
-  });
+  // Note: user-applied styling APIs are intentionally removed; schema/conditional formatting remains.
 });

@@ -5,6 +5,7 @@ import type {
   Command,
   CoreOptions,
   DataSet,
+  NullableDataSet,
   Schema,
   ServerAdapter,
   UserInfo,
@@ -29,10 +30,11 @@ import {
   filterSortRows,
   filterSortSchema,
   filterSortView,
+  makePerformanceDemoRows,
 } from "./data/fixtures";
 
 type Mode = "html" | "canvas" | "auto";
-type EditMode = "direct" | "commit";
+type EditMode = "direct" | "commit" | "readonly";
 type LockMode = "none" | "row";
 type DataMode =
   | "standard"
@@ -40,23 +42,22 @@ type DataMode =
   | "formula"
   | "conditional-style"
   | "unique-check"
-  | "filter-sort";
+  | "filter-sort"
+  | "loading-async"
+  | "performance-10k";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 const tableRootId = "table-root";
 
 const user: UserInfo = { id: "demo-user", name: "Demo User" };
 
-let currentConfig: { data: DataSet; view: View; schema: Schema } = {
+let currentConfig: { data: NullableDataSet; view: View; schema: Schema } = {
   data: { rows: demoRows.map((r) => ({ ...r })) },
   view: { ...demoView },
   schema: demoSchema,
 };
 
 const serverStub: ServerAdapter = {
-  async fetchInitial() {
-    return { ...currentConfig, user };
-  },
   async lockRow(rowId) {
     console.log("lockRow", rowId);
   },
@@ -89,6 +90,7 @@ function renderShell() {
           <h2>Edit Mode</h2>
           <label><input type="radio" name="edit-mode" value="direct" checked /> Direct</label>
       <label><input type="radio" name="edit-mode" value="commit" /> Commit</label>
+      <label><input type="radio" name="edit-mode" value="readonly" /> Readonly</label>
     </div>
     <div>
       <h2>Lock Mode</h2>
@@ -103,39 +105,15 @@ function renderShell() {
       <label><input type="radio" name="data-mode" value="conditional-style" /> Conditional Style</label>
       <label><input type="radio" name="data-mode" value="unique-check" /> Unique Check</label>
       <label><input type="radio" name="data-mode" value="filter-sort" /> Filter / Sort</label>
+      <label><input type="radio" name="data-mode" value="loading-async" /> Loading async data</label>
+      <label><input type="radio" name="data-mode" value="performance-10k" /> Performance (10k rows)</label>
     </div>
     <div>
       <h2>Actions</h2>
       <button id="commit-btn" style="display:none;" disabled>Commit Pending</button>
+      <button id="undo-btn" disabled>Undo</button>
+      <button id="redo-btn" disabled>Redo</button>
       <div id="commit-state" class="commit-state"></div>
-    </div>
-    <div>
-      <h2>Style</h2>
-      <div class="toolbar">
-        <button id="style-bold" class="tool-btn" title="Bold"><strong>B</strong></button>
-        <button id="style-italic" class="tool-btn" title="Italic"><em>I</em></button>
-        <button id="style-underline" class="tool-btn" title="Underline"><span style="text-decoration: underline;">U</span></button>
-        <button id="style-strike" class="tool-btn" title="Strikethrough"><span style="text-decoration: line-through;">S</span></button>
-        <div class="color-group" aria-label="Text color">
-          <span class="color-group-label">Text</span>
-          <button id="style-text-apply" class="tool-btn color-apply" type="button" title="Apply last text color">A</button>
-          <button id="style-text-pick" class="tool-btn color-pick" type="button" title="Pick text color">
-            <span class="color-swatch" id="style-text-swatch"></span>
-            <span class="color-pick-caret">▾</span>
-          </button>
-          <input id="style-text-color" class="color-input-hidden" type="color" />
-        </div>
-        <div class="color-group" aria-label="Background color">
-          <span class="color-group-label">Bg</span>
-          <button id="style-bg-apply" class="tool-btn color-apply" type="button" title="Apply last background color">■</button>
-          <button id="style-bg-pick" class="tool-btn color-pick" type="button" title="Pick background color">
-            <span class="color-swatch" id="style-bg-swatch"></span>
-            <span class="color-pick-caret">▾</span>
-          </button>
-          <input id="style-bg-color" class="color-input-hidden" type="color" value="#ffffff" />
-        </div>
-        <button id="style-clear" class="tool-btn" title="Clear style">Clear</button>
-      </div>
     </div>
   </section>
       <section class="layout">
@@ -150,6 +128,10 @@ function renderShell() {
           <pre id="state"></pre>
           <h2>Data Note</h2>
           <pre id="data-note"></pre>
+          <h2>Undo history</h2>
+          <ul id="undo-history"></ul>
+          <h2>Redo history</h2>
+          <ul id="redo-history"></ul>
         </div>
       </section>
     </main>
@@ -157,6 +139,21 @@ function renderShell() {
 }
 
 function cloneConfig(dataMode: DataMode) {
+  if (dataMode === "loading-async") {
+    return {
+      data: null,
+      schema: demoSchema,
+      view: { ...demoView },
+    };
+  }
+  if (dataMode === "performance-10k") {
+    (cloneConfig as any)._perfRows ??= makePerformanceDemoRows(10000);
+    return {
+      data: { rows: (cloneConfig as any)._perfRows },
+      schema: demoSchema,
+      view: { ...demoView },
+    };
+  }
   if (dataMode === "data-format") {
     return {
       data: { rows: dataFormatRows.map((r) => ({ ...r })) },
@@ -215,13 +212,15 @@ function main() {
   let core: ExtableCore | null = null;
   let dataMode: DataMode = "standard";
   let unsubscribeTable: (() => void) | null = null;
-  let unsubscribeSelection: (() => void) | null = null;
-  let lastSelection: any = null;
-  let lastTextColor = "#000000";
-  let lastBgColor = "#ffffff";
+  let loadGeneration = 0;
+  let loadTimer: number | null = null;
 
   const stateEl = document.getElementById("state");
   const dataNoteEl = document.getElementById("data-note");
+  const undoBtn = document.getElementById("undo-btn") as HTMLButtonElement | null;
+  const redoBtn = document.getElementById("redo-btn") as HTMLButtonElement | null;
+  const undoHistoryEl = document.getElementById("undo-history") as HTMLUListElement | null;
+  const redoHistoryEl = document.getElementById("redo-history") as HTMLUListElement | null;
 
   const safeFnSource = (fn: unknown) => {
     if (typeof fn !== "function") return null;
@@ -309,11 +308,14 @@ function main() {
   };
 
   const rebuildCore = () => {
+    loadGeneration += 1;
+    if (loadTimer !== null) {
+      window.clearTimeout(loadTimer);
+      loadTimer = null;
+    }
     core?.destroy();
     unsubscribeTable?.();
     unsubscribeTable = null;
-    unsubscribeSelection?.();
-    unsubscribeSelection = null;
     const config = cloneConfig(dataMode);
     currentConfig = config;
     updateDataNote();
@@ -324,6 +326,14 @@ function main() {
       schema: config.schema,
       options: { ...options },
     });
+    if (dataMode === "loading-async") {
+      const gen = loadGeneration;
+      loadTimer = window.setTimeout(() => {
+        if (gen !== loadGeneration) return;
+        if (dataMode !== "loading-async") return;
+        core?.setData({ rows: demoRows.map((r) => ({ ...r })) } as DataSet);
+      }, 3000);
+    }
     // Expose the latest core instance for demos/e2e.
     (window as any).__extableCore = core;
     const commitBtn = document.getElementById("commit-btn");
@@ -337,46 +347,49 @@ function main() {
         commitBtn.toggleAttribute("disabled", !next.canCommit);
         if (options.editMode !== "commit") commitBtn.setAttribute("disabled", "true");
       }
+      if (undoBtn) undoBtn.toggleAttribute("disabled", !next.undoRedo.canUndo);
+      if (redoBtn) redoBtn.toggleAttribute("disabled", !next.undoRedo.canRedo);
       if (commitState) {
         commitState.textContent = `pending=${next.pendingCommandCount} cells=${next.pendingCellCount} undo=${next.undoRedo.canUndo ? "1" : "0"} redo=${next.undoRedo.canRedo ? "1" : "0"} mode=${next.renderMode}`;
       }
-    });
 
-    const updateStyleButtons = (snap: any) => {
-      const setState = (id: string, state: string) => {
-        const el = document.getElementById(id);
+      const renderHistoryList = (
+        el: HTMLUListElement | null,
+        items: { label: string; batchId: string | null; commandCount: number }[],
+      ) => {
         if (!el) return;
-        el.classList.toggle("active", state === "on");
-        el.classList.toggle("mixed", state === "mixed");
-        el.toggleAttribute("disabled", !snap.canStyle);
+        el.innerHTML = "";
+        if (!items.length) {
+          const li = document.createElement("li");
+          li.textContent = "—";
+          el.appendChild(li);
+          return;
+        }
+        for (const item of items) {
+          const li = document.createElement("li");
+          const batch = item.batchId ? ` [${item.batchId}]` : "";
+          li.textContent = `${item.label}${batch}`;
+          el.appendChild(li);
+        }
       };
-      setState("style-bold", snap.styleState.bold);
-      setState("style-italic", snap.styleState.italic);
-      setState("style-underline", snap.styleState.underline);
-      setState("style-strike", snap.styleState.strike);
-      const textColor = document.getElementById("style-text-color") as HTMLInputElement | null;
-      const bgColor = document.getElementById("style-bg-color") as HTMLInputElement | null;
-      if (textColor) textColor.toggleAttribute("disabled", !snap.canStyle);
-      if (bgColor) bgColor.toggleAttribute("disabled", !snap.canStyle);
-      const textPick = document.getElementById("style-text-pick") as HTMLButtonElement | null;
-      const textApply = document.getElementById("style-text-apply") as HTMLButtonElement | null;
-      const bgPick = document.getElementById("style-bg-pick") as HTMLButtonElement | null;
-      const bgApply = document.getElementById("style-bg-apply") as HTMLButtonElement | null;
-      if (textPick) textPick.toggleAttribute("disabled", !snap.canStyle);
-      if (textApply) textApply.toggleAttribute("disabled", !snap.canStyle);
-      if (bgPick) bgPick.toggleAttribute("disabled", !snap.canStyle);
-      if (bgApply) bgApply.toggleAttribute("disabled", !snap.canStyle);
-    };
 
-    unsubscribeSelection = core.subscribeSelection((next) => {
-      lastSelection = next;
-      updateStyleButtons(next);
+      const history = core?.getUndoRedoHistory();
+      if (history) {
+        renderHistoryList(undoHistoryEl, history.undo);
+        renderHistoryList(redoHistoryEl, history.redo);
+      } else {
+        renderHistoryList(undoHistoryEl, []);
+        renderHistoryList(redoHistoryEl, []);
+      }
     });
 
     updateState();
   };
 
   rebuildCore();
+
+  undoBtn?.addEventListener("click", () => core?.undo());
+  redoBtn?.addEventListener("click", () => core?.redo());
 
   document.querySelectorAll<HTMLInputElement>('input[name="render-mode"]').forEach((input) => {
     input.addEventListener("change", () => {
@@ -409,83 +422,6 @@ function main() {
   const commitBtn = document.getElementById("commit-btn");
   commitBtn?.addEventListener("click", () => {
     void core?.commit();
-  });
-
-  const toggleFromSelection = (prop: "bold" | "italic" | "underline" | "strike") => {
-    if (!core || !lastSelection) return;
-    const current = lastSelection.styleState?.[prop];
-    const nextVal = current === "on" ? false : true;
-    core.applyStyleToSelection({ [prop]: nextVal } as any);
-  };
-
-  document
-    .getElementById("style-bold")
-    ?.addEventListener("click", () => toggleFromSelection("bold"));
-  document
-    .getElementById("style-italic")
-    ?.addEventListener("click", () => toggleFromSelection("italic"));
-  document
-    .getElementById("style-underline")
-    ?.addEventListener("click", () => toggleFromSelection("underline"));
-  document
-    .getElementById("style-strike")
-    ?.addEventListener("click", () => toggleFromSelection("strike"));
-
-  const setSwatch = (id: string, color: string) => {
-    const el = document.getElementById(id) as HTMLElement | null;
-    if (!el) return;
-    el.style.background = color;
-  };
-
-  const textColor = document.getElementById("style-text-color") as HTMLInputElement | null;
-  const textPick = document.getElementById("style-text-pick") as HTMLButtonElement | null;
-  const textApply = document.getElementById("style-text-apply") as HTMLButtonElement | null;
-  if (textColor) textColor.value = lastTextColor;
-  setSwatch("style-text-swatch", lastTextColor);
-  textPick?.addEventListener("click", (e) => {
-    e.preventDefault();
-    textColor?.click();
-  });
-  textApply?.addEventListener("click", () => {
-    if (!core || !lastSelection) return;
-    core.applyStyleToSelection({ textColor: lastTextColor });
-  });
-  textColor?.addEventListener("input", () => {
-    if (!core || !lastSelection || !textColor) return;
-    lastTextColor = textColor.value;
-    setSwatch("style-text-swatch", lastTextColor);
-    core.applyStyleToSelection({ textColor: lastTextColor });
-  });
-
-  const bgColor = document.getElementById("style-bg-color") as HTMLInputElement | null;
-  const bgPick = document.getElementById("style-bg-pick") as HTMLButtonElement | null;
-  const bgApply = document.getElementById("style-bg-apply") as HTMLButtonElement | null;
-  if (bgColor) bgColor.value = lastBgColor;
-  setSwatch("style-bg-swatch", lastBgColor);
-  bgPick?.addEventListener("click", (e) => {
-    e.preventDefault();
-    bgColor?.click();
-  });
-  bgApply?.addEventListener("click", () => {
-    if (!core || !lastSelection) return;
-    core.applyStyleToSelection({ background: lastBgColor });
-  });
-  bgColor?.addEventListener("input", () => {
-    if (!core || !lastSelection || !bgColor) return;
-    lastBgColor = bgColor.value;
-    setSwatch("style-bg-swatch", lastBgColor);
-    core.applyStyleToSelection({ background: lastBgColor });
-  });
-  document.getElementById("style-clear")?.addEventListener("click", () => {
-    if (!core || !lastSelection) return;
-    core.applyStyleToSelection({
-      background: undefined,
-      textColor: undefined,
-      bold: false,
-      italic: false,
-      underline: false,
-      strike: false,
-    } as any);
   });
 
   const onKey = (e: KeyboardEvent) => {
