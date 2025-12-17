@@ -6,6 +6,7 @@ import type {
   SelectionRange,
   View,
   ViewFilterValues,
+  EditMode,
 } from "./types";
 import { format as formatDate, parseISO } from "date-fns";
 import { toRawValue } from "./cellValueCodec";
@@ -157,6 +158,75 @@ function drawSortArrowIcon(
   ctx.closePath();
   ctx.fill();
   ctx.restore();
+}
+
+class FenwickTree {
+  // 1-based BIT
+  private tree: number[];
+  private n: number;
+
+  constructor(n: number) {
+    this.n = n;
+    this.tree = new Array(n + 1).fill(0);
+  }
+
+  static from(values: number[]) {
+    const ft = new FenwickTree(values.length);
+    for (let i = 0; i < values.length; i += 1) ft.add(i, values[i] ?? 0);
+    return ft;
+  }
+
+  sum(count: number) {
+    // sum of first `count` items: [0..count-1]
+    let i = Math.max(0, Math.min(this.n, count));
+    let res = 0;
+    while (i > 0) {
+      res += this.tree[i] ?? 0;
+      i -= i & -i;
+    }
+    return res;
+  }
+
+  total() {
+    return this.sum(this.n);
+  }
+
+  add(index0: number, delta: number) {
+    let i = index0 + 1;
+    if (i <= 0 || i > this.n) return;
+    while (i <= this.n) {
+      this.tree[i] = (this.tree[i] ?? 0) + delta;
+      i += i & -i;
+    }
+  }
+
+  /**
+   * Returns the smallest index `i` (0-based) such that `sum(i + 1) >= target`.
+   * If `target <= 0`, returns 0. If `target > total`, returns `n - 1`.
+   */
+  lowerBound(target: number) {
+    if (this.n <= 0) return 0;
+    if (target <= 0) return 0;
+    const total = this.total();
+    if (target > total) return this.n - 1;
+    let idx = 0;
+    // Largest power of two >= n
+    let bit = 1;
+    while (bit <= this.n) bit <<= 1;
+    let acc = 0;
+    for (let step = bit; step !== 0; step >>= 1) {
+      const next = idx + step;
+      if (next <= this.n) {
+        const nextAcc = acc + (this.tree[next] ?? 0);
+        if (nextAcc < target) {
+          idx = next;
+          acc = nextAcc;
+        }
+      }
+    }
+    // idx is the last position where prefix sum < target; answer is idx (0-based)
+    return Math.min(this.n - 1, idx);
+  }
 }
 
 export interface ViewportState {
@@ -600,6 +670,9 @@ export class HTMLRenderer implements Renderer {
 
 export class CanvasRenderer implements Renderer {
   private static readonly MAX_CANVAS_DIM_PX = 8192;
+  private static readonly ROW_HEIGHT_MEASURE_CHUNK = 500;
+  private static readonly ROW_HEIGHT_MEASURE_TIME_BUDGET_MS = 8;
+  private static readonly TEXT_MEASURE_CACHE_MAX = 2000;
   private root: HTMLElement | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private spacer: HTMLDivElement | null = null;
@@ -617,14 +690,27 @@ export class CanvasRenderer implements Renderer {
   private activeColKey: string | number | null = null;
   private selection: SelectionRange[] = [];
   private valueFormatCache = new ValueFormatCache();
-  private textMeasureCache = new Map<string, { lines: string[]; frame: number }>();
+  private textMeasureCache = new Map<string, { lines: string[] }>();
   private frame = 0;
   private cursorTimer: number | null = null;
   private pendingCursorPoint: { x: number; y: number } | null = null;
   private hoverHeaderColKey: string | number | null = null;
   private hoverHeaderIcon = false;
+  private rowHeightCacheKey: string | null = null;
+  private rowHeightMeasuredVersion = new Map<string, number>();
+  private rowHeightMeasureRaf: number | null = null;
+  private rowHeightMeasureTask: { key: string; nextIndex: number } | null = null;
+  private heightIndex:
+    | {
+        key: string | null;
+        rowsRef: InternalRow[];
+        idToIndex: Map<string, number>;
+        heights: number[];
+        fenwick: FenwickTree;
+      }
+    | null = null;
 
-  constructor(dataModel: DataModel) {
+  constructor(dataModel: DataModel, private getEditMode: () => EditMode = () => "direct") {
     this.dataModel = dataModel;
   }
 
@@ -689,16 +775,20 @@ export class CanvasRenderer implements Renderer {
     const colWidths = getColumnWidths(schema, view);
     const colBaseStyles = schema.columns.map((c) => columnFormatToStyle(c));
     const fontCache = new Map<string, string>();
-    const rowHeights: number[] = [];
-    for (const row of rows) {
-      rowHeights.push(this.computeRowHeight(ctx, row, schema, colWidths));
+    const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
+    const cacheKey = wrapAny ? this.getRowHeightCacheKey(schema, view, colWidths) : null;
+    if (cacheKey !== this.rowHeightCacheKey) {
+      this.rowHeightCacheKey = cacheKey;
+      this.rowHeightMeasuredVersion.clear();
+      this.rowHeightMeasureTask = null;
     }
-    const totalRowsHeight = rowHeights.reduce((acc, h) => acc + h, 0);
+    if (!wrapAny) this.cancelRowHeightMeasurement();
+
+    this.ensureHeightIndex(rows, wrapAny ? cacheKey : null, wrapAny);
+    const heightIndex = this.heightIndex;
+    if (!heightIndex) return;
+
     const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
-    if (this.spacer) {
-      this.spacer.style.height = `${totalRowsHeight + this.headerHeight}px`;
-      this.spacer.style.width = `${totalWidth}px`;
-    }
     const desiredCanvasWidth = state?.clientWidth ?? (this.root.clientWidth || 600);
     const desiredCanvasHeight =
       state?.clientHeight ?? (this.root.clientHeight || this.canvas.height || 400);
@@ -716,29 +806,48 @@ export class CanvasRenderer implements Renderer {
 
     const scrollTop = state?.scrollTop ?? this.root.scrollTop;
     const scrollLeft = state?.scrollLeft ?? this.root.scrollLeft;
-    const contentScrollTop = Math.max(
-      0,
-      Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)),
-    );
-    const dataXOffset = this.rowHeaderWidth - scrollLeft;
-    let accum = 0;
-    let visibleStart = 0;
-    for (let i = 0; i < rows.length; i += 1) {
-      const h = rowHeights[i] ?? this.rowHeight;
-      if (contentScrollTop < accum + h) {
-        visibleStart = i;
-        break;
+    const computeVisibleRange = (contentTop: number) => {
+      const target = contentTop + 1;
+      const visibleStart = Math.max(0, Math.min(rows.length - 1, heightIndex.fenwick.lowerBound(target)));
+      const accum = heightIndex.fenwick.sum(visibleStart);
+      let visibleEnd = visibleStart;
+      let drawnHeight = 0;
+      const maxHeight = this.canvas!.height + this.rowHeight * 2;
+      for (let i = visibleStart; i < rows.length && drawnHeight < maxHeight; i += 1) {
+        drawnHeight += heightIndex.heights[i] ?? this.rowHeight;
+        visibleEnd = i + 1;
       }
-      accum += h;
-      if (i === rows.length - 1) visibleStart = rows.length - 1;
+      return { accum, visibleStart, visibleEnd };
+    };
+
+    let totalRowsHeight = heightIndex.fenwick.total();
+    let contentScrollTop = Math.max(0, Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)));
+    let { accum, visibleStart, visibleEnd } = computeVisibleRange(contentScrollTop);
+
+    if (wrapAny && cacheKey) {
+      const updates: Record<string, number> = {};
+      for (let i = visibleStart; i < visibleEnd; i += 1) {
+        const row = rows[i];
+        if (!row) continue;
+        const version = this.dataModel.getRowVersion(row.id);
+        if (this.rowHeightMeasuredVersion.get(row.id) === version) continue;
+        const nextH = this.measureRowHeight(ctx, row, schema, colWidths);
+        updates[row.id] = nextH;
+        this.rowHeightMeasuredVersion.set(row.id, version);
+      }
+      this.applyRowHeightUpdates(updates);
+      totalRowsHeight = heightIndex.fenwick.total();
+      this.dataModel.setRowHeightsBulk(updates);
+      contentScrollTop = Math.max(0, Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)));
+      ({ accum, visibleStart, visibleEnd } = computeVisibleRange(contentScrollTop));
+      if (this.rowHeightMeasureTask || Object.keys(updates).length > 0) this.scheduleRowHeightMeasurement();
     }
-    let visibleEnd = visibleStart;
-    let drawnHeight = 0;
-    const maxHeight = this.canvas.height + this.rowHeight * 2;
-    for (let i = visibleStart; i < rows.length && drawnHeight < maxHeight; i += 1) {
-      drawnHeight += rowHeights[i] ?? this.rowHeight;
-      visibleEnd = i + 1;
+
+    if (this.spacer) {
+      this.spacer.style.height = `${totalRowsHeight + this.headerHeight}px`;
+      this.spacer.style.width = `${totalWidth}px`;
     }
+    const dataXOffset = this.rowHeaderWidth - scrollLeft;
 
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     // Keep row-header column background visible across scroll
@@ -748,7 +857,7 @@ export class CanvasRenderer implements Renderer {
     let yCursor = this.headerHeight + accum - contentScrollTop;
     for (let i = visibleStart; i < visibleEnd; i += 1) {
       const row = rows[i];
-      const rowH = rowHeights[i] ?? this.rowHeight;
+      const rowH = heightIndex.heights[i] ?? this.rowHeight;
       // row header cell
       ctx.strokeStyle = "#d0d7de";
       ctx.fillStyle = "#e5e7eb";
@@ -877,10 +986,6 @@ export class CanvasRenderer implements Renderer {
       yCursor += rowH;
     }
 
-    // update spacer height after computing dynamic row heights
-    const totalHeight = rowHeights.reduce((acc, h) => acc + h, 0);
-    if (this.spacer) this.spacer.style.height = `${totalHeight}px`;
-
     // Header (draw last to stay on top)
     ctx.fillStyle = "#e5e7eb";
     ctx.fillRect(0, 0, this.canvas.width, this.headerHeight);
@@ -951,19 +1056,8 @@ export class CanvasRenderer implements Renderer {
         const endRow = Math.min(rows.length - 1, Math.max(range.startRow, range.endRow));
         const startCol = Math.max(0, Math.min(range.startCol, range.endCol));
         const endCol = Math.min(schema.columns.length - 1, Math.max(range.startCol, range.endCol));
-        let yTop = this.headerHeight;
-        for (let i = 0; i < startRow; i += 1) {
-          yTop += rowHeights[i] ?? this.rowHeight;
-        }
-        let height = 0;
-        for (let i = startRow; i <= endRow; i += 1) {
-          height += rowHeights[i] ?? this.rowHeight;
-        }
-        const contentScrollTop = Math.max(
-          0,
-          Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)),
-        );
-        yTop -= contentScrollTop;
+        const yTop = this.headerHeight + heightIndex.fenwick.sum(startRow) - contentScrollTop;
+        const height = heightIndex.fenwick.sum(endRow + 1) - heightIndex.fenwick.sum(startRow);
         let xLeft = this.rowHeaderWidth;
         for (let c = 0; c < startCol; c += 1) {
           xLeft += colWidths[c] ?? 100;
@@ -993,6 +1087,8 @@ export class CanvasRenderer implements Renderer {
   }
 
   destroy() {
+    this.cancelRowHeightMeasurement();
+    this.heightIndex = null;
     if (this.canvas) {
       this.canvas.removeEventListener("pointermove", this.handlePointerMove);
       this.canvas.removeEventListener("pointerleave", this.handlePointerLeave);
@@ -1014,6 +1110,104 @@ export class CanvasRenderer implements Renderer {
     this.tooltipTarget = null;
     this.tooltipMessage = null;
     this.root = null;
+  }
+
+  private ensureHeightIndex(rows: InternalRow[], key: string | null, wrapAny: boolean) {
+    const existing = this.heightIndex;
+    if (existing && existing.rowsRef === rows && existing.key === key) return;
+    const heights = new Array(rows.length);
+    const idToIndex = new Map<string, number>();
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      if (!row) continue;
+      idToIndex.set(row.id, i);
+      let h = this.rowHeight;
+      if (wrapAny && key) {
+        const version = this.dataModel.getRowVersion(row.id);
+        const measuredVersion = this.rowHeightMeasuredVersion.get(row.id);
+        const cachedHeight = this.dataModel.getRowHeight(row.id);
+        if (measuredVersion === version && typeof cachedHeight === "number") h = cachedHeight;
+      }
+      heights[i] = h;
+    }
+    this.heightIndex = { key, rowsRef: rows, idToIndex, heights, fenwick: FenwickTree.from(heights) };
+  }
+
+  private applyRowHeightUpdates(updates: Record<string, number>) {
+    const index = this.heightIndex;
+    if (!index) return;
+    for (const [rowId, next] of Object.entries(updates)) {
+      const i = index.idToIndex.get(rowId);
+      if (i === undefined) continue;
+      const prev = index.heights[i] ?? this.rowHeight;
+      if (prev === next) continue;
+      index.heights[i] = next;
+      index.fenwick.add(i, next - prev);
+    }
+  }
+
+  private getRowHeightCacheKey(schema: Schema, view: View, colWidths: number[]) {
+    const wraps = schema.columns.map((c) => ((view.wrapText?.[String(c.key)] ?? c.wrapText) ? "1" : "0")).join("");
+    const widths = colWidths.map((w) => String(w ?? 0)).join(",");
+    return `${wraps}|${widths}`;
+  }
+
+  private cancelRowHeightMeasurement() {
+    if (this.rowHeightMeasureRaf !== null) {
+      cancelAnimationFrame(this.rowHeightMeasureRaf);
+      this.rowHeightMeasureRaf = null;
+    }
+    this.rowHeightMeasureTask = null;
+  }
+
+  private scheduleRowHeightMeasurement() {
+    if (this.rowHeightMeasureRaf !== null) return;
+    this.rowHeightMeasureRaf = requestAnimationFrame(() => {
+      this.rowHeightMeasureRaf = null;
+      this.runRowHeightMeasurement();
+    });
+  }
+
+  private runRowHeightMeasurement() {
+    if (!this.canvas) return;
+    const ctx = this.canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.font = "14px sans-serif";
+    const schema = this.dataModel.getSchema();
+    const view = this.dataModel.getView();
+    const colWidths = getColumnWidths(schema, view);
+    const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
+    if (!wrapAny) return;
+    const key = this.getRowHeightCacheKey(schema, view, colWidths);
+    if (this.rowHeightCacheKey !== key) {
+      this.rowHeightCacheKey = key;
+      this.rowHeightMeasuredVersion.clear();
+      this.rowHeightMeasureTask = null;
+    }
+    const task = this.rowHeightMeasureTask ?? { key, nextIndex: 0 };
+    if (task.key !== key) return;
+
+    const rows = this.dataModel.listRows();
+    const updates: Record<string, number> = {};
+    let measured = 0;
+    const start = performance.now();
+    while (task.nextIndex < rows.length && measured < CanvasRenderer.ROW_HEIGHT_MEASURE_CHUNK) {
+      if (performance.now() - start > CanvasRenderer.ROW_HEIGHT_MEASURE_TIME_BUDGET_MS) break;
+      const row = rows[task.nextIndex];
+      task.nextIndex += 1;
+      if (!row) continue;
+      const version = this.dataModel.getRowVersion(row.id);
+      if (this.rowHeightMeasuredVersion.get(row.id) === version) continue;
+      const h = this.measureRowHeight(ctx, row, schema, colWidths);
+      updates[row.id] = h;
+      this.rowHeightMeasuredVersion.set(row.id, version);
+      measured += 1;
+    }
+    this.rowHeightMeasureTask = task.nextIndex < rows.length ? task : null;
+    this.ensureHeightIndex(rows, this.rowHeightCacheKey, true);
+    this.applyRowHeightUpdates(updates);
+    this.dataModel.setRowHeightsBulk(updates);
+    if (this.rowHeightMeasureTask) this.scheduleRowHeightMeasurement();
   }
 
   private handleClick = (ev: MouseEvent) => {
@@ -1071,10 +1265,12 @@ export class CanvasRenderer implements Renderer {
     const rows = this.dataModel.listRows();
     const headerHeight = this.headerHeight;
     const colWidths = getColumnWidths(schema, view);
-    const totalRowsHeight = rows.reduce(
-      (acc, row) => acc + (this.dataModel.getRowHeight(row.id) ?? this.rowHeight),
-      0,
-    );
+    const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
+    const key = wrapAny ? this.getRowHeightCacheKey(schema, view, colWidths) : null;
+    this.ensureHeightIndex(rows, key, wrapAny);
+    const heightIndex = this.heightIndex;
+    if (!heightIndex) return null;
+    const totalRowsHeight = heightIndex.fenwick.total();
     const contentScrollTop = Math.max(
       0,
       Math.min(
@@ -1115,16 +1311,8 @@ export class CanvasRenderer implements Renderer {
     }
     if (viewportX < this.rowHeaderWidth) {
       const y = viewportY - headerHeight + contentScrollTop;
-      let accumHeight = 0;
-      let rowIndex = -1;
-      for (let i = 0; i < rows.length; i += 1) {
-        const h = this.dataModel.getRowHeight(rows[i].id) ?? this.rowHeight;
-        if (y < accumHeight + h) {
-          rowIndex = i;
-          break;
-        }
-        accumHeight += h;
-      }
+      const rowIndex = Math.max(0, Math.min(rows.length - 1, heightIndex.fenwick.lowerBound(y + 1)));
+      const accumHeight = heightIndex.fenwick.sum(rowIndex);
       if (rowIndex < 0 || rowIndex >= rows.length) return null;
       const row = rows[rowIndex];
       const topPx = rect.top + headerHeight + accumHeight - contentScrollTop;
@@ -1132,21 +1320,13 @@ export class CanvasRenderer implements Renderer {
         rect.left,
         topPx,
         this.rowHeaderWidth,
-        this.dataModel.getRowHeight(row.id) ?? this.rowHeight,
+        heightIndex.heights[rowIndex] ?? this.rowHeight,
       );
       return { rowId: row.id, colKey: "__row__", rect: cellRect };
     }
     const y = viewportY - headerHeight + contentScrollTop;
-    let rowIndex = -1;
-    let accumHeight = 0;
-    for (let i = 0; i < rows.length; i += 1) {
-      const h = this.dataModel.getRowHeight(rows[i].id) ?? this.rowHeight;
-      if (y < accumHeight + h) {
-        rowIndex = i;
-        break;
-      }
-      accumHeight += h;
-    }
+    const rowIndex = Math.max(0, Math.min(rows.length - 1, heightIndex.fenwick.lowerBound(y + 1)));
+    const accumHeight = heightIndex.fenwick.sum(rowIndex);
     if (rowIndex < 0 || rowIndex >= rows.length) return null;
     let xCursor = this.rowHeaderWidth;
     let colIndex = -1;
@@ -1166,7 +1346,7 @@ export class CanvasRenderer implements Renderer {
       rect.left + xCursor - this.root.scrollLeft,
       rect.top + headerHeight + rowTop - this.root.scrollTop,
       colWidths[colIndex] ?? 100,
-      this.dataModel.getRowHeight(row.id) ?? this.rowHeight,
+      heightIndex.heights[rowIndex] ?? this.rowHeight,
     );
     return { rowId: row.id, colKey: col.key, rect: cellRect };
   }
@@ -1253,12 +1433,12 @@ export class CanvasRenderer implements Renderer {
     const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
     if (rowIndex < 0 || colIndex < 0) return null;
     const colWidths = getColumnWidths(schema, view);
-    let accumHeight = 0;
-    for (let i = 0; i < rowIndex; i += 1) {
-      const r = rows[i];
-      if (!r) break;
-      accumHeight += this.dataModel.getRowHeight(r.id) ?? this.rowHeight;
-    }
+    const wrapAny = schema.columns.some((c) => view.wrapText?.[String(c.key)] ?? c.wrapText);
+    const key = wrapAny ? this.getRowHeightCacheKey(schema, view, colWidths) : null;
+    this.ensureHeightIndex(rows, key, wrapAny);
+    const heightIndex = this.heightIndex;
+    if (!heightIndex) return null;
+    const accumHeight = heightIndex.fenwick.sum(rowIndex);
     let xCursor = this.rowHeaderWidth;
     for (let i = 0; i < colIndex; i += 1) {
       xCursor += colWidths[i] ?? 100;
@@ -1267,7 +1447,7 @@ export class CanvasRenderer implements Renderer {
       rect.left + xCursor - this.root.scrollLeft,
       rect.top + this.headerHeight + accumHeight - this.root.scrollTop,
       colWidths[colIndex] ?? 100,
-      this.dataModel.getRowHeight(rowId) ?? this.rowHeight,
+      heightIndex.heights[rowIndex] ?? this.rowHeight,
     );
   }
 
@@ -1350,6 +1530,11 @@ export class CanvasRenderer implements Renderer {
       this.tooltipMessage = null;
       return;
     }
+    // In readonly editMode, keep spreadsheet-like cursor for all body cells.
+    if (this.getEditMode() === "readonly") {
+      this.canvas.style.cursor = "cell";
+      return;
+    }
 
     const marker = this.dataModel.getCellMarker(hit.rowId, hit.colKey);
     if (this.tooltip && marker) {
@@ -1419,7 +1604,7 @@ export class CanvasRenderer implements Renderer {
     this.canvas.style.cursor = cursor;
   }
 
-  private computeRowHeight(
+  private measureRowHeight(
     ctx: CanvasRenderingContext2D,
     row: InternalRow,
     schema: Schema,
@@ -1440,14 +1625,18 @@ export class CanvasRenderer implements Renderer {
       const h = lines.length * this.lineHeight + this.padding;
       maxHeight = Math.max(maxHeight, h);
     }
-    this.dataModel.setRowHeight(row.id, maxHeight);
     return maxHeight;
   }
 
   private wrapLines(ctx: CanvasRenderingContext2D, text: string, width: number) {
     const key = `${ctx.font}|${width}|${text}`;
     const cached = this.textMeasureCache.get(key);
-    if (cached && cached.frame === this.frame) return cached.lines;
+    if (cached) {
+      // LRU refresh
+      this.textMeasureCache.delete(key);
+      this.textMeasureCache.set(key, cached);
+      return cached.lines;
+    }
     const rawLines = text.split("\n");
     const lines: string[] = [];
     for (const line of rawLines) {
@@ -1462,7 +1651,12 @@ export class CanvasRenderer implements Renderer {
       }
       lines.push(current);
     }
-    this.textMeasureCache.set(key, { lines, frame: this.frame });
+    this.textMeasureCache.set(key, { lines });
+    while (this.textMeasureCache.size > CanvasRenderer.TEXT_MEASURE_CACHE_MAX) {
+      const firstKey = this.textMeasureCache.keys().next().value as string | undefined;
+      if (!firstKey) break;
+      this.textMeasureCache.delete(firstKey);
+    }
     return lines;
   }
 

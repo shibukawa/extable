@@ -92,7 +92,6 @@ export const Extable = defineComponent({
       },
       setData: (data: NullableDataSet) => core?.setData(data),
       setView: (view: View) => core?.setView(view),
-      setSchema: (schema: Schema) => core?.setSchema(schema),
       setEditMode: (mode: EditMode) => core?.setEditMode(mode),
       setLockMode: (mode: LockMode) => core?.setLockMode(mode),
     });
@@ -125,7 +124,6 @@ export type ExtableVueHandle<T extends Record<string, unknown> = Record<string, 
 
   setData(data: NullableDataSet<T>): void;
   setView(view: View): void;
-  setSchema(schema: Schema): void;
 
   setEditMode(mode: EditMode): void;
   setLockMode(mode: LockMode): void;

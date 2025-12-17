@@ -154,6 +154,7 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
 
   constructor(init: CoreInit<T>) {
     this.root = init.root;
+    this.root.classList.add("extable-root");
     this.renderMode = init.options?.renderMode ?? "auto";
     this.editMode = init.options?.editMode ?? "direct";
     this.lockMode = init.options?.lockMode ?? "none";
@@ -219,9 +220,9 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
         (typeof navigator !== "undefined" &&
           "userAgentData" in navigator &&
           (navigator as any).userAgentData?.brands?.some((b: any) => /bot/i.test(b.brand)));
-      return isBot ? new HTMLRenderer(this.dataModel) : new CanvasRenderer(this.dataModel);
+      return isBot ? new HTMLRenderer(this.dataModel) : new CanvasRenderer(this.dataModel, () => this.editMode);
     }
-    return mode === "html" ? new HTMLRenderer(this.dataModel) : new CanvasRenderer(this.dataModel);
+    return mode === "html" ? new HTMLRenderer(this.dataModel) : new CanvasRenderer(this.dataModel, () => this.editMode);
   }
 
   private ensureShell() {
@@ -381,14 +382,6 @@ export class ExtableCore<T extends Record<string, unknown> = Record<string, unkn
     this.safeRender(this.viewportState ?? undefined);
     this.selectionManager?.syncAfterRowsChanged();
     this.emitSelection("view");
-    this.emitTableState();
-  }
-
-  setSchema(schema: Schema) {
-    this.dataModel.setSchema(schema);
-    this.safeRender(this.viewportState ?? undefined);
-    this.selectionManager?.syncAfterRowsChanged();
-    this.emitSelection("schema");
     this.emitTableState();
   }
 

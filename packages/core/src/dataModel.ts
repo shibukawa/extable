@@ -199,11 +199,17 @@ export class DataModel {
   }
 
   private findRow(rowId: string): { row: InternalRow; index: number } | null {
-    const index = this.rows.findIndex((r) => r.id === rowId);
-    if (index < 0) return null;
+    const index = this.baseIndexById.get(rowId);
+    if (index === undefined) return null;
     const row = this.rows[index];
-    if (!row) return null;
-    return { row, index };
+    if (row && row.id === rowId) return { row, index };
+    // Defensive fallback for unexpected external mutation of `rows`.
+    const slowIndex = this.rows.findIndex((r) => r.id === rowId);
+    if (slowIndex < 0) return null;
+    const slowRow = this.rows[slowIndex];
+    if (!slowRow) return null;
+    this.rebuildBaseIndex();
+    return { row: slowRow, index: slowIndex };
   }
 
   public getRowHeight(rowId: string) {
@@ -212,8 +218,23 @@ export class DataModel {
 
   public setRowHeight(rowId: string, height: number) {
     if (!this.view.rowHeights) this.view.rowHeights = {};
+    const prev = this.view.rowHeights[rowId];
+    if (prev === height) return;
     this.view.rowHeights[rowId] = height;
     this.notify();
+  }
+
+  public setRowHeightsBulk(next: Record<string, number>) {
+    const entries = Object.entries(next);
+    if (entries.length === 0) return;
+    if (!this.view.rowHeights) this.view.rowHeights = {};
+    let changed = false;
+    for (const [rowId, height] of entries) {
+      if (this.view.rowHeights[rowId] === height) continue;
+      this.view.rowHeights[rowId] = height;
+      changed = true;
+    }
+    if (changed) this.notify();
   }
 
   public getCell(rowId: string, key: string | number) {
