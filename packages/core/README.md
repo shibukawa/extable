@@ -1,6 +1,6 @@
 # @extable/core
 
-![screenshot](../docs/public/assets/screenshot.png)
+![screenshot](../docs/public/assets/screenshot.webp)
 
 Excel-like HTML table component with a fixed column schema and built-in multi-user editing support.
 

@@ -2,7 +2,7 @@
 
 Excel-like HTML table component with a fixed column schema (similar to Google Sheets’ table mode) and built-in multi-user editing.
 
-![screenshot](packages/docs/public/assets/screenshot.png)
+![screenshot](packages/docs/public/assets/screenshot.webp)
 
 ## Documentation
 

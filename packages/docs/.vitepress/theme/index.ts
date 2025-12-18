@@ -34,7 +34,7 @@ export default {
     if (typeof window !== "undefined" && !document.getElementById(id)) {
       const s = document.createElement("style");
       s.id = id;
-      s.textContent = `.VPHero .main::after{content:'';position:absolute;right:0;top:0;width:50%;height:100%;background-image:url('https://github.com/shibukawa/extable/blob/main/packages/docs/public/assets/screenshot.png?raw=true');background-size:contain;background-repeat:no-repeat;background-position:right center;pointer-events:none;filter:drop-shadow(0 10px 40px rgba(0,0,0,0.12))}`;
+      s.textContent = `.VPHero .main::after{content:'';position:absolute;right:0;top:0;width:50%;height:100%;background-image:url('https://github.com/shibukawa/extable/blob/main/packages/docs/public/assets/screenshot.webp?raw=true');background-size:contain;background-repeat:no-repeat;background-position:right center;pointer-events:none;filter:drop-shadow(0 10px 40px rgba(0,0,0,0.12))}`;
       document.head.appendChild(s);
     }
   },
