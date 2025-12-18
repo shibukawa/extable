@@ -938,6 +938,7 @@ export class CanvasRenderer implements Renderer {
                 this.selection,
                 this.activeRowId,
                 this.activeColKey,
+                this.getEditMode(),
               )
             ) {
               const size = FILL_HANDLE_VISUAL_SIZE_PX;
@@ -1614,7 +1615,13 @@ export class CanvasRenderer implements Renderer {
       this.activeRowId !== "__all__" &&
       this.activeColKey !== "__all__" &&
       this.activeColKey !== "__row__" &&
-      shouldShowFillHandle(this.dataModel, this.selection, this.activeRowId, this.activeColKey)
+      shouldShowFillHandle(
+        this.dataModel,
+        this.selection,
+        this.activeRowId,
+        this.activeColKey,
+        this.getEditMode(),
+      )
     ) {
       const cellRect = this.getCellRect(this.activeRowId, this.activeColKey);
       if (cellRect) {

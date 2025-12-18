@@ -8,14 +8,16 @@ vi.mock('@extable/react', async () => {
       React.useImperativeHandle(
         ref,
         () => ({
-          getCore: () => null,
           destroy: () => {},
           setData: () => {},
           setView: () => {},
-          setSchema: () => {},
-          setRenderMode: () => {},
-          setEditMode: () => {},
-          setLockMode: () => {}
+          showSearchPanel: () => {},
+          undo: () => {},
+          redo: () => {},
+          commit: () => Promise.resolve(),
+          getUndoRedoHistory: () => ({ undo: [], redo: [] }),
+          subscribeTableState: () => () => {},
+          subscribeSelection: () => () => {}
         }),
         []
       );

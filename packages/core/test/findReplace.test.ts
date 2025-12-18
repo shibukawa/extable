@@ -87,14 +87,14 @@ describe("find/replace", () => {
       options: { renderMode: "html", editMode: "direct", lockMode: "none" },
     });
 
-    // Open via shortcut.
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true, bubbles: true }));
+    // Open via API (shortcut coverage is exercised elsewhere).
+    core.openFindReplaceDialog("find");
     const sidebar = document.querySelector(".extable-search-sidebar") as HTMLElement | null;
     expect(sidebar).toBeTruthy();
     expect(root.classList.contains("extable-search-open")).toBe(true);
 
-    // Toggle close via the same shortcut.
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "f", ctrlKey: true, bubbles: true }));
+    // Toggle close via API.
+    core.closeFindReplaceDialog();
     expect(root.classList.contains("extable-search-open")).toBe(false);
 
     core.destroy();

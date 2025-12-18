@@ -115,7 +115,7 @@ describe("table state callbacks", () => {
     expect(last).toBeTruthy();
     expect(last.canCommit).toBe(false);
 
-    (core as any).setCellValue({ rowIndex: 0, colIndex: 0 }, (old: any) => `${old}-x`);
+    core.setCellValue(0, "name", (old: any) => `${old}-x`);
     expect(last.canCommit).toBe(true);
     expect(last.pendingCommandCount).toBe(1);
     expect(last.pendingCellCount).toBe(1);
@@ -188,7 +188,7 @@ describe("public data access api", () => {
     const rowId = core.getAllRows()[0]!.id;
     expect(core.getCell(rowId, "name")).toBe("Alice");
 
-    core.setCellValue({ rowId, colKey: "name" }, "Bob");
+    core.setCellValue(rowId, "name", "Bob");
     expect(core.getCell(rowId, "name")).toBe("Bob");
     expect(core.getRawData()[0]!.name).toBe("Alice");
     expect(core.getCellPending(rowId, "name")).toBe(true);
@@ -213,7 +213,7 @@ describe("public data access api", () => {
     mountTable(root, core);
 
     const rowId = core.getAllRows()[0]!.id;
-    core.setCellValue({ rowId, colKey: "name" }, "Bob");
+    core.setCellValue(rowId, "name", "Bob");
     expect(core.getCell(rowId, "name")).toBe("Bob");
     expect(core.getPending().size).toBe(0);
     expect(core.getCellPending(rowId, "name")).toBe(false);
@@ -301,7 +301,8 @@ describe("public data access api", () => {
     expect(core.deleteRow(inserted!)).toBe(true);
     expect(core.getTableState().pendingCommandCount).toBe(2);
 
-    await core.commit();
+    const committed = await core.commit();
+    expect(Array.isArray(committed)).toBe(true);
     expect(core.getTableState().pendingCommandCount).toBe(0);
     expect(core.getTableState().undoRedo.canUndo).toBe(false);
 
@@ -338,7 +339,7 @@ describe("subscription semantics", () => {
     expect(b[0]!.prev).toBe(null);
 
     // Same state should not trigger another call.
-    core.setLockMode("none");
+    core.hideSearchPanel();
     expect(a.length).toBe(1);
     expect(b.length).toBe(1);
 
@@ -351,7 +352,7 @@ describe("subscription semantics", () => {
     unsubA(); // idempotent
     unsubB();
     unsubB(); // idempotent
-    core.setLockMode("none");
+    core.hideSearchPanel();
     expect(a.length).toBe(2);
     expect(b.length).toBe(2);
 

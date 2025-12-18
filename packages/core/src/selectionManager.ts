@@ -272,6 +272,7 @@ export class SelectionManager {
       this.selectionRanges,
       activeRowId,
       activeColKey,
+      this.editMode,
     )
       ? "1"
       : "";
@@ -633,6 +634,7 @@ export class SelectionManager {
             this.selectionRanges,
             this.activeCell.rowId,
             this.activeCell.colKey,
+            this.editMode,
           )
         ) {
           const handleRect = getFillHandleRect(cellRect, FILL_HANDLE_HIT_SIZE_PX);
@@ -1079,6 +1081,65 @@ export class SelectionManager {
     this.teardownSelectionInput();
     this.openEditorAtActiveCell();
   };
+
+  public async copySelection() {
+    const payload = this.buildSelectionClipboardPayload();
+    if (!payload) return;
+    const { text, html, cellCount } = payload;
+
+    const copyViaClipboardApi = async () => {
+      if (typeof navigator === "undefined" || !navigator.clipboard) return false;
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        try {
+          const item = new ClipboardItem({
+            "text/plain": new Blob([text], { type: "text/plain" }),
+            "text/html": new Blob([html], { type: "text/html" }),
+          });
+          await navigator.clipboard.write([item]);
+          return true;
+        } catch {
+          /* fallthrough */
+        }
+      }
+      if (navigator.clipboard.writeText) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch {
+          /* fallthrough */
+        }
+      }
+      return false;
+    };
+
+    const copyViaFallbackInput = () => {
+      const input = this.ensureSelectionInput();
+      const prev = input.value;
+      input.value = text;
+      input.select();
+      document.execCommand?.("copy");
+      input.value = prev;
+    };
+
+    const copied = await copyViaClipboardApi();
+    if (!copied) copyViaFallbackInput();
+    this.showCopyToast(`Copied ${cellCount} cells`, "info");
+  }
+
+  public async pasteFromClipboard() {
+    if (this.editMode === "readonly") return;
+    if (!this.selectionMode) return;
+    if (typeof navigator === "undefined" || !navigator.clipboard?.readText) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) return;
+      const grid = this.parseClipboardGrid({ html: "", tsv: text, text });
+      if (!grid) return;
+      this.applyClipboardGrid(grid);
+    } catch {
+      /* ignore */
+    }
+  }
 
   private handleSelectionKeydown = (ev: KeyboardEvent) => {
     if (!this.selectionMode) return;

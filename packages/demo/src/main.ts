@@ -436,11 +436,41 @@ function main() {
   const onKey = (e: KeyboardEvent) => {
     const key = e.key.toLowerCase();
     const isMod = e.metaKey || e.ctrlKey;
-    if (!isMod || key !== "f") return;
-    if (!core) return;
-    e.preventDefault();
-    e.stopPropagation();
-    core.toggleSearchPanel("find");
+    if (!isMod) return;
+
+    // Log key inputs for debugging.
+    // eslint-disable-next-line no-console
+    console.debug("[demo] keydown", {
+      key: e.key,
+      ctrl: e.ctrlKey,
+      meta: e.metaKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      target: (e.target as HTMLElement | null)?.tagName ?? "unknown",
+    });
+
+    if (key === "f" && !e.altKey && !e.shiftKey) {
+      if (!core) return;
+      e.preventDefault();
+      e.stopPropagation();
+      core.showSearchPanel("find");
+      return;
+    }
+
+    // Undo: Ctrl/Cmd+Z (Search is handled by core's ensureFindReplaceShortcut)
+    if (key === "z") {
+      console.log("[onKey-z] core exists:", !!core, "shiftKey:", e.shiftKey);
+      if (!core) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.shiftKey) {
+        console.log("[onKey-z] calling redo");
+        core.redo(); // Ctrl/Cmd+Shift+Z
+      } else {
+        console.log("[onKey-z] calling undo");
+        core.undo(); // Ctrl/Cmd+Z
+      }
+    }
   };
   document.addEventListener("keydown", onKey, { capture: true });
   window.addEventListener("beforeunload", () => {

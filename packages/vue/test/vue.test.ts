@@ -27,11 +27,14 @@ describe('vue wrapper', () => {
     });
 
     await nextTick();
-    const core = (wrapper.vm as any).getCore?.();
-    expect(core).toBeTruthy();
+    const handle = wrapper.vm as unknown as {
+      subscribeTableState: (cb: () => void) => () => void;
+      subscribeSelection: (cb: () => void) => () => void;
+    };
+    expect(handle).toBeTruthy();
 
     let tableCalls = 0;
-    const unsubTable = core.subscribeTableState(() => {
+    const unsubTable = handle.subscribeTableState(() => {
       tableCalls += 1;
     });
     expect(tableCalls).toBe(1);
@@ -39,7 +42,7 @@ describe('vue wrapper', () => {
     unsubTable();
 
     let selectionCalls = 0;
-    const unsubSel = core.subscribeSelection(() => {
+    const unsubSel = handle.subscribeSelection(() => {
       selectionCalls += 1;
     });
     expect(selectionCalls).toBe(1);

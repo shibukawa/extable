@@ -409,12 +409,38 @@ onMounted(() => {
   const onKey = (e: KeyboardEvent) => {
     const key = e.key.toLowerCase();
     const isMod = e.metaKey || e.ctrlKey;
-    if (!isMod || key !== "f") return;
-    const core = tableRef.value?.getCore();
-    if (!core) return;
-    e.preventDefault();
-    e.stopPropagation();
-    core.toggleSearchPanel("find");
+    // eslint-disable-next-line no-console
+    console.debug("[demo-vue] keydown", {
+      key: e.key,
+      ctrl: e.ctrlKey,
+      meta: e.metaKey,
+      shift: e.shiftKey,
+      alt: e.altKey,
+      target: (e.target as HTMLElement | null)?.tagName ?? "unknown",
+    });
+    if (!isMod) return;
+
+    if (key === "f" && !e.altKey && !e.shiftKey) {
+      const core = tableRef.value?.getCore();
+      if (!core) return;
+      e.preventDefault();
+      e.stopPropagation();
+      core.showSearchPanel("find");
+      return;
+    }
+
+    // Undo: Ctrl/Cmd+Z
+    if (key === "z") {
+      const core = tableRef.value?.getCore();
+      if (!core) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.shiftKey) {
+        core.redo(); // Ctrl/Cmd+Shift+Z
+      } else {
+        core.undo(); // Ctrl/Cmd+Z
+      }
+    }
   };
   document.addEventListener("keydown", onKey, true);
   onBeforeUnmount(() => {

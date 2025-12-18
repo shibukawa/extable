@@ -1,5 +1,5 @@
-import type { DataModel } from './dataModel';
-import type { SelectionRange } from './types';
+import type { DataModel } from "./dataModel";
+import type { EditMode, SelectionRange } from "./types";
 
 export type FillHandleMode = 'copy' | 'sequence';
 
@@ -286,7 +286,9 @@ export function shouldShowFillHandle(
   ranges: SelectionRange[],
   activeRowId: string | null,
   activeColKey: string | null,
+  editMode: EditMode,
 ): boolean {
+  if (editMode === "readonly") return false;
   const src = getFillHandleSource(dataModel, ranges);
   if (!src) return false;
   if (!activeRowId || activeRowId === '__all__') return false;

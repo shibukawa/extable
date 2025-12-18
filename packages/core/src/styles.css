@@ -272,6 +272,12 @@
     background: rgba(59, 130, 246, 0.08) !important;
   }
 
+  /* In global readonly mode, keep normal look (viewer style). */
+  &.extable-readonly-all .extable-readonly-muted {
+    background: inherit !important;
+    color: inherit !important;
+  }
+
   /* In readonly mode, body cells should keep a spreadsheet-like cursor (cell). */
   &.extable-readonly-all table[data-extable-renderer="html"] tbody td,
   &.extable-readonly-all table[data-extable-renderer="canvas-html-overlay"] tbody td {
@@ -729,6 +735,11 @@
     align-items: center;
   }
 
+  & .extable-search-title {
+    font-weight: 700;
+    color: #0f172a;
+  }
+
   & .extable-search-close {
     border: none;
     background: transparent;
@@ -788,19 +799,21 @@
     border: 1px solid #e5e7eb;
     border-radius: 10px;
     background: #fff;
+    font-size: 13px;
   }
 
   & .extable-search-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12px;
+    font-size: 13px;
     table-layout: fixed;
 
     & th,
     & td {
       border-bottom: 1px solid #eef2f7;
       padding: 6px 8px;
-      vertical-align: top;
+      vertical-align: middle;
+      line-height: 1.4;
     }
 
     & td {
@@ -814,17 +827,21 @@
       z-index: 1;
       text-align: left;
       color: #334155;
+      font-weight: 700;
     }
 
     & th:first-child,
     & td:first-child {
       width: 72px;
       white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
     }
 
     & th:nth-child(2),
     & td:nth-child(2) {
       width: auto;
+      min-width: 0;
     }
 
     & td:nth-child(2) {
@@ -846,6 +863,12 @@
     &[data-active="1"] {
       background: rgba(59, 130, 246, 0.12);
     }
+  }
+
+  & .extable-search-sidebar[data-extable-fr-readonly="1"] [data-extable-fr="replace-row"],
+  & .extable-search-sidebar[data-extable-fr-readonly="1"] [data-extable-fr="replace-toggle-row"],
+  & .extable-search-sidebar[data-extable-fr-readonly="1"] [data-extable-fr-only="replace"] {
+    display: none !important;
   }
 
   /* Toasts */

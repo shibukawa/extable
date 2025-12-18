@@ -10,20 +10,55 @@ import type {
   SelectionSnapshot,
   TableState,
   View,
+  FindReplaceMode,
 } from "@extable/core";
 import { ExtableCore } from "@extable/core";
 
-export type ExtableHandle<T extends Record<string, unknown> = Record<string, unknown>> = {
-  getCore(): ExtableCore<T> | null;
-  destroy(): void;
+type CoreApi<T extends object, R extends object = T> = Pick<
+  ExtableCore<T, R>,
+  | "setData"
+  | "setView"
+  | "showSearchPanel"
+  | "hideSearchPanel"
+  | "toggleSearchPanel"
+  | "openFindReplaceDialog"
+  | "closeFindReplaceDialog"
+  | "getData"
+  | "getRawData"
+  | "getSchema"
+  | "getView"
+  | "getCell"
+  | "getDisplayValue"
+  | "getCellPending"
+  | "getRow"
+  | "getRowData"
+  | "getTableData"
+  | "getColumnData"
+  | "getPending"
+  | "getPendingRowIds"
+  | "hasPendingChanges"
+  | "getPendingCellCount"
+  | "getRowIndex"
+  | "getColumnIndex"
+  | "getAllRows"
+  | "listRows"
+  | "setCellValue"
+  | "setValueToSelection"
+  | "insertRow"
+  | "deleteRow"
+  | "undo"
+  | "redo"
+  | "getUndoRedoHistory"
+  | "commit"
+  | "subscribeTableState"
+  | "subscribeSelection"
+  | "getSelectionSnapshot"
+>;
 
-  setData(data: NullableData<T>): void;
-  setView(view: View): void;
-  setSchema(schema: Schema): void;
-
-  setEditMode(mode: EditMode): void;
-  setLockMode(mode: LockMode): void;
-};
+export type ExtableHandle<T extends Record<string, unknown> = Record<string, unknown>, R extends object = T> =
+  CoreApi<T, R> & {
+    destroy(): void;
+  };
 
 export type ExtableProps<T extends Record<string, unknown> = Record<string, unknown>> = Omit<
   HTMLAttributes<HTMLDivElement>,
@@ -109,20 +144,55 @@ export const Extable = forwardRef(function ExtableInner<
 
   useImperativeHandle(
     ref,
-    () => ({
-      getCore: () => coreRef.current,
-      destroy: () => {
-        coreRef.current?.destroy();
-        coreRef.current = null;
-      },
-
-      setData: (data) => coreRef.current?.setData(data),
-      setView: (view) => coreRef.current?.setView(view),
-      setSchema: (nextSchema) => coreRef.current?.setSchema(nextSchema),
-
-      setEditMode: (mode) => coreRef.current?.setEditMode(mode),
-      setLockMode: (mode) => coreRef.current?.setLockMode(mode),
-    }),
+    () => {
+      const proxy: ExtableHandle<T> = {
+        destroy: () => {
+          coreRef.current?.destroy();
+          coreRef.current = null;
+        },
+        setData: (data) => coreRef.current?.setData(data),
+        setView: (view) => coreRef.current?.setView(view),
+        showSearchPanel: (mode?: FindReplaceMode) => coreRef.current?.showSearchPanel(mode),
+        hideSearchPanel: () => coreRef.current?.hideSearchPanel(),
+        toggleSearchPanel: (mode?: FindReplaceMode) => coreRef.current?.toggleSearchPanel(mode),
+        openFindReplaceDialog: (mode?: FindReplaceMode) =>
+          coreRef.current?.openFindReplaceDialog(mode),
+        closeFindReplaceDialog: () => coreRef.current?.closeFindReplaceDialog(),
+        getData: () => coreRef.current?.getData() ?? [],
+        getRawData: () => coreRef.current?.getRawData() ?? [],
+        getSchema: () => coreRef.current?.getSchema(),
+        getView: () => coreRef.current?.getView(),
+        getCell: (rowId: string, colKey: any) => coreRef.current?.getCell(rowId, colKey),
+        getDisplayValue: (row: any, colKey: any) =>
+          coreRef.current?.getDisplayValue(row, colKey) ?? "",
+        getCellPending: (row: any, colKey: any) => coreRef.current?.getCellPending(row, colKey) ?? false,
+        getRow: (row: any) => coreRef.current?.getRow(row),
+        getRowData: (row: any) => coreRef.current?.getRowData(row),
+        getTableData: () => coreRef.current?.getTableData() ?? [],
+        getColumnData: (colKey: any) => coreRef.current?.getColumnData(colKey) ?? [],
+        getPending: () => coreRef.current?.getPending() ?? new Map(),
+        getPendingRowIds: () => coreRef.current?.getPendingRowIds() ?? [],
+        hasPendingChanges: () => coreRef.current?.hasPendingChanges() ?? false,
+        getPendingCellCount: () => coreRef.current?.getPendingCellCount() ?? 0,
+        getRowIndex: (rowId: string) => coreRef.current?.getRowIndex(rowId) ?? -1,
+        getColumnIndex: (colKey: string) => coreRef.current?.getColumnIndex(colKey) ?? -1,
+        getAllRows: () => coreRef.current?.getAllRows() ?? [],
+        listRows: () => coreRef.current?.listRows() ?? [],
+        setCellValue: (row: any, colKey: any, next: any) =>
+          coreRef.current?.setCellValue(row as never, colKey as never, next as never),
+        setValueToSelection: (next: any) => coreRef.current?.setValueToSelection(next),
+        insertRow: (rowData: any, pos?: any) => coreRef.current?.insertRow(rowData, pos) ?? null,
+        deleteRow: (row: any) => coreRef.current?.deleteRow(row) ?? false,
+        undo: () => coreRef.current?.undo(),
+        redo: () => coreRef.current?.redo(),
+        getUndoRedoHistory: () => coreRef.current?.getUndoRedoHistory(),
+        commit: () => coreRef.current?.commit(),
+        subscribeTableState: (listener: any) => coreRef.current?.subscribeTableState(listener),
+        subscribeSelection: (listener: any) => coreRef.current?.subscribeSelection(listener),
+        getSelectionSnapshot: () => coreRef.current?.getSelectionSnapshot(),
+      };
+      return proxy;
+    },
     [],
   );
 

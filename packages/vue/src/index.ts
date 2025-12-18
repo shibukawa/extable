@@ -8,10 +8,59 @@ import type {
   SelectionSnapshot,
   TableState,
   View,
+  FindReplaceMode,
 } from "@extable/core";
 import { ExtableCore } from "@extable/core";
 import type { PropType } from "vue";
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
+
+type CoreApi<T extends object, R extends object = T> = Pick<
+  ExtableCore<T, R>,
+  | "setData"
+  | "setView"
+  | "showSearchPanel"
+  | "hideSearchPanel"
+  | "toggleSearchPanel"
+  | "openFindReplaceDialog"
+  | "closeFindReplaceDialog"
+  | "getData"
+  | "getRawData"
+  | "getSchema"
+  | "getView"
+  | "getCell"
+  | "getDisplayValue"
+  | "getCellPending"
+  | "getRow"
+  | "getRowData"
+  | "getTableData"
+  | "getColumnData"
+  | "getPending"
+  | "getPendingRowIds"
+  | "hasPendingChanges"
+  | "getPendingCellCount"
+  | "getRowIndex"
+  | "getColumnIndex"
+  | "getAllRows"
+  | "listRows"
+  | "setCellValue"
+  | "setValueToSelection"
+  | "insertRow"
+  | "deleteRow"
+  | "undo"
+  | "redo"
+  | "getUndoRedoHistory"
+  | "commit"
+  | "subscribeTableState"
+  | "subscribeSelection"
+  | "getSelectionSnapshot"
+>;
+
+export type ExtableVueHandle<T extends Record<string, unknown> = Record<string, unknown>, R extends object = T> = CoreApi<
+  T,
+  R
+> & {
+  destroy(): void;
+};
 
 export const Extable = defineComponent({
   name: "Extable",
@@ -88,17 +137,52 @@ export const Extable = defineComponent({
       },
     );
 
-    expose({
-      getCore: () => core,
+    const handle: ExtableVueHandle = {
       destroy: () => {
         core?.destroy();
         core = null;
       },
-      setData: (data: NullableData) => core?.setData(data),
-      setView: (view: View) => core?.setView(view),
-      setEditMode: (mode: EditMode) => core?.setEditMode(mode),
-      setLockMode: (mode: LockMode) => core?.setLockMode(mode),
-    });
+      setData: (data) => core?.setData(data),
+      setView: (view) => core?.setView(view),
+      showSearchPanel: (mode?: FindReplaceMode) => core?.showSearchPanel(mode),
+      hideSearchPanel: () => core?.hideSearchPanel(),
+      toggleSearchPanel: (mode?: FindReplaceMode) => core?.toggleSearchPanel(mode),
+      openFindReplaceDialog: (mode?: FindReplaceMode) => core?.openFindReplaceDialog(mode),
+      closeFindReplaceDialog: () => core?.closeFindReplaceDialog(),
+      getData: () => core?.getData() ?? [],
+      getRawData: () => core?.getRawData() ?? [],
+      getSchema: () => core?.getSchema(),
+      getView: () => core?.getView(),
+      getCell: (rowId: string, colKey: any) => core?.getCell(rowId, colKey),
+      getDisplayValue: (row: any, colKey: any) => core?.getDisplayValue(row, colKey) ?? "",
+      getCellPending: (row: any, colKey: any) => core?.getCellPending(row, colKey) ?? false,
+      getRow: (row: any) => core?.getRow(row),
+      getRowData: (row: any) => core?.getRowData(row),
+      getTableData: () => core?.getTableData() ?? [],
+      getColumnData: (colKey: any) => core?.getColumnData(colKey) ?? [],
+      getPending: () => core?.getPending() ?? new Map(),
+      getPendingRowIds: () => core?.getPendingRowIds() ?? [],
+      hasPendingChanges: () => core?.hasPendingChanges() ?? false,
+      getPendingCellCount: () => core?.getPendingCellCount() ?? 0,
+      getRowIndex: (rowId: string) => core?.getRowIndex(rowId) ?? -1,
+      getColumnIndex: (colKey: string) => core?.getColumnIndex(colKey) ?? -1,
+      getAllRows: () => core?.getAllRows() ?? [],
+      listRows: () => core?.listRows() ?? [],
+      setCellValue: (row: any, colKey: any, next: any) =>
+        core?.setCellValue(row as never, colKey as never, next as never),
+      setValueToSelection: (next: any) => core?.setValueToSelection(next),
+      insertRow: (rowData: any, pos?: any) => core?.insertRow(rowData, pos) ?? null,
+      deleteRow: (row: any) => core?.deleteRow(row) ?? false,
+      undo: () => core?.undo(),
+      redo: () => core?.redo(),
+      getUndoRedoHistory: () => core?.getUndoRedoHistory(),
+      commit: () => core?.commit(),
+      subscribeTableState: (listener: any) => core?.subscribeTableState(listener),
+      subscribeSelection: (listener: any) => core?.subscribeSelection(listener),
+      getSelectionSnapshot: () => core?.getSelectionSnapshot(),
+    };
+
+    expose(handle);
 
     return () =>
       h("div", {
@@ -123,12 +207,8 @@ export type {
 };
 
 export type ExtableVueHandle<T extends Record<string, unknown> = Record<string, unknown>> = {
-  getCore(): ExtableCore<T> | null;
   destroy(): void;
 
   setData(data: NullableData<T>): void;
   setView(view: View): void;
-
-  setEditMode(mode: EditMode): void;
-  setLockMode(mode: LockMode): void;
 };

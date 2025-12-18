@@ -239,9 +239,8 @@ export function App() {
 
   useEffect(() => {
     const handle = tableRef.current;
-    const core = handle?.getCore();
-    if (!handle || !core) return;
-    (window as unknown as Record<string, unknown>).__extableCore = core;
+    if (!handle) return;
+    (window as unknown as Record<string, unknown>).__extableCore = handle;
   }, []);
 
   useEffect(() => {
@@ -264,17 +263,6 @@ export function App() {
       }, 3000);
     }
   }, [renderMode]);
-  useEffect(() => {
-    const handle = tableRef.current;
-    if (!handle) return;
-    handle.setEditMode(editMode);
-  }, [editMode]);
-  useEffect(() => {
-    const handle = tableRef.current;
-    if (!handle) return;
-    handle.setLockMode(lockMode);
-  }, [lockMode]);
-
   useEffect(() => {
     loadGenerationRef.current += 1;
     if (loadTimerRef.current !== null) {
@@ -303,16 +291,50 @@ export function App() {
     };
   }, [dataMode]);
 
+  // Recreate table when schema/edit/lock mode changes for consistency.
+  useEffect(() => {
+    setTableInstanceKey((k) => k + 1);
+  }, [editMode, lockMode, currentConfig.schema]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const key = e.key.toLowerCase();
       const isMod = e.metaKey || e.ctrlKey;
-      if (!isMod || key !== "f") return;
-      const core = tableRef.current?.getCore();
-      if (!core) return;
-      e.preventDefault();
-      e.stopPropagation();
-      core.toggleSearchPanel("find");
+      // eslint-disable-next-line no-console
+      console.debug("[demo-react] keydown", {
+        key: e.key,
+        ctrl: e.ctrlKey,
+        meta: e.metaKey,
+        shift: e.shiftKey,
+        alt: e.altKey,
+        target: (e.target as HTMLElement | null)?.tagName ?? "unknown",
+      });
+      if (!isMod) return;
+
+      if (key === "f" && !e.altKey && !e.shiftKey) {
+        const handle = tableRef.current;
+        if (!handle) return;
+        e.preventDefault();
+        e.stopPropagation();
+        handle.showSearchPanel("find");
+        return;
+      }
+
+      // Undo: Ctrl/Cmd+Z (Search is handled by core's ensureFindReplaceShortcut)
+      if (key === "z") {
+        const handle = tableRef.current;
+        console.log("[onKey-z] handle exists:", !!handle, "shiftKey:", e.shiftKey);
+        if (!handle) return;
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.shiftKey) {
+          console.log("[onKey-z] calling redo");
+          handle.redo(); // Ctrl/Cmd+Shift+Z
+        } else {
+          console.log("[onKey-z] calling undo");
+          handle.undo(); // Ctrl/Cmd+Z
+        }
+      }
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
@@ -322,23 +344,22 @@ export function App() {
     const handle = tableRef.current;
     if (!handle) return;
     const next = currentConfig;
-    handle.setSchema(next.schema);
     handle.setView({ ...next.view });
     handle.setData(defaultData);
   }, [currentConfig, defaultData]);
 
   useEffect(() => {
-    const core = tableRef.current?.getCore();
-    if (!core) {
+    const handle = tableRef.current;
+    if (!handle) {
       setHistory({ undo: [], redo: [] });
       return;
     }
-    setHistory(core.getUndoRedoHistory());
+    setHistory(handle.getUndoRedoHistory());
   }, [tableState]);
 
   const commit = () => {
-    const core = tableRef.current?.getCore();
-    void core?.commit();
+    const handle = tableRef.current;
+    void handle?.commit();
   };
 
   return (
@@ -479,7 +500,7 @@ export function App() {
               <button
                 type="button"
                 className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-40"
-                onClick={() => tableRef.current?.getCore()?.undo()}
+                onClick={() => tableRef.current?.undo()}
                 disabled={!tableState?.undoRedo?.canUndo}
               >
                 Undo
@@ -487,7 +508,7 @@ export function App() {
               <button
                 type="button"
                 className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold disabled:opacity-40"
-                onClick={() => tableRef.current?.getCore()?.redo()}
+                onClick={() => tableRef.current?.redo()}
                 disabled={!tableState?.undoRedo?.canRedo}
               >
                 Redo
@@ -529,8 +550,8 @@ export function App() {
                   options={options}
                   onTableState={(next) => {
                     setTableState(next);
-                    const core = tableRef.current?.getCore();
-                    if (core) (window as unknown as Record<string, unknown>).__extableCore = core;
+                    const handle = tableRef.current;
+                    if (handle) (window as unknown as Record<string, unknown>).__extableCore = handle;
                   }}
                   className="min-h-0 h-full w-full"
                 />

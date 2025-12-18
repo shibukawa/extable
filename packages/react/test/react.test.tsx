@@ -30,11 +30,11 @@ describe('react wrapper', () => {
       />,
     );
 
-    await waitFor(() => expect(ref.current?.getCore()).toBeTruthy());
-    const core = ref.current!.getCore()!;
+    await waitFor(() => expect(ref.current).toBeTruthy());
+    const handle = ref.current!;
 
     let tableCalls = 0;
-    const unsubTable = core.subscribeTableState(() => {
+    const unsubTable = handle.subscribeTableState(() => {
       tableCalls += 1;
     });
     expect(tableCalls).toBe(1);
@@ -42,7 +42,7 @@ describe('react wrapper', () => {
     unsubTable();
 
     let selectionCalls = 0;
-    const unsubSel = core.subscribeSelection(() => {
+    const unsubSel = handle.subscribeSelection(() => {
       selectionCalls += 1;
     });
     expect(selectionCalls).toBe(1);

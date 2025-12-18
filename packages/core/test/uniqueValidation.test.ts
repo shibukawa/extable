@@ -47,7 +47,7 @@ describe("unique column validation", () => {
       .activeErrors.filter((e) => e.scope === "validation" && e.message.includes("Duplicate value"));
     expect(dup).toHaveLength(2);
 
-    core.setCellValue({ rowIndex: 1, colIndex: 0 }, "Bob");
+    core.setCellValue(1, "name", "Bob");
     dup = core
       .getTableState()
       .activeErrors.filter((e) => e.scope === "validation" && e.message.includes("Duplicate value"));

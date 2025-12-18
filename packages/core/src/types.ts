@@ -105,8 +105,8 @@ export type RowObject<T extends object = Record<string, unknown>> = {
   _readonly?: boolean;
 } & T;
 
-// Public data is object-row arrays only. Use `null` for async loading.
-export type NullableData<T extends object = Record<string, unknown>> = T[] | null;
+// Public data is object-row arrays only. Use `null` or `undefined` for async loading.
+export type NullableData<T extends object = Record<string, unknown>> = T[] | null | undefined;
 
 export type ViewFilterOp = {
   kind: "op";
@@ -277,6 +277,28 @@ export type TableState = {
 };
 
 export type TableStateListener = (next: TableState, prev: TableState | null) => void;
+
+export type RowStateSnapshot<
+  TInput extends object = Record<string, unknown>,
+  TResult extends object = TInput,
+> = {
+  rowId: string;
+  rowIndex: number;
+  data: TResult;
+  pending?: Partial<TInput>;
+  diagnostics?: TableError[];
+};
+
+export type RowChangeReason = "new" | "edit" | "delete";
+export type RowStateListener<
+  TInput extends object = Record<string, unknown>,
+  TResult extends object = TInput,
+> = (
+  rowId: string,
+  next: RowStateSnapshot<TInput, TResult> | null,
+  prev: RowStateSnapshot<TInput, TResult> | null,
+  reason: RowChangeReason,
+) => void;
 
 export type SelectionSnapshot = {
   ranges: SelectionRange[];
