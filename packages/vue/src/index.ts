@@ -67,7 +67,7 @@ export const Extable = defineComponent({
   inheritAttrs: true,
   props: {
     schema: {
-      type: Object as PropType<Schema>,
+      type: Object as PropType<Schema<any>>,
       required: true,
     },
     defaultData: {
@@ -99,6 +99,20 @@ export const Extable = defineComponent({
     let unsubSel: (() => void) | null = null;
     const initialDefaultDataWasNull = props.defaultData === null;
     let consumedDefaultDataLoad = false;
+    const initialSchema = props.schema;
+    const initialView = props.defaultView;
+    const emptySelectionSnapshot: SelectionSnapshot = {
+      ranges: [],
+      activeRowIndex: null,
+      activeRowKey: null,
+      activeColumnIndex: null,
+      activeColumnKey: null,
+      activeValueRaw: undefined,
+      activeValueDisplay: "",
+      activeValueType: null,
+      diagnostic: null,
+      styles: { columnStyle: {}, cellStyle: {}, resolved: {} },
+    };
 
     onMounted(() => {
       if (!root.value) return;
@@ -151,13 +165,13 @@ export const Extable = defineComponent({
       closeFindReplaceDialog: () => core?.closeFindReplaceDialog(),
       getData: () => core?.getData() ?? [],
       getRawData: () => core?.getRawData() ?? [],
-      getSchema: () => core?.getSchema(),
-      getView: () => core?.getView(),
-      getCell: (rowId: string, colKey: any) => core?.getCell(rowId, colKey),
+      getSchema: () => core?.getSchema() ?? initialSchema,
+      getView: () => core?.getView() ?? initialView,
+      getCell: (rowId: string, colKey: any) => core?.getCell(rowId, colKey) ?? null,
       getDisplayValue: (row: any, colKey: any) => core?.getDisplayValue(row, colKey) ?? "",
       getCellPending: (row: any, colKey: any) => core?.getCellPending(row, colKey) ?? false,
-      getRow: (row: any) => core?.getRow(row),
-      getRowData: (row: any) => core?.getRowData(row),
+      getRow: (row: any) => core?.getRow(row) ?? null,
+      getRowData: (row: any) => core?.getRowData(row) ?? null,
       getTableData: () => core?.getTableData() ?? [],
       getColumnData: (colKey: any) => core?.getColumnData(colKey) ?? [],
       getPending: () => core?.getPending() ?? new Map(),
@@ -175,11 +189,11 @@ export const Extable = defineComponent({
       deleteRow: (row: any) => core?.deleteRow(row) ?? false,
       undo: () => core?.undo(),
       redo: () => core?.redo(),
-      getUndoRedoHistory: () => core?.getUndoRedoHistory(),
-      commit: () => core?.commit(),
-      subscribeTableState: (listener: any) => core?.subscribeTableState(listener),
-      subscribeSelection: (listener: any) => core?.subscribeSelection(listener),
-      getSelectionSnapshot: () => core?.getSelectionSnapshot(),
+      getUndoRedoHistory: () => core?.getUndoRedoHistory() ?? { undo: [], redo: [] },
+      commit: () => core?.commit() ?? Promise.resolve([]),
+      subscribeTableState: (listener: any) => core?.subscribeTableState(listener) ?? (() => false),
+      subscribeSelection: (listener: any) => core?.subscribeSelection(listener) ?? (() => false),
+      getSelectionSnapshot: () => core?.getSelectionSnapshot() ?? emptySelectionSnapshot,
     };
 
     expose(handle);
@@ -204,11 +218,4 @@ export type {
   SelectionSnapshot,
   TableState,
   View,
-};
-
-export type ExtableVueHandle<T extends Record<string, unknown> = Record<string, unknown>> = {
-  destroy(): void;
-
-  setData(data: NullableData<T>): void;
-  setView(view: View): void;
 };

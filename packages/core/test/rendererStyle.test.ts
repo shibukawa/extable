@@ -176,15 +176,9 @@ describe("renderer style application", () => {
           {
             data: [{ a: "x" }],
             schema: {
-              columns: [
-              {
-                key: "__row__",
-                type: "string",
-                conditionalStyle: () => ({ background: "#00ff00" }),
-              },
-              { key: "a", type: "string" },
-            ],
-          },
+              row: { conditionalStyle: () => ({ background: "#00ff00" }) },
+              columns: [{ key: "a", type: "string" }],
+            },
           view: {},
         },
         { renderMode: "canvas", editMode: "direct", lockMode: "none" },

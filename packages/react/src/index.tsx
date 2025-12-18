@@ -64,7 +64,7 @@ export type ExtableProps<T extends Record<string, unknown> = Record<string, unkn
   HTMLAttributes<HTMLDivElement>,
   "children"
 > & {
-  schema: Schema;
+  schema: Schema<any>;
   defaultData: NullableData<T>;
   defaultView: View;
   options?: CoreOptions;
@@ -98,6 +98,21 @@ export const Extable = forwardRef(function ExtableInner<
   const consumedDefaultDataLoadRef = useRef(false);
   const onTableStateRef = useRef<typeof onTableState>(onTableState);
   const onCellEventRef = useRef<typeof onCellEvent>(onCellEvent);
+  const initialSchemaRef = useRef(schema);
+  const initialViewRef = useRef(defaultView);
+
+  const emptySelectionSnapshot: SelectionSnapshot = {
+    ranges: [],
+    activeRowIndex: null,
+    activeRowKey: null,
+    activeColumnIndex: null,
+    activeColumnKey: null,
+    activeValueRaw: undefined,
+    activeValueDisplay: "",
+    activeValueType: null,
+    diagnostic: null,
+    styles: { columnStyle: {}, cellStyle: {}, resolved: {} },
+  };
 
   useEffect(() => {
     onTableStateRef.current = onTableState;
@@ -160,14 +175,14 @@ export const Extable = forwardRef(function ExtableInner<
         closeFindReplaceDialog: () => coreRef.current?.closeFindReplaceDialog(),
         getData: () => coreRef.current?.getData() ?? [],
         getRawData: () => coreRef.current?.getRawData() ?? [],
-        getSchema: () => coreRef.current?.getSchema(),
-        getView: () => coreRef.current?.getView(),
+        getSchema: () => coreRef.current?.getSchema() ?? initialSchemaRef.current,
+        getView: () => coreRef.current?.getView() ?? initialViewRef.current,
         getCell: (rowId: string, colKey: any) => coreRef.current?.getCell(rowId, colKey),
         getDisplayValue: (row: any, colKey: any) =>
           coreRef.current?.getDisplayValue(row, colKey) ?? "",
         getCellPending: (row: any, colKey: any) => coreRef.current?.getCellPending(row, colKey) ?? false,
-        getRow: (row: any) => coreRef.current?.getRow(row),
-        getRowData: (row: any) => coreRef.current?.getRowData(row),
+        getRow: (row: any) => coreRef.current?.getRow(row) ?? null,
+        getRowData: (row: any) => coreRef.current?.getRowData(row) ?? null,
         getTableData: () => coreRef.current?.getTableData() ?? [],
         getColumnData: (colKey: any) => coreRef.current?.getColumnData(colKey) ?? [],
         getPending: () => coreRef.current?.getPending() ?? new Map(),
@@ -185,11 +200,13 @@ export const Extable = forwardRef(function ExtableInner<
         deleteRow: (row: any) => coreRef.current?.deleteRow(row) ?? false,
         undo: () => coreRef.current?.undo(),
         redo: () => coreRef.current?.redo(),
-        getUndoRedoHistory: () => coreRef.current?.getUndoRedoHistory(),
-        commit: () => coreRef.current?.commit(),
-        subscribeTableState: (listener: any) => coreRef.current?.subscribeTableState(listener),
-        subscribeSelection: (listener: any) => coreRef.current?.subscribeSelection(listener),
-        getSelectionSnapshot: () => coreRef.current?.getSelectionSnapshot(),
+        getUndoRedoHistory: () => coreRef.current?.getUndoRedoHistory() ?? { undo: [], redo: [] },
+        commit: () => coreRef.current?.commit() ?? Promise.resolve([]),
+        subscribeTableState: (listener: any) =>
+          coreRef.current?.subscribeTableState(listener) ?? (() => false),
+        subscribeSelection: (listener: any) =>
+          coreRef.current?.subscribeSelection(listener) ?? (() => false),
+        getSelectionSnapshot: () => coreRef.current?.getSelectionSnapshot() ?? emptySelectionSnapshot,
       };
       return proxy;
     },

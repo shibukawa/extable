@@ -54,7 +54,7 @@ export interface CoreInit<T extends object = Record<string, unknown>> {
   root: HTMLElement;
   defaultData: NullableData<T>;
   defaultView: View;
-  schema: Schema;
+  schema: Schema<any>;
   options?: CoreOptions;
 }
 

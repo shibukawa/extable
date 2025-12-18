@@ -170,16 +170,13 @@ export function App() {
 
   const dataNoteForSchema = (schema: Schema) => {
     const lines: string[] = [];
-    const metaRow = schema.columns.find((c) => String(c.key) === "__row__");
-    if ((metaRow as unknown as Record<string, unknown>)?.conditionalStyle) {
-      lines.push("Row conditionalStyle (__row__):");
-      lines.push(
-        safeFnSource((metaRow as unknown as Record<string, unknown>).conditionalStyle) ?? "",
-      );
+    if (schema.row?.conditionalStyle) {
+      lines.push("Row conditionalStyle:");
+      lines.push(safeFnSource(schema.row.conditionalStyle) ?? "");
       lines.push("");
     }
 
-    const cols = schema.columns.filter((c) => String(c.key) !== "__row__");
+    const cols = schema.columns;
     const formulaCols = cols.filter((c) =>
       Boolean((c as unknown as Record<string, unknown>).formula),
     );

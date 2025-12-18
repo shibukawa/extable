@@ -17,7 +17,7 @@ import { validateCellValue } from "./validation";
 type AnyFilter = { key?: unknown; kind?: unknown };
 
 export class DataModel {
-  private schema: Schema;
+  private schema: Schema<any>;
   private view: View;
   private rows: InternalRow[] = [];
   private baseIndexById = new Map<string, number>();
@@ -85,7 +85,7 @@ export class DataModel {
   private notifySuspended = false;
   private notifyDirty = false;
 
-  constructor(dataset: RowObject[] | undefined, schema: Schema, view: View) {
+  constructor(dataset: RowObject[] | undefined, schema: Schema<any>, view: View) {
     this.schema = schema;
     this.view = view;
     this.setData(dataset ?? []);
@@ -145,7 +145,7 @@ export class DataModel {
     this.notify();
   }
 
-  public setSchema(schema: Schema) {
+  public setSchema(schema: Schema<any>) {
     this.dataVersion += 1;
     this.schema = schema;
     this.computedCache.clear();
@@ -168,21 +168,16 @@ export class DataModel {
     this.notify();
   }
 
-  public getSchema() {
-    // Return renderable schema (exclude reserved meta columns like "__row__").
-    // Use `getFullSchema()` when callers need access to meta columns.
-    return { ...this.schema, columns: this.getColumns() } as Schema;
+  public getSchema(): Schema<any> {
+    return { ...this.schema, columns: this.getColumns() } as Schema<any>;
   }
 
-  public getColumns(): ColumnSchema[] {
-    // "__row__" is reserved for row header selection and row-level conditional style metadata.
-    // It must not be treated as a renderable column.
-    return this.schema.columns.filter((c) => String(c.key) !== "__row__");
+  public getColumns(): ColumnSchema<any>[] {
+    return this.schema.columns;
   }
 
   public getRowConditionalStyleFn(): ConditionalStyleFn | null {
-    const col = this.schema.columns.find((c) => String(c.key) === "__row__");
-    return col?.conditionalStyle ?? null;
+    return this.schema.row?.conditionalStyle ?? null;
   }
 
   public getView() {
@@ -193,7 +188,7 @@ export class DataModel {
     return this.dataVersion;
   }
 
-  public getFullSchema() {
+  public getFullSchema(): Schema<any> {
     return this.schema;
   }
 

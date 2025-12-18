@@ -21,7 +21,7 @@ type RowSelectHandler = (rowId: string) => void;
 type MoveHandler = (rowId?: string) => void;
 type HitTest = (
   event: MouseEvent,
-) => { rowId: string; colKey: string; element?: HTMLElement; rect: DOMRect } | null;
+) => { rowId: string; colKey: string | null; element?: HTMLElement; rect: DOMRect } | null;
 type ActiveChange = (rowId: string | null, colKey: string | null) => void;
 type ContextMenuHandler = (
   rowId: string | null,
@@ -63,7 +63,7 @@ export class SelectionManager {
   private lastPointerClient: { x: number; y: number } | null = null;
   private autoScrollRaf: number | null = null;
   private autoScrollActive = false;
-  private activeCell: { rowId: string; colKey: string } | null = null;
+  private activeCell: { rowId: string; colKey: string | null } | null = null;
   private activeHost: HTMLElement | null = null;
   private activeHostOriginalText: string | null = null;
   private composing = false;
@@ -436,6 +436,7 @@ export class SelectionManager {
   }) {
     if (!this.activeCell) return;
     const { rowId, colKey } = this.activeCell;
+    if (colKey === null) return;
     const cell = this.findHtmlCellElement(rowId, colKey);
     if (cell) {
       this.activateCellElement(cell, rowId, colKey, options);
@@ -455,7 +456,8 @@ export class SelectionManager {
     return value.replace(/["\\]/g, "\\$&");
   }
 
-  private findHtmlCellElement(rowId: string, colKey: string) {
+  private findHtmlCellElement(rowId: string, colKey: string | null) {
+    if (colKey === null) return null;
     const key = String(colKey);
     const rowIdEsc = this.escapeCssAttrValue(rowId);
     const keyEsc = this.escapeCssAttrValue(key);
@@ -466,7 +468,8 @@ export class SelectionManager {
     );
   }
 
-  private computeCanvasCellRect(rowId: string, colKey: string) {
+  private computeCanvasCellRect(rowId: string, colKey: string | null) {
+    if (colKey === null) return null;
     const box = this.computeCanvasCellBoxContent(rowId, colKey);
     if (!box) return null;
     const rootRect = this.root.getBoundingClientRect();
@@ -601,7 +604,7 @@ export class SelectionManager {
     // Avoid starting a drag from inside an active editor.
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) return;
     // Commit current editor before starting a drag/select operation.
-    if (this.inputEl && this.activeCell) {
+    if (this.inputEl && this.activeCell && this.activeCell.colKey !== null) {
       const { rowId, colKey } = this.activeCell;
       const value = this.readActiveValue();
       this.commitEdit(rowId, colKey, value);
@@ -677,10 +680,7 @@ export class SelectionManager {
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
     const rowIndex = hit.rowId === "__header__" ? 0 : this.dataModel.getRowIndex(hit.rowId);
-    const colIndex =
-      hit.colKey === "__row__"
-        ? 0
-        : schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
+    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
     if (colIndex < 0) return;
 
     if (hit.rowId === "__header__") {
@@ -711,7 +711,7 @@ export class SelectionManager {
 
     if (rowIndex < 0) return;
 
-    const kind: "cells" | "rows" = hit.colKey === "__row__" ? "rows" : "cells";
+    const kind: "cells" | "rows" = hit.colKey === null ? "rows" : "cells";
     this.dragging = true;
     this.pointerDownClient = { x: ev.clientX, y: ev.clientY };
     this.dragMoved = false;
@@ -750,7 +750,7 @@ export class SelectionManager {
         if (row) {
           return {
             rowId: row.dataset.rowId ?? "",
-            colKey: "__row__",
+            colKey: null,
             element: rowHeader,
             rect: rowHeader.getBoundingClientRect(),
           };
@@ -784,7 +784,10 @@ export class SelectionManager {
     if (!this.dragging || !this.dragStart) return;
     const hit = this.getHitAtClientPoint(clientX, clientY);
     if (!hit) return;
-    if (hit.colKey === "__all__" || (this.dragStart.kind === "cells" && hit.colKey === "__row__"))
+    if (
+      hit.colKey === "__all__" ||
+      (this.dragStart.kind === "cells" && hit.colKey === null)
+    )
       return;
 
     const schema = this.dataModel.getSchema();
@@ -826,7 +829,7 @@ export class SelectionManager {
     if (!this.fillDragging || !this.fillSource) return;
     const hit = this.getHitAtClientPoint(clientX, clientY);
     if (!hit) return;
-    if (hit.colKey === "__all__" || hit.colKey === "__row__") return;
+    if (hit.colKey === "__all__" || hit.colKey === null) return;
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
     const endRowIndex = this.dataModel.getRowIndex(hit.rowId);
@@ -972,7 +975,7 @@ export class SelectionManager {
     if (suppressTrailingClick) this.suppressNextClick = true;
     if (this.suppressNextClick) {
       // Keep selection mode focus; prevent the trailing click from opening edit.
-      if (this.activeCell) {
+      if (this.activeCell && this.activeCell.colKey !== null) {
         const current = this.dataModel.getCell(this.activeCell.rowId, this.activeCell.colKey);
         this.focusSelectionInput(this.cellToClipboardString(current));
       }
@@ -1195,11 +1198,11 @@ export class SelectionManager {
       }
     }
 
-    if (ev.key === " ") {
+    if (ev.key === " " && this.activeCell.colKey !== null) {
       const col = this.findColumn(this.activeCell.colKey);
       if (col?.type === "boolean") {
         ev.preventDefault();
-        this.toggleBoolean(this.activeCell.rowId, this.activeCell.colKey);
+          this.toggleBoolean(this.activeCell.rowId, this.activeCell.colKey);
       }
       this.selectionAnchor = null;
       return;
@@ -1564,7 +1567,7 @@ export class SelectionManager {
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) {
       return;
     }
-    if (this.inputEl && this.activeCell) {
+    if (this.inputEl && this.activeCell && this.activeCell.colKey !== null) {
       const { rowId, colKey } = this.activeCell;
       const value = this.readActiveValue();
       this.commitEdit(rowId, colKey, value);
@@ -1592,7 +1595,7 @@ export class SelectionManager {
     }
     this.onRowSelect(hit.rowId);
     this.applySelectionFromHit(ev, hit);
-    if (hit.colKey === "__row__" || hit.colKey === "__all__") {
+    if (hit.colKey === null || hit.colKey === "__all__") {
       return;
     }
     if (this.isCellReadonly(hit.rowId, hit.colKey)) {
@@ -1661,11 +1664,12 @@ export class SelectionManager {
     this.onContextMenu(rowId, colKey, ev.clientX, ev.clientY);
   };
 
-  private applySelectionFromHit(ev: MouseEvent, hit: { rowId: string; colKey: string }) {
+  private applySelectionFromHit(ev: MouseEvent, hit: { rowId: string; colKey: string | null }) {
     const schema = this.dataModel.getSchema();
     const rowIdx = this.dataModel.getRowIndex(hit.rowId);
-    const colIdx = schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
-    const isRow = hit.colKey === "__row__";
+    const isRow = hit.colKey === null;
+    const colIdx = isRow ? (schema.columns.length > 0 ? 0 : -1) : schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
+    if (colIdx < 0) return;
     const targetRange: SelectionRange = isRow
       ? {
           kind: "rows",
@@ -1710,7 +1714,7 @@ export class SelectionManager {
     this.selectionRanges = this.mergeRanges(nextRanges);
     const anchorCell =
       targetRange.kind === "rows"
-        ? { rowId: hit.rowId, colKey: schema.columns[0]?.key ?? null }
+        ? { rowId: hit.rowId, colKey: schema.columns[colIdx]?.key ?? null }
         : { rowId: hit.rowId, colKey: hit.colKey };
     this.activeCell = anchorCell;
     this.onActiveChange(anchorCell.rowId, anchorCell.colKey);
@@ -1901,6 +1905,7 @@ export class SelectionManager {
     if (e.isComposing || this.composing) return; // IME composing; ignore control keys
     if (now - this.lastCompositionEnd < 24) return; // absorb trailing key events right after IME commit
     const { rowId, colKey } = this.activeCell;
+    if (colKey === null) return;
     const isTextarea = this.inputEl.tagName.toLowerCase() === "textarea";
     const isAltEnter = e.key === "Enter" && e.altKey;
     const commitAndMove = (deltaRow: number, deltaCol: number) => {
@@ -1925,25 +1930,26 @@ export class SelectionManager {
       commitAndMove(e.shiftKey ? -1 : 1, 0);
       return;
     }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      this.cancelEdit(cell);
-      this.onMove();
-      if (this.activeCell) {
-        const current = this.dataModel.getCell(this.activeCell.rowId, this.activeCell.colKey);
-        const currentText = this.cellToClipboardString(current);
-        this.focusSelectionInput(currentText);
+      if (e.key === "Escape") {
+        e.preventDefault();
+        this.cancelEdit(cell);
+        this.onMove();
+        if (this.activeCell && this.activeCell.colKey !== null) {
+          const current = this.dataModel.getCell(this.activeCell.rowId, this.activeCell.colKey);
+          const currentText = this.cellToClipboardString(current);
+          this.focusSelectionInput(currentText);
+        }
+      } else if (e.key === "Backspace" && this.inputEl.value === "") {
+        e.preventDefault();
+        this.commitEdit(rowId, colKey, "");
+        this.onMove(rowId);
+        this.teardownInput(false);
+        this.moveActiveCell(0, 0);
       }
-    } else if (e.key === "Backspace" && this.inputEl.value === "") {
-      e.preventDefault();
-      this.commitEdit(rowId, colKey, "");
-      this.onMove(rowId);
-      this.teardownInput(false);
-      this.moveActiveCell(0, 0);
-    }
   }
 
-  private commitEdit(rowId: string, colKey: string, value: unknown) {
+  private commitEdit(rowId: string, colKey: string | null, value: unknown) {
+    if (colKey === null) return;
     const cmd: Command = {
       kind: "edit",
       rowId,
@@ -1988,6 +1994,7 @@ export class SelectionManager {
       const ac = this.activeCell;
       if (!ac) return;
       const { rowId, colKey } = ac;
+      if (colKey === null) return;
       const value = this.readActiveValue();
       this.commitEdit(rowId, colKey, value);
       this.onMove(rowId);
@@ -1998,6 +2005,7 @@ export class SelectionManager {
   private cancelEdit(cell: HTMLElement) {
     if (this.activeCell) {
       const { rowId, colKey } = this.activeCell;
+      if (colKey === null) return;
       const prev =
         cell.dataset?.original ??
         cell.dataset?.value ??

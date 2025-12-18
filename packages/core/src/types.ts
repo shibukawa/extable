@@ -55,11 +55,13 @@ export type CellTarget = {
   colKey: string;
 };
 
+// Forward declaration for recursive type inference
 export interface ColumnSchema<
   TData extends object = Record<string, unknown>,
   TType extends ColumnType = ColumnType,
+  K extends string = string,
 > {
-  key: string;
+  key: K;
   type: TType;
   header?: string;
   readonly?: boolean;
@@ -93,13 +95,33 @@ export interface ColumnSchema<
     decorations?: { strike?: boolean; underline?: boolean; bold?: boolean; italic?: boolean };
   };
   conditionalFormat?: { expr: string; engine?: "cel" };
-  formula?: (data: TData) => FormulaReturn;
+  formula?: (data: TData) => unknown;
   conditionalStyle?: ConditionalStyleFn<TData>;
 }
 
+// Infer row data type from schema columns
+export type InferSchemaData<TColumns extends readonly ColumnSchema<any>[]> = {
+  [I in keyof TColumns]: TColumns[I] extends ColumnSchema<infer TData, infer TType, infer K>
+    ? K extends keyof TData
+      ? TData[K]
+      : never
+    : never;
+} extends (infer U)[]
+  ? U extends Record<string, any>
+    ? U
+    : Record<string, unknown>
+  : Record<string, unknown>;
+
 export interface Schema<TData extends object = Record<string, unknown>> {
   columns: ColumnSchema<TData>[];
+  row?: { conditionalStyle?: ConditionalStyleFn<TData> };
 }
+
+/**
+ * Helper to lock schema generics so `formula`/`conditionalStyle` receive the correct row type.
+ * Usage: `const schema = defineSchema<MyRow>({ columns: [...], row: {...} });`
+ */
+export const defineSchema = <TData extends object>(schema: Schema<TData>): Schema<TData> => schema;
 
 export type RowObject<T extends object = Record<string, unknown>> = {
   _readonly?: boolean;

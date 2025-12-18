@@ -246,13 +246,10 @@ export const conditionalStyleRows: ConditionalStyleRow[] = [
 ];
 
 export const conditionalStyleSchema = {
+  row: {
+    conditionalStyle: (row: ConditionalStyleRow) => (row.group === 'B' ? { background: '#f1f5f9' } : null)
+  },
   columns: [
-    // Row-level conditional style (meta column; not rendered)
-    {
-      key: '__row__',
-      type: 'string',
-      conditionalStyle: (row: ConditionalStyleRow) => (row.group === 'B' ? { background: '#f1f5f9' } : null)
-    },
     { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
     { key: 'group', header: 'Group', type: 'string', width: 80 },
     {

@@ -293,7 +293,7 @@ export function shouldShowFillHandle(
   if (!src) return false;
   if (!activeRowId || activeRowId === '__all__') return false;
   if (activeColKey === null) return false;
-  if (activeColKey === '__all__' || activeColKey === '__row__') return false;
+  if (activeColKey === '__all__' || activeColKey === null) return false;
   if (activeColKey !== src.colKey) return false;
   if (dataModel.isReadonly(activeRowId, activeColKey)) return false;
   return true;

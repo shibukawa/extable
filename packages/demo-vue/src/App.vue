@@ -397,12 +397,11 @@ watch(
 );
 
 const commit = () => {
-  const core = tableRef.value?.getCore();
-  void core?.commit();
+  void tableRef.value?.commit();
 };
 
-const undo = () => tableRef.value?.getCore()?.undo();
-const redo = () => tableRef.value?.getCore()?.redo();
+const undo = () => tableRef.value?.undo();
+const redo = () => tableRef.value?.redo();
 
 // Style controls removed (user-applied styling API removed).
 onMounted(() => {
@@ -421,24 +420,22 @@ onMounted(() => {
     if (!isMod) return;
 
     if (key === "f" && !e.altKey && !e.shiftKey) {
-      const core = tableRef.value?.getCore();
-      if (!core) return;
+      if (!tableRef.value) return;
       e.preventDefault();
       e.stopPropagation();
-      core.showSearchPanel("find");
+      tableRef.value.showSearchPanel("find");
       return;
     }
 
     // Undo: Ctrl/Cmd+Z
     if (key === "z") {
-      const core = tableRef.value?.getCore();
-      if (!core) return;
+      if (!tableRef.value) return;
       e.preventDefault();
       e.stopPropagation();
       if (e.shiftKey) {
-        core.redo(); // Ctrl/Cmd+Shift+Z
+        tableRef.value.redo(); // Ctrl/Cmd+Shift+Z
       } else {
-        core.undo(); // Ctrl/Cmd+Z
+        tableRef.value.undo(); // Ctrl/Cmd+Z
       }
     }
   };
@@ -449,10 +446,9 @@ onMounted(() => {
 });
 const handleTableState = (next: any) => {
   tableState.value = next;
-  const core = tableRef.value?.getCore();
-  if (core) {
-    (window as unknown as Record<string, unknown>).__extableCore = core;
-    history.value = core.getUndoRedoHistory();
+  if (tableRef.value) {
+    (window as unknown as Record<string, unknown>).__extableCore = tableRef.value;
+    history.value = tableRef.value.getUndoRedoHistory();
   } else {
     history.value = { undo: [], redo: [] };
   }
@@ -468,15 +464,12 @@ const safeFnSource = (fn: unknown) => {
 };
 const dataNoteForSchema = (schema: Schema) => {
   const lines: string[] = [];
-  const metaRow = schema.columns.find((c) => String(c.key) === "__row__");
-  if ((metaRow as unknown as Record<string, unknown>)?.conditionalStyle) {
-    lines.push("Row conditionalStyle (__row__):");
-    lines.push(
-      safeFnSource((metaRow as unknown as Record<string, unknown>).conditionalStyle) ?? "",
-    );
+  if (schema.row?.conditionalStyle) {
+    lines.push("Row conditionalStyle:");
+    lines.push(safeFnSource(schema.row.conditionalStyle) ?? "");
     lines.push("");
   }
-  const cols = schema.columns.filter((c) => String(c.key) !== "__row__");
+  const cols = schema.columns;
   const formulaCols = cols.filter((c) =>
     Boolean((c as unknown as Record<string, unknown>).formula),
   );

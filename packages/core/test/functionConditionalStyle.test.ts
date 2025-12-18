@@ -37,8 +37,8 @@ describe("function formula + conditional style", () => {
       {
         data: [{ a: "x", b: "y" }],
         schema: {
+          row: { conditionalStyle: () => ({ background: "#ffff00" }) },
           columns: [
-            { key: "__row__", type: "string", conditionalStyle: () => ({ background: "#ffff00" }) },
             { key: "a", type: "string" },
             { key: "b", type: "string", conditionalStyle: () => ({ background: "#ff0000" }) },
           ],

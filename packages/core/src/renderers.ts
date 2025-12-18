@@ -246,7 +246,7 @@ export interface Renderer {
   getCellElements(): NodeListOf<HTMLElement> | null;
   hitTest(
     event: MouseEvent,
-  ): { rowId: string; colKey: string; element?: HTMLElement; rect: DOMRect } | null;
+  ): { rowId: string; colKey: string | null; element?: HTMLElement; rect: DOMRect } | null;
   setActiveCell(rowId: string | null, colKey: string | null): void;
   setSelection(ranges: SelectionRange[]): void;
 }
@@ -351,7 +351,7 @@ export class HTMLRenderer implements Renderer {
       if (row) {
         return {
           rowId: row.dataset.rowId ?? "",
-          colKey: "__row__",
+          colKey: null,
           element: rowHeader,
           rect: rowHeader.getBoundingClientRect(),
         };
@@ -376,7 +376,7 @@ export class HTMLRenderer implements Renderer {
     rowTh.textContent = "";
     rowTh.style.width = `${this.rowHeaderWidth}px`;
     if (this.activeRowId) rowTh.classList.toggle("extable-active-row-header", true);
-    rowTh.dataset.colKey = "__row__";
+    rowTh.dataset.colKey = "";
     tr.appendChild(rowTh);
     const view = this.dataModel.getView();
     for (let idx = 0; idx < schema.columns.length; idx += 1) {
@@ -1354,7 +1354,7 @@ export class CanvasRenderer implements Renderer {
         this.rowHeaderWidth,
         heightIndex.heights[rowIndex] ?? this.rowHeight,
       );
-      return { rowId: row.id, colKey: "__row__", rect: cellRect };
+      return { rowId: row.id, colKey: null, rect: cellRect };
     }
     const y = viewportY - headerHeight + contentScrollTop;
     const rowIndex = Math.max(0, Math.min(rows.length - 1, heightIndex.fenwick.lowerBound(y + 1)));
@@ -1555,7 +1555,7 @@ export class CanvasRenderer implements Renderer {
       this.tooltipMessage = null;
       return;
     }
-    if (hit.colKey === "__all__" || hit.colKey === "__row__") {
+    if (hit.colKey === "__all__" || hit.colKey === null) {
       this.canvas.style.cursor = "default";
       if (this.tooltip) this.tooltip.dataset.visible = "0";
       this.tooltipTarget = null;
@@ -1614,7 +1614,6 @@ export class CanvasRenderer implements Renderer {
       this.activeColKey !== null &&
       this.activeRowId !== "__all__" &&
       this.activeColKey !== "__all__" &&
-      this.activeColKey !== "__row__" &&
       shouldShowFillHandle(
         this.dataModel,
         this.selection,
