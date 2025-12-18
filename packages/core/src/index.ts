@@ -35,7 +35,6 @@ import type {
   View,
   ViewFilterValues,
   RowObject,
-  ConditionalStyleFn,
   RowStateSnapshot,
   RowStateListener,
   RowChangeReason,
@@ -448,12 +447,10 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
   getRow(rowIdOrIndex: string | number): R | null {
     const rowId = this.resolveRowId(rowIdOrIndex);
     if (!rowId) return null;
-    return this.getRowData(rowId);
+    return this.buildRow(rowId);
   }
 
-  getRowData(row: string | number): R | null {
-    const rowId = this.resolveRowId(row);
-    if (!rowId) return null;
+  private buildRow(rowId: string): R | null {
     const found = this.findRowById(rowId);
     if (!found) return null;
     const schema = this.dataModel.getSchema();
@@ -467,7 +464,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
   // Public API: bulk data access
   getTableData(): R[] {
     const rows = this.dataModel.listAllRows();
-    return rows.map((r) => this.getRowData(r.id)).filter(Boolean) as R[];
+    return rows.map((r) => this.buildRow(r.id)).filter(Boolean) as R[];
   }
 
   getColumnData<K extends keyof R & string>(colKey: K): R[K][] {
@@ -1034,25 +1031,6 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
     this.mount(true);
   }
 
-  getFindReplaceController() {
-    this.ensureFindReplace();
-    return this.findReplace;
-  }
-
-  /**
-   * Test/support API: override conditional style for a single cell.
-   * Address uses rowIndex (visible index) + colKey.
-   */
-  setCellConditionalStyle(
-    target: { rowIndex: number; colKey: string },
-    fn: ConditionalStyleFn | null,
-  ) {
-    const row = this.dataModel.getRowByIndex(target.rowIndex);
-    if (!row) return;
-    this.dataModel.setCellConditionalStyle(row.id, target.colKey, fn);
-    this.safeRender(this.viewportState ?? undefined);
-  }
-
   showSearchPanel(mode: FindReplaceMode = "find") {
     if (!this.findReplaceEnabled || !this.findReplaceUiEnabled) return;
     this.ensureFindReplace();
@@ -1297,7 +1275,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
   private getRowStateSnapshot(rowId: string): RowStateSnapshot<T, R> | null {
     const rowIndex = this.dataModel.getRowIndex(rowId);
     if (rowIndex < 0) return null;
-    const data = this.getRowData(rowId);
+    const data = this.buildRow(rowId);
     if (!data) return null;
     const pending =
       this.editMode === "commit"
@@ -1817,7 +1795,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
     });
   }
 
-  private showFilterSortPanel(colKey: string) {
+  showFilterSortPanel(colKey: string) {
     this.hideSearchPanel();
     this.filterSortActiveColumnKey = colKey;
     this.buildFilterSortDraft(colKey);
@@ -1829,10 +1807,15 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
     input?.focus();
   }
 
-  private hideFilterSortPanel() {
+  hideFilterSortPanel() {
     this.root.classList.toggle("extable-filter-sort-open", false);
     this.filterSortActiveColumnKey = null;
     this.filterSortDraft = null;
+  }
+
+  toggleFilterSortPanel(colKey: string) {
+    if (this.isFilterSortPanelVisible()) this.hideFilterSortPanel();
+    else this.showFilterSortPanel(colKey);
   }
 
   private buildFilterSortDraft(colKey: string) {

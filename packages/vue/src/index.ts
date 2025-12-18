@@ -21,6 +21,9 @@ type CoreApi<T extends object, R extends object = T> = Pick<
   | "showSearchPanel"
   | "hideSearchPanel"
   | "toggleSearchPanel"
+  | "showFilterSortPanel"
+  | "hideFilterSortPanel"
+  | "toggleFilterSortPanel"
   | "openFindReplaceDialog"
   | "closeFindReplaceDialog"
   | "getData"
@@ -31,7 +34,6 @@ type CoreApi<T extends object, R extends object = T> = Pick<
   | "getDisplayValue"
   | "getCellPending"
   | "getRow"
-  | "getRowData"
   | "getTableData"
   | "getColumnData"
   | "getPending"
@@ -55,7 +57,7 @@ type CoreApi<T extends object, R extends object = T> = Pick<
   | "getSelectionSnapshot"
 >;
 
-export type ExtableVueHandle<T extends Record<string, unknown> = Record<string, unknown>, R extends object = T> = CoreApi<
+export type ExtableVueHandle<T extends object = Record<string, unknown>, R extends object = T> = CoreApi<
   T,
   R
 > & {
@@ -67,11 +69,11 @@ export const Extable = defineComponent({
   inheritAttrs: true,
   props: {
     schema: {
-      type: Object as PropType<Schema<any>>,
+      type: Object as PropType<Schema<any, any>>,
       required: true,
     },
     defaultData: {
-      type: Array as PropType<NullableData>,
+      type: Array as PropType<NullableData<any>>,
       required: false,
       default: null,
     },
@@ -94,7 +96,7 @@ export const Extable = defineComponent({
   },
   setup(props, { attrs, emit, expose }) {
     const root = ref<HTMLElement | null>(null);
-    let core: ExtableCore | null = null;
+    let core: ExtableCore<Record<string, unknown>> | null = null;
     let unsubTable: (() => void) | null = null;
     let unsubSel: (() => void) | null = null;
     const initialDefaultDataWasNull = props.defaultData === null;
@@ -161,6 +163,9 @@ export const Extable = defineComponent({
       showSearchPanel: (mode?: FindReplaceMode) => core?.showSearchPanel(mode),
       hideSearchPanel: () => core?.hideSearchPanel(),
       toggleSearchPanel: (mode?: FindReplaceMode) => core?.toggleSearchPanel(mode),
+      showFilterSortPanel: (colKey: string) => core?.showFilterSortPanel(colKey),
+      hideFilterSortPanel: () => core?.hideFilterSortPanel(),
+      toggleFilterSortPanel: (colKey: string) => core?.toggleFilterSortPanel(colKey),
       openFindReplaceDialog: (mode?: FindReplaceMode) => core?.openFindReplaceDialog(mode),
       closeFindReplaceDialog: () => core?.closeFindReplaceDialog(),
       getData: () => core?.getData() ?? [],
@@ -171,7 +176,6 @@ export const Extable = defineComponent({
       getDisplayValue: (row: any, colKey: any) => core?.getDisplayValue(row, colKey) ?? "",
       getCellPending: (row: any, colKey: any) => core?.getCellPending(row, colKey) ?? false,
       getRow: (row: any) => core?.getRow(row) ?? null,
-      getRowData: (row: any) => core?.getRowData(row) ?? null,
       getTableData: () => core?.getTableData() ?? [],
       getColumnData: (colKey: any) => core?.getColumnData(colKey) ?? [],
       getPending: () => core?.getPending() ?? new Map(),

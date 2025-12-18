@@ -478,7 +478,7 @@ export class HTMLRenderer implements Renderer {
         td.classList.remove("extable-diag-warning", "extable-diag-error");
         td.removeAttribute("data-extable-diag-message");
       }
-      const align = col.format?.align ?? (col.type === "number" ? "right" : "left");
+      const align = col.style?.align ?? (col.type === "number" ? "right" : "left");
       td.classList.add(align === "right" ? "align-right" : "align-left");
       const rawNumbered = toRawValue(raw, valueRes.value, col);
       if (rawNumbered !== null) {
@@ -913,7 +913,7 @@ export class CanvasRenderer implements Renderer {
           const baseStyle = colBaseStyles[idx] ?? {};
           const withCond = condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
           const mergedStyle = cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
-          const bg = readOnly ? "#f3f4f6" : (mergedStyle.background ?? "#ffffff");
+          const bg = readOnly ? "#f3f4f6" : (mergedStyle.backgroundColor ?? "#ffffff");
           ctx.fillStyle = bg;
           ctx.fillRect(x, yCursor, w, rowH);
           ctx.strokeRect(x, yCursor, w, rowH);
@@ -922,7 +922,7 @@ export class CanvasRenderer implements Renderer {
             valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
           const formatted = textOverride ? { text: "#ERROR" } : this.formatValue(valueRes.value, c);
           const text = formatted.text;
-          const align = c.format?.align ?? (c.type === "number" ? "right" : "left");
+          const align = c.style?.align ?? (c.type === "number" ? "right" : "left");
           const isActiveCell =
             this.activeRowId === row.id &&
             this.activeColKey !== null &&

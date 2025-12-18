@@ -31,7 +31,6 @@ type CoreApi<T extends object, R extends object = T> = Pick<
   | "getDisplayValue"
   | "getCellPending"
   | "getRow"
-  | "getRowData"
   | "getTableData"
   | "getColumnData"
   | "getPending"
@@ -55,7 +54,7 @@ type CoreApi<T extends object, R extends object = T> = Pick<
   | "getSelectionSnapshot"
 >;
 
-export type ExtableHandle<T extends Record<string, unknown> = Record<string, unknown>, R extends object = T> =
+export type ExtableHandle<T extends object = Record<string, unknown>, R extends object = T> =
   CoreApi<T, R> & {
     destroy(): void;
   };
@@ -182,7 +181,6 @@ export const Extable = forwardRef(function ExtableInner<
           coreRef.current?.getDisplayValue(row, colKey) ?? "",
         getCellPending: (row: any, colKey: any) => coreRef.current?.getCellPending(row, colKey) ?? false,
         getRow: (row: any) => coreRef.current?.getRow(row) ?? null,
-        getRowData: (row: any) => coreRef.current?.getRowData(row) ?? null,
         getTableData: () => coreRef.current?.getTableData() ?? [],
         getColumnData: (colKey: any) => coreRef.current?.getColumnData(colKey) ?? [],
         getPending: () => coreRef.current?.getPending() ?? new Map(),

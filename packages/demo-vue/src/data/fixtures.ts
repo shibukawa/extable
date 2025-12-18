@@ -79,7 +79,7 @@ export const demoSchema = {
     { key: 'datetime', header: 'DateTime', type: 'datetime', width: 180 },
     { key: 'role', header: 'Role', type: 'enum', enum: { options: ['viewer', 'editor', 'owner'] }, width: 120 },
     { key: 'tags', header: 'Tags', type: 'tags', tags: { options: ['alpha', 'beta', 'priority'] }, width: 140 },
-    { key: 'score', header: 'Score', type: 'number', number: { precision: 6, scale: 2 }, format: { align: 'right' }, width: 100 },
+    { key: 'score', header: 'Score', type: 'number', number: { precision: 6, scale: 2 }, style: { align: 'right' }, width: 100 },
     { key: 'description', header: 'Description', type: 'string', width: 260, wrapText: true },
     { key: 'longNote', header: 'Long Note (wrap)', type: 'string', width: 260, wrapText: true },
     { key: 'longNoWrap', header: 'Long Note (ellipsis)', type: 'string', width: 240 }
@@ -181,14 +181,14 @@ export const formulaSchema = {
   columns: [
     { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
     { key: 'item', header: 'Item', type: 'string', width: 140 },
-    { key: 'price', header: 'Price', type: 'number', format: { align: 'right' }, width: 90 },
-    { key: 'qty', header: 'Qty', type: 'number', format: { align: 'right' }, width: 70 },
+    { key: 'price', header: 'Price', type: 'number', style: { align: 'right' }, width: 90 },
+    { key: 'qty', header: 'Qty', type: 'number', style: { align: 'right' }, width: 70 },
     {
       key: 'subtotal',
       header: 'Subtotal',
       type: 'number',
       formula: (row: FormulaConditionalRow) => row.price * row.qty,
-      format: { align: 'right' },
+      style: { align: 'right' },
       width: 110
     },
     {
@@ -200,7 +200,7 @@ export const formulaSchema = {
         const subtotal = row.price * row.qty;
         return subtotal * (1 - row.discountRate);
       },
-      format: { align: 'right' },
+      style: { align: 'right' },
       width: 120
     },
     {
@@ -247,7 +247,7 @@ export const conditionalStyleRows: ConditionalStyleRow[] = [
 
 export const conditionalStyleSchema = {
   row: {
-    conditionalStyle: (row: ConditionalStyleRow) => (row.group === 'B' ? { background: '#f1f5f9' } : null)
+    conditionalStyle: (row: ConditionalStyleRow) => (row.group === 'B' ? { backgroundColor: '#f1f5f9' } : null)
   },
   columns: [
     { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
@@ -256,11 +256,11 @@ export const conditionalStyleSchema = {
       key: 'value',
       header: 'Value',
       type: 'number',
-      format: { align: 'right' },
+      style: { align: 'right' },
       conditionalStyle: (row: ConditionalStyleRow) => {
         if (row.id === 2) return new Error('conditional style warning (demo)');
         if (row.id === 4) throw new Error('conditional style error (demo)');
-        if (row.value >= 100) return { background: '#dcfce7', bold: true };
+        if (row.value >= 100) return { backgroundColor: '#dcfce7', bold: true };
         if (row.value < 20) return { textColor: '#b91c1c' };
         return null;
       },
@@ -342,7 +342,7 @@ export const filterSortSchema = {
   columns: [
     { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
     { key: 'group', header: 'Group', type: 'enum', enum: { options: ['A', 'B', 'C'] }, width: 100 },
-    { key: 'amount', header: 'Amount', type: 'number', format: { align: 'right' }, width: 110 },
+    { key: 'amount', header: 'Amount', type: 'number', style: { align: 'right' }, width: 110 },
     {
       key: 'status',
       header: 'Status',

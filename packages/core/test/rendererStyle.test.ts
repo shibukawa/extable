@@ -13,8 +13,8 @@ describe("renderer style application", () => {
             {
               key: "a",
               type: "string",
-              format: {
-                background: "#ff0000",
+              style: {
+                backgroundColor: "#ff0000",
                 textColor: "#00ff00",
                 decorations: { bold: true, italic: true, underline: true, strike: true },
               },
@@ -103,7 +103,7 @@ describe("renderer style application", () => {
               {
                 key: "a",
                 type: "string",
-                format: { decorations: { bold: true, italic: true } },
+                style: { decorations: { bold: true, italic: true } },
               },
             ],
           },
@@ -176,7 +176,7 @@ describe("renderer style application", () => {
           {
             data: [{ a: "x" }],
             schema: {
-              row: { conditionalStyle: () => ({ background: "#00ff00" }) },
+              row: { conditionalStyle: () => ({ backgroundColor: "#00ff00" }) },
               columns: [{ key: "a", type: "string" }],
             },
           view: {},

@@ -1804,7 +1804,7 @@ export class SelectionManager {
     input.style.lineHeight = "1.2";
     input.style.fontWeight = "inherit";
     const col = this.findColumn(colKey);
-    input.style.textAlign = col?.format?.align ?? (col?.type === "number" ? "right" : "left");
+    input.style.textAlign = col?.style?.align ?? (col?.type === "number" ? "right" : "left");
     input.addEventListener("keydown", (e) => this.handleKey(e as KeyboardEvent, cell));
     input.addEventListener("focus", () => {
       if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) input.select();
@@ -1869,7 +1869,7 @@ export class SelectionManager {
     input.style.lineHeight = "1.2";
     input.style.fontWeight = "inherit";
     const col = this.findColumn(colKey);
-    input.style.textAlign = col?.format?.align ?? (col?.type === "number" ? "right" : "left");
+    input.style.textAlign = col?.style?.align ?? (col?.type === "number" ? "right" : "left");
     input.style.pointerEvents = "auto";
     input.addEventListener("keydown", (e) => this.handleKey(e as KeyboardEvent, wrapper));
     input.addEventListener("focus", () => {

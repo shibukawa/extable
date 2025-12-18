@@ -2,10 +2,10 @@ import type { ColumnSchema, ResolvedCellStyle, StyleDelta } from "./types";
 import type { DataModel } from "./dataModel";
 
 export function columnFormatToStyle(col: ColumnSchema): ResolvedCellStyle {
-  const fmt = col.format;
+  const fmt = col.style;
   const dec = fmt?.decorations;
   return {
-    background: fmt?.background,
+    backgroundColor: fmt?.backgroundColor,
     textColor: fmt?.textColor,
     bold: dec?.bold,
     italic: dec?.italic,
@@ -17,7 +17,7 @@ export function columnFormatToStyle(col: ColumnSchema): ResolvedCellStyle {
 export function mergeStyle(base: ResolvedCellStyle, override?: StyleDelta | null): ResolvedCellStyle {
   if (!override) return base;
   return {
-    background: override.background ?? base.background,
+    backgroundColor: override.backgroundColor ?? base.backgroundColor,
     textColor: override.textColor ?? base.textColor,
     bold: override.bold ?? base.bold,
     italic: override.italic ?? base.italic,
@@ -40,7 +40,7 @@ export function resolveCellStyles(
 
 export function styleToCssText(style: ResolvedCellStyle): string {
   let css = "";
-  if (style.background) css += `background-color:${style.background};`;
+  if (style.backgroundColor) css += `background-color:${style.backgroundColor};`;
   if (style.textColor) css += `color:${style.textColor};`;
   if (style.bold) css += "font-weight:600;";
   if (style.italic) css += "font-style:italic;";

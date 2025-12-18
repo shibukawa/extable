@@ -17,7 +17,7 @@ export type ColumnType =
   | "tags";
 
 export type ResolvedCellStyle = {
-  background?: string;
+  backgroundColor?: string;
   textColor?: string;
   bold?: boolean;
   italic?: boolean;
@@ -38,7 +38,7 @@ export type FormulaOk = string | boolean | number | Date;
 export type FormulaWarn<T extends FormulaOk> = readonly [value: T, warning: Error];
 export type FormulaReturn<T extends FormulaOk = FormulaOk> = T | FormulaWarn<T>;
 
-export type ConditionalStyleFn<TData extends object = Record<string, unknown>> = (
+export type ConditionalStyleFn<TData extends object = object> = (
   data: TData,
 ) => StyleDelta | null | Error;
 
@@ -57,7 +57,8 @@ export type CellTarget = {
 
 // Forward declaration for recursive type inference
 export interface ColumnSchema<
-  TData extends object = Record<string, unknown>,
+  TData extends object = object,
+  RData extends object = TData,
   TType extends ColumnType = ColumnType,
   K extends string = string,
 > {
@@ -88,47 +89,49 @@ export interface ColumnSchema<
   dateTimeFormat?: string;
   width?: number; // px
   wrapText?: boolean; // allow per-column wrapping
-  format?: {
+  style?: {
     textColor?: string;
-    background?: string;
+    backgroundColor?: string;
     align?: "left" | "right" | "center";
     decorations?: { strike?: boolean; underline?: boolean; bold?: boolean; italic?: boolean };
   };
-  conditionalFormat?: { expr: string; engine?: "cel" };
   formula?: (data: TData) => unknown;
-  conditionalStyle?: ConditionalStyleFn<TData>;
+  conditionalStyle?: ConditionalStyleFn<RData>;
 }
 
 // Infer row data type from schema columns
 export type InferSchemaData<TColumns extends readonly ColumnSchema<any>[]> = {
-  [I in keyof TColumns]: TColumns[I] extends ColumnSchema<infer TData, infer TType, infer K>
+  [I in keyof TColumns]: TColumns[I] extends ColumnSchema<infer TData, any, infer TType, infer K>
     ? K extends keyof TData
       ? TData[K]
       : never
     : never;
 } extends (infer U)[]
-  ? U extends Record<string, any>
+  ? U extends object
     ? U
     : Record<string, unknown>
   : Record<string, unknown>;
 
-export interface Schema<TData extends object = Record<string, unknown>> {
-  columns: ColumnSchema<TData>[];
-  row?: { conditionalStyle?: ConditionalStyleFn<TData> };
+export interface Schema<TData extends object = object, RData extends object = TData> {
+  columns: ColumnSchema<TData, RData>[];
+  row?: { conditionalStyle?: ConditionalStyleFn<RData> };
 }
 
 /**
  * Helper to lock schema generics so `formula`/`conditionalStyle` receive the correct row type.
  * Usage: `const schema = defineSchema<MyRow>({ columns: [...], row: {...} });`
  */
-export const defineSchema = <TData extends object>(schema: Schema<TData>): Schema<TData> => schema;
+export const defineSchema = <TData extends object, RData extends object = TData>(
+  schema: Schema<TData, RData>,
+): Schema<TData, RData> => schema;
 
 export type RowObject<T extends object = Record<string, unknown>> = {
   _readonly?: boolean;
-} & T;
+} & T &
+  Record<string, unknown>;
 
 // Public data is object-row arrays only. Use `null` or `undefined` for async loading.
-export type NullableData<T extends object = Record<string, unknown>> = T[] | null | undefined;
+export type NullableData<T extends object = object> = T[] | null | undefined;
 
 export type ViewFilterOp = {
   kind: "op";

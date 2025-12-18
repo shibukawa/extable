@@ -13,7 +13,11 @@ describe("find/replace", () => {
       options: { renderMode: "html", editMode: "direct", lockMode: "none", findReplace: { sidebar: false } },
     });
 
-    const fr = core.getFindReplaceController();
+    // Access internal controller for test.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (core as any).ensureFindReplace();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fr = (core as any).findReplace;
     expect(fr).toBeTruthy();
     fr!.setOptions({ caseInsensitive: true, regex: false });
     fr!.setQuery("ali");
@@ -34,7 +38,10 @@ describe("find/replace", () => {
       options: { renderMode: "html", editMode: "direct", lockMode: "none", findReplace: { sidebar: false } },
     });
 
-    const fr = core.getFindReplaceController()!;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (core as any).ensureFindReplace();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fr = (core as any).findReplace!;
     fr.setOptions({ regex: true });
     fr.setQuery("(");
     fr.recompute();
@@ -113,7 +120,10 @@ describe("find/replace", () => {
       options: { renderMode: "html", editMode: "direct", lockMode: "none", findReplace: { sidebar: false } },
     });
 
-    const fr = core.getFindReplaceController()!;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (core as any).ensureFindReplace();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fr = (core as any).findReplace!;
     fr.setOptions({ caseInsensitive: true });
     fr.setQuery("bob");
     fr.recompute();

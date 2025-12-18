@@ -32,7 +32,7 @@ test('subscriptions: tableState and selection can unsubscribe safely', async ({ 
 
   await page.evaluate(() => {
     const core = (window as any).__extableCore;
-    core.setCellValue({ rowIndex: 0, colKey: 'name' }, 'User 1S');
+    core.setCellValue(0, 'name', 'User 1S');
   });
 
   const after = await page.evaluate(() => {
@@ -49,7 +49,7 @@ test('subscriptions: tableState and selection can unsubscribe safely', async ({ 
     selectionUnsub();
 
     // Trigger again after unsubscribe.
-    core.setCellValue({ rowIndex: 0, colKey: 'name' }, 'User 1S2');
+    core.setCellValue(0, 'name', 'User 1S2');
     return {
       beforeUnsub,
       afterUnsub: { ...counts },
@@ -85,7 +85,7 @@ test('subscriptions: tableState and selection can unsubscribe safely', async ({ 
   await page.locator('td[data-col-key="name"]').first().click();
   await page.evaluate(() => {
     const core = (window as any).__extableCore;
-    core.setCellValue({ rowIndex: 0, colKey: 'name' }, 'User 1S3');
+    core.setCellValue(0, 'name', 'User 1S3');
   });
 
   const directAfter = await page.evaluate(() => {
@@ -95,7 +95,7 @@ test('subscriptions: tableState and selection can unsubscribe safely', async ({ 
     const beforeUnsub = { ...counts };
     tableUnsub();
     selectionUnsub();
-    core.setCellValue({ rowIndex: 0, colKey: 'name' }, 'User 1S4');
+    core.setCellValue(0, 'name', 'User 1S4');
     return {
       beforeUnsub,
       afterUnsub: { ...counts },

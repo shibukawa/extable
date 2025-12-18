@@ -32,7 +32,7 @@ test('public data access api works end-to-end (demo)', async ({ page }) => {
       if (typeof core[k] !== 'function') throw new Error(`missing method: ${k}`);
     }
 
-    core.setCellValue({ rowIndex: 0, colKey: 'name' }, 'User 1X');
+    core.setCellValue(0, 'name', 'User 1X');
   });
 
   await expect(page.locator('#commit-state')).toContainText('pending=1');
@@ -86,7 +86,7 @@ test('direct mode: edits apply immediately without pending map', async ({ page }
 
   await page.evaluate(() => {
     const core = (window as any).__extableCore;
-    core.setCellValue({ rowIndex: 0, colKey: 'name' }, 'User 1D');
+    core.setCellValue(0, 'name', 'User 1D');
   });
 
   await expect(page.locator('td[data-col-key="name"]').first()).toHaveText('User 1D');

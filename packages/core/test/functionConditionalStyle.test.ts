@@ -37,10 +37,10 @@ describe("function formula + conditional style", () => {
       {
         data: [{ a: "x", b: "y" }],
         schema: {
-          row: { conditionalStyle: () => ({ background: "#ffff00" }) },
+          row: { conditionalStyle: () => ({ backgroundColor: "#ffff00" }) },
           columns: [
             { key: "a", type: "string" },
-            { key: "b", type: "string", conditionalStyle: () => ({ background: "#ff0000" }) },
+            { key: "b", type: "string", conditionalStyle: () => ({ backgroundColor: "#ff0000" }) },
           ],
         },
         view: {},
@@ -50,10 +50,13 @@ describe("function formula + conditional style", () => {
     mountTable(root, core);
 
     // Cell-level should win over column/row.
-    (core as any).setCellConditionalStyle(
-      { rowIndex: 0, colKey: "b" },
-      () => ({ background: "#00ff00" }),
-    );
+    const rowId = core.getAllRows()[0].id;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (core as any).dataModel.setCellConditionalStyle(rowId, "b", () => ({
+      backgroundColor: "#00ff00",
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (core as any).safeRender((core as any).viewportState ?? undefined);
 
     const a = root.querySelector('td[data-col-key="a"]') as HTMLTableCellElement | null;
     const b = root.querySelector('td[data-col-key="b"]') as HTMLTableCellElement | null;

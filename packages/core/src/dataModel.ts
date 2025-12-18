@@ -1062,16 +1062,16 @@ export class DataModel {
     this.notify();
   }
 
-  public updateColumnFormat(
+  public updateColumnStyle(
     colKey: string,
     updater:
-      | ColumnSchema["format"]
-      | ((oldValue: ColumnSchema["format"] | undefined) => ColumnSchema["format"] | undefined),
+      | ColumnSchema["style"]
+      | ((oldValue: ColumnSchema["style"] | undefined) => ColumnSchema["style"] | undefined),
   ) {
     const col = this.schema.columns.find((c) => String(c.key) === String(colKey));
     if (!col) return;
-    const next = typeof updater === "function" ? updater(col.format) : updater;
-    col.format = next;
+    const next = typeof updater === "function" ? updater(col.style) : updater;
+    col.style = next;
     this.notify();
   }
 
