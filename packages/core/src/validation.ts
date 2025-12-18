@@ -1,4 +1,4 @@
-import { parseISO } from "date-fns";
+import { coerceDatePattern, parseIsoDate } from "./dateUtils";
 import type { ColumnSchema } from "./types";
 
 const isValidDate = (d: Date) => !Number.isNaN(d.getTime());
@@ -80,10 +80,14 @@ export function validateCellValue(value: unknown, col: ColumnSchema): string | n
     case "date":
     case "time":
     case "datetime": {
+      // Enforce allowed format tokens per type; fall back to ISO preset if invalid.
+      if (col.type === "date") coerceDatePattern(col.dateFormat, "date");
+      else if (col.type === "time") coerceDatePattern(col.timeFormat, "time");
+      else coerceDatePattern(col.dateTimeFormat, "datetime");
       if (value instanceof Date) return isValidDate(value) ? null : "Invalid date";
       if (typeof value === "string") {
-        const d = parseISO(value);
-        return isValidDate(d) ? null : "Invalid date/time";
+        const d = parseIsoDate(value);
+        return d && isValidDate(d) ? null : "Invalid date/time";
       }
       return "Expected a date/time string";
     }

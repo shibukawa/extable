@@ -1,11 +1,11 @@
-import { parseISO } from "date-fns";
-
 import type { ColumnSchema } from "./types";
+import { parseIsoDate } from "./dateUtils";
 
 const DAY_MS = 86_400_000;
 
 export function safeParseDate(value: string): Date | null {
-  const parsed = parseISO(value);
+  const parsed = parseIsoDate(value);
+  if (!parsed) return null;
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 

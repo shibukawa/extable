@@ -43,5 +43,11 @@
   },
   "engines": {
     "node": ">=22"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shibukawa/extable"
+  },
+  "author": "Yoshiki Shibukawa",
+  "license": "Apache-2.0"
 }

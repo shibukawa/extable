@@ -10,9 +10,13 @@ import ConditionalStyleDemo from "../../components/ConditionalStyleDemo.vue";
 import UniqueConstraintDemo from "../../components/UniqueConstraintDemo.vue";
 import FilterSupportDemo from "../../components/FilterSupportDemo.vue";
 import { enhanceAppWithTabs } from "vitepress-plugin-tabs/client";
+import HomeLayout from "./layouts/home.vue";
 
 export default {
   extends: DefaultTheme,
+  layouts: {
+    home: HomeLayout,
+  },
   enhanceApp({ app }) {
     enhanceAppWithTabs(app);
     app.component("BasicUsageDemo", BasicUsageDemo);
@@ -24,5 +28,14 @@ export default {
     app.component("ConditionalStyleDemo", ConditionalStyleDemo);
     app.component("UniqueConstraintDemo", UniqueConstraintDemo);
     app.component("FilterSupportDemo", FilterSupportDemo);
+
+    // Inject hero screenshot background style
+    const id = "extable-hero-screenshot";
+    if (typeof window !== "undefined" && !document.getElementById(id)) {
+      const s = document.createElement("style");
+      s.id = id;
+      s.textContent = `.VPHero .main::after{content:'';position:absolute;right:0;top:0;width:50%;height:100%;background-image:url('/public/assets/screenshot.png');background-size:contain;background-repeat:no-repeat;background-position:right center;pointer-events:none}`;
+      document.head.appendChild(s);
+    }
   },
 } satisfies Theme;

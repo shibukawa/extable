@@ -140,7 +140,17 @@ True/false values with customizable display format.
 
 ### Date
 
-Calendar dates without time component.
+Calendar dates without time component. Allowed tokens: `yyyy`, `MM`, `dd` (and literals).
+
+**Presets (dateFormat):**
+
+| Preset | Pattern        | Note                |
+| ------ | -------------- | ------------------- |
+| iso    | `yyyy-MM-dd`   | Default (ISO)       |
+| us     | `MM/dd/yyyy`   | US style            |
+| eu     | `dd.MM.yyyy`   | EU style            |
+
+Examples: `iso`, `us`, `eu`, or a custom pattern using allowed tokens.
 
 ```typescript
 {
@@ -159,10 +169,19 @@ Calendar dates without time component.
 - Internally stored as JavaScript `Date` objects
 - Input/output: ISO 8601 format (`YYYY-MM-DD`)
 - Null handling: empty string renders as blank cell
+- Formatting engine: lightweight built-in formatter (not date-fns). Supported tokens: `yyyy`, `MM`, `dd`, `HH`, `hh`, `mm`, `ss`, `a`, and single-quoted literals. Example: `yyyy-MM-dd`, `HH:mm:ss`, `hh:mm a`, `yyyy/MM/dd HH:mm`.
 
 ### Time
 
-Time-of-day values without date component.
+Time-of-day values without date component. Allowed tokens: `HH`, `hh`, `mm`, `ss`, `a` (and literals).
+
+**Presets (timeFormat):**
+
+| Preset | Pattern      | Note                 |
+| ------ | ------------ | -------------------- |
+| iso    | `HH:mm:ss`   | Default (24h + sec)  |
+| 24h    | `HH:mm`      | 24h, seconds hidden  |
+| 12h    | `hh:mm a`    | 12h, AM/PM           |
 
 ```typescript
 {
@@ -180,10 +199,25 @@ Time-of-day values without date component.
 **Storage:**
 - Internally stored as JavaScript `Date` objects (date part ignored)
 - Input/output: ISO 8601 time format (`HH:mm:ss`)
+- Formatting engine: same lightweight formatter as Date. Use tokens above (e.g., `HH:mm`, `HH:mm:ss`, `hh:mm a`).
 
 ### DateTime
 
-Combined date and time values.
+Combined date and time values. Allowed tokens are the union of Date+Time tokens.
+
+**Presets (dateTimeFormat):**
+
+| Preset   | Pattern                          | Note                                  |
+| -------- | -------------------------------- | ------------------------------------- |
+| iso      | `yyyy-MM-dd'T'HH:mm:ss'Z'`       | Default (ISO 24h)                     |
+| iso-24h  | `yyyy-MM-dd'T'HH:mm:ss'Z'`       | Alias of `iso`                        |
+| iso-12h  | `yyyy-MM-dd hh:mm a`             | ISO date + 12h                        |
+| us       | `MM/dd/yyyy HH:mm`               | US date + 24h                         |
+| us-24h   | `MM/dd/yyyy HH:mm`               | Alias of `us`                         |
+| us-12h   | `MM/dd/yyyy hh:mm a`             | US date + 12h                         |
+| eu       | `dd.MM.yyyy HH:mm`               | EU date + 24h                         |
+| eu-24h   | `dd.MM.yyyy HH:mm`               | Alias of `eu`                         |
+| eu-12h   | `dd.MM.yyyy hh:mm a`             | EU date + 12h                         |
 
 ```typescript
 {
@@ -201,6 +235,7 @@ Combined date and time values.
 - Internally stored as JavaScript `Date` objects
 - Input/output: ISO 8601 format (`YYYY-MM-DDTHH:mm:ssZ`)
 - Timezone: typically handled as local or UTC; validate with your backend
+- Formatting engine: same lightweight formatter; sample defaults `yyyy-MM-dd'T'HH:mm:ss'Z'` or `yyyy/MM/dd HH:mm`.
 
 ### Enum
 

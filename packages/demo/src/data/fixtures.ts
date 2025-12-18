@@ -230,56 +230,98 @@ export const formulaView = {
 };
 
 export interface ConditionalStyleRow {
-  id: number;
-  group: 'A' | 'B';
-  value: number;
-  flag: boolean;
-  note: string;
+  id: string;
+  employee: string;
+  department: string;
+  score: number;
+  attendance: number;
+  projects: number;
+  status: string;
 }
 
-export const conditionalStyleRows: ConditionalStyleRow[] = [
-  { id: 1, group: 'A', value: 10, flag: false, note: '' },
-  { id: 2, group: 'A', value: 80, flag: true, note: 'warn from style fn' },
-  { id: 3, group: 'B', value: 55, flag: false, note: '' },
-  { id: 4, group: 'B', value: 5, flag: true, note: 'error from style fn' },
-  { id: 5, group: 'A', value: 120, flag: false, note: 'highlight' }
-];
+function makeConditionalStyleRows(): ConditionalStyleRow[] {
+  const departments = ['Engineering', 'Sales', 'Marketing', 'HR', 'Finance'];
+  const statuses = ['Active', 'On Leave', 'Inactive'];
+  const rows: ConditionalStyleRow[] = [];
+
+  for (let i = 1; i <= 40; i += 1) {
+    const score = Math.round((Math.random() * 40 + 60) * 10) / 10;
+    const attendance = Math.round((Math.random() * 30 + 70) * 10) / 10;
+    const projects = Math.floor(Math.random() * 20);
+
+    rows.push({
+      id: `EMP-${String(i).padStart(5, '0')}`,
+      employee: `Employee ${i}`,
+      department: departments[i % departments.length],
+      score,
+      attendance,
+      projects,
+      status: statuses[i % statuses.length]
+    });
+  }
+
+  return rows;
+}
+
+export const conditionalStyleRows = makeConditionalStyleRows();
 
 export const conditionalStyleSchema = {
-  row: {
-    conditionalStyle: (row: ConditionalStyleRow) => (row.group === 'B' ? { backgroundColor: '#f1f5f9' } : null)
-  },
   columns: [
-    { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
-    { key: 'group', header: 'Group', type: 'string', width: 80 },
+    { key: 'id', header: 'Employee ID', type: 'string', readonly: true, width: 120 },
+    { key: 'employee', header: 'Employee Name', type: 'string', width: 150 },
+    { key: 'department', header: 'Department', type: 'string', width: 140 },
     {
-      key: 'value',
-      header: 'Value',
+      key: 'score',
+      header: 'Performance Score',
       type: 'number',
-      style: { align: 'right' },
+      number: { precision: 5, scale: 1 },
+      width: 160,
+      style: { align: 'center' },
       conditionalStyle: (row: ConditionalStyleRow) => {
-        if (row.id === 2) return new Error('conditional style warning (demo)');
-        if (row.id === 4) throw new Error('conditional style error (demo)');
-        if (row.value >= 100) return { backgroundColor: '#dcfce7', bold: true };
-        if (row.value < 20) return { textColor: '#b91c1c' };
+        if (row.score >= 90) return { backgroundColor: '#d1fae5', textColor: '#065f46' };
+        if (row.score >= 70) return { backgroundColor: '#fef3c7', textColor: '#78350f' };
+        return { backgroundColor: '#fee2e2', textColor: '#7f1d1d' };
+      }
+    },
+    {
+      key: 'attendance',
+      header: 'Attendance (%)',
+      type: 'number',
+      number: { precision: 5, scale: 1 },
+      width: 140,
+      style: { align: 'center' },
+      conditionalStyle: (row: ConditionalStyleRow) => {
+        if (row.attendance >= 95) return { backgroundColor: '#dcfce7', textColor: '#166534' };
+        if (row.attendance >= 85) return { backgroundColor: '#fef08a', textColor: '#713f12' };
+        return { backgroundColor: '#fecaca', textColor: '#991b1b' };
+      }
+    },
+    {
+      key: 'projects',
+      header: 'Projects Completed',
+      type: 'number',
+      number: { precision: 3, scale: 0 },
+      width: 160,
+      style: { align: 'center' },
+      conditionalStyle: (row: ConditionalStyleRow) => {
+        if (row.projects >= 15) return { backgroundColor: '#bfdbfe', textColor: '#1e40af' };
+        if (row.projects >= 8) return { backgroundColor: '#e0e7ff', textColor: '#3730a3' };
         return null;
-      },
-      width: 110
+      }
     },
     {
-      key: 'flag',
-      header: 'Flag',
-      type: 'boolean',
-      booleanDisplay: 'checkbox',
-      conditionalStyle: (row: ConditionalStyleRow) => (row.flag ? { underline: true } : null),
-      width: 80
-    },
-    {
-      key: 'note',
-      header: 'Note',
+      key: 'status',
+      header: 'Status',
       type: 'string',
-      conditionalStyle: (row: ConditionalStyleRow) => (row.note ? { textColor: '#1d4ed8' } : null),
-      width: 220
+      readonly: true,
+      width: 130,
+      style: { align: 'center' },
+      conditionalStyle: (row: ConditionalStyleRow) => {
+        if (row.status === 'Active') return { backgroundColor: '#ccfbf1', textColor: '#134e4a' };
+        if (row.status === 'On Leave') return { backgroundColor: '#fed7aa', textColor: '#92400e' };
+        if (row.status === 'Inactive') return { backgroundColor: '#f3f4f6', textColor: '#374151' };
+        return null;
+      }
     }
   ]
 };

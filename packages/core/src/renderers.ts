@@ -8,7 +8,7 @@ import type {
   ViewFilterValues,
   EditMode,
 } from "./types";
-import { format as formatDate, parseISO } from "date-fns";
+import { coerceDatePattern, formatDateLite, parseIsoDate } from "./dateUtils";
 import { toRawValue } from "./cellValueCodec";
 import {
   DEFAULT_ROW_HEIGHT_PX,
@@ -98,9 +98,11 @@ class ValueFormatCache {
 
   parseIsoDate(value: string): Date | null {
     const cached = this.dateParseCache.get(value);
-    const parsed = cached ?? parseISO(value);
-    if (!cached && !Number.isNaN(parsed.getTime())) this.dateParseCache.set(value, parsed);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
+    if (cached) return cached;
+    const parsed = parseIsoDate(value);
+    if (!parsed || Number.isNaN(parsed.getTime())) return null;
+    this.dateParseCache.set(value, parsed);
+    return parsed;
   }
 }
 
@@ -651,17 +653,17 @@ export class HTMLRenderer implements Renderer {
     ) {
       const fmt =
         col.type === "date"
-          ? (col.dateFormat ?? "yyyy-MM-dd")
+          ? coerceDatePattern(col.dateFormat, "date")
           : col.type === "time"
-            ? (col.timeFormat ?? "HH:mm")
-            : (col.dateTimeFormat ?? "yyyy-MM-dd'T'HH:mm:ss'Z'");
+            ? coerceDatePattern(col.timeFormat, "time")
+            : coerceDatePattern(col.dateTimeFormat, "datetime");
       let d: Date | null = null;
       if (value instanceof Date) d = value;
       else {
         d = this.valueFormatCache.parseIsoDate(value);
       }
       if (!d) return { text: String(value) };
-      return { text: formatDate(d, fmt) };
+      return { text: formatDateLite(d, fmt) };
     }
     return { text: String(value) };
   }
@@ -1818,7 +1820,7 @@ export class CanvasRenderer implements Renderer {
         d = this.valueFormatCache.parseIsoDate(value);
       }
       if (!d) return { text: String(value) };
-      return { text: formatDate(d, fmt) };
+      return { text: formatDateLite(d, fmt) };
     }
     return { text: String(value) };
   }

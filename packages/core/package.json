@@ -34,7 +34,11 @@
   "engines": {
     "node": ">=22"
   },
-  "peerDependencies": {
-    "date-fns": "^4.1.0"
-  }
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shibukawa/extable"
+  },
+  "author": "Yoshiki Shibukawa",
+  "license": "Apache-2.0",
+  "peerDependencies": {}
 }

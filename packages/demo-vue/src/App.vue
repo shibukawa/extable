@@ -386,12 +386,9 @@ watch(
 );
 watch(
   () => currentConfig.value,
-  (cfg) => {
-    const handle = tableRef.value;
-    if (!handle) return;
-    handle.setSchema(cfg.schema);
-    handle.setView({ ...cfg.view });
-    handle.setData(defaultData.value);
+  () => {
+    // Remount to apply new schema/view/data combinations.
+    tableInstanceKey.value += 1;
   },
   { deep: true },
 );
