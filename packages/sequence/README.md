@@ -1,5 +1,11 @@
 # @extable/sequence
 
+[![npm](https://img.shields.io/npm/v/@extable/sequence?color=2b6cb0&label=npm)](https://www.npmjs.com/package/@extable/sequence)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/npm/l/@extable/sequence)](../LICENSE)
+[![CI](https://github.com/shibukawa/extable/actions/workflows/test.yml/badge.svg)](https://github.com/shibukawa/extable/actions/workflows/test.yml)
+[![Bundle Size](https://img.shields.io/bundlephobia/minzip/@extable/sequence?label=bundle%20size)](https://bundlephobia.com/package/@extable/sequence)
+
 Sequence inference engine for Extable auto-fill.
 
 This package provides a small, composable sequence engine that can detect list patterns,
