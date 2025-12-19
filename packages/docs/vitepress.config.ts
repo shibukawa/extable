@@ -51,6 +51,7 @@ export default defineConfig({
       "/demos/": [
         { text: "Overview", link: "/demos/" },
         { text: "Basic Usage", link: "/demos/basic-usage" },
+        { text: "Auto-fill Sequences", link: "/demos/auto-fill-sequence" },
         { text: "Vanilla Demo", link: "/demos/vanilla" },
         { text: "React Demo", link: "/demos/react" },
         { text: "Vue Demo", link: "/demos/vue" },

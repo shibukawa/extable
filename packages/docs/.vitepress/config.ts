@@ -59,6 +59,7 @@ export default defineConfig({
       "/demos/": [
         { text: "Overview", link: "/demos/" },
         { text: "Basic Usage (Direct Mode)", link: "/demos/basic-usage" },
+        { text: "Auto Fill", link: "/demos/auto-fill-sequence" },
         { text: "Async Data Loading", link: "/demos/async-data-loading" },
         { text: "Readonly Mode", link: "/demos/readonly-mode" },
         { text: "Commit Mode", link: "/demos/commit-mode" },

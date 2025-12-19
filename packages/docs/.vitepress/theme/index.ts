@@ -1,6 +1,7 @@
 import DefaultTheme from "vitepress/theme";
 import type { Theme } from "vitepress";
 import BasicUsageDemo from "../../components/BasicUsageDemo.vue";
+import AutoFillSequenceDemo from "../../components/AutoFillSequenceDemo.vue";
 import AsyncDataLoadingDemo from "../../components/AsyncDataLoadingDemo.vue";
 import ReadonlyModeDemo from "../../components/ReadonlyModeDemo.vue";
 import CommitModeDemo from "../../components/CommitModeDemo.vue";
@@ -20,6 +21,7 @@ export default {
   enhanceApp({ app }) {
     enhanceAppWithTabs(app);
     app.component("BasicUsageDemo", BasicUsageDemo);
+    app.component("AutoFillSequenceDemo", AutoFillSequenceDemo);
     app.component("AsyncDataLoadingDemo", AsyncDataLoadingDemo);
     app.component("ReadonlyModeDemo", ReadonlyModeDemo);
     app.component("CommitModeDemo", CommitModeDemo);

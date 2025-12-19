@@ -216,6 +216,8 @@ export interface CoreOptions {
   renderMode?: RenderMode;
   editMode?: EditMode;
   lockMode?: LockMode;
+  /** Preferred languages for auto-fill sequence matching (e.g. ["ja", "en"]). */
+  langs?: string[];
   /** Loading UI configuration used when `defaultData` is `null`. */
   loading?: {
     /** Enable built-in loading overlay/spinner. Default: true */
