@@ -23,6 +23,7 @@
     "./dist/index.css"
   ],
   "scripts": {
+    "prebuild": "npm run build --workspace @extable/sequence",
     "pretest": "npm run build --workspace @extable/sequence",
     "build": "tsc -p tsconfig.build.json --emitDeclarationOnly && vite build",
     "test": "vitest run",
