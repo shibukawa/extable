@@ -1,5 +1,11 @@
 # @extable/react
 
+[![npm](https://img.shields.io/npm/v/@extable/react?color=2b6cb0&label=npm)](https://www.npmjs.com/package/@extable/react)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/npm/l/@extable/react)](../LICENSE)
+[![CI](https://github.com/shibukawa/extable/actions/workflows/test.yml/badge.svg)](https://github.com/shibukawa/extable/actions/workflows/test.yml)
+[![Bundle Size](https://img.shields.io/bundlephobia/minzip/@extable/react?label=bundle%20size)](https://bundlephobia.com/package/@extable/react)
+
 React wrapper for Extable - an Excel-like HTML table component with a fixed column schema and built-in multi-user editing support.
 
 ## Installation

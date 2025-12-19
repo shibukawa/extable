@@ -14,6 +14,12 @@ cd packages/core
 npm publish
 cd ../..
 
+# Sequence package
+echo "📤 Publishing @extable/sequence..."
+cd packages/sequence
+npm publish
+cd ../..
+
 # React package
 echo "📤 Publishing @extable/react..."
 cd packages/react
