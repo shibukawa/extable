@@ -70,6 +70,7 @@ export class SelectionManager {
   private lastCompositionEnd = 0;
   private readonly handleSelectionBlur = () => this.teardownSelectionInput();
   private isCellReadonly: (rowId: string, colKey: string) => boolean;
+  private sequenceLangs?: readonly string[];
 
   constructor(
     root: HTMLElement,
@@ -79,6 +80,7 @@ export class SelectionManager {
     onMove: MoveHandler,
     hitTest: HitTest,
     private dataModel: DataModel,
+    sequenceLangs: readonly string[] | undefined,
     isCellReadonly: (rowId: string, colKey: string) => boolean,
     private onActiveChange: ActiveChange,
     onContextMenu: ContextMenuHandler,
@@ -92,6 +94,7 @@ export class SelectionManager {
     this.onRowSelect = onRowSelect;
     this.onMove = onMove;
     this.hitTest = hitTest;
+    this.sequenceLangs = sequenceLangs;
     this.isCellReadonly = isCellReadonly;
     this.onContextMenu = onContextMenu;
     this.bind();
@@ -989,7 +992,7 @@ export class SelectionManager {
     if (!col) return;
     if (endRowIndex <= source.endRowIndex) return;
 
-    const getValue = makeFillValueGetter(this.dataModel, source);
+    const getValue = makeFillValueGetter(this.dataModel, source, this.sequenceLangs);
     if (!getValue) return;
 
     const commitNow = this.editMode === "direct";

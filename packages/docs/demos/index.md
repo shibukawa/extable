@@ -30,6 +30,7 @@ Explore individual features with focused demos:
 - **[Formulas →](/demos/formulas)** - Computed columns with formulas
 - **[Conditional Style →](/demos/conditional-style)** - Apply colors and styles based on cell values
 - **[Unique Constraint →](/demos/unique-constraint)** - Enforce unique values and validation
+- **[Auto-fill Sequences →](/demos/auto-fill-sequence)** - Drag-fill numbers, strings, and list sequences
 
 ### Usage Sample Features
 

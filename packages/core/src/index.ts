@@ -90,6 +90,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
   private findReplaceEnabled = true;
   private findReplaceUiEnabled = true;
   private findReplaceEnableSearch = false;
+  private sequenceLangs?: readonly string[];
 
   private mounted = false;
 
@@ -171,6 +172,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
     this.findReplaceEnableSearch = init.options?.findReplace?.enableSearch ?? true;
     this.server = init.options?.server;
     this.user = init.options?.user;
+    this.sequenceLangs = init.options?.langs;
 
     const defaultData = init.defaultData ?? null;
     const initialData = defaultData ?? [];
@@ -298,6 +300,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
       (rowId) => void this.lockManager.unlockOnMove(rowId),
       (ev) => this.renderer.hitTest(ev),
       this.dataModel,
+      this.sequenceLangs,
       (rowId, colKey) => this.isCellReadonly(rowId, colKey),
       (rowId, colKey) => {
         const target: CellTarget | null = rowId && colKey !== null ? { rowId, colKey } : null;
