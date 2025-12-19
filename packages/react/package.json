@@ -19,6 +19,7 @@
     "access": "public"
   },
   "scripts": {
+    "pretest": "npm run build --workspace @extable/core",
     "build": "tsc -p tsconfig.build.json --emitDeclarationOnly && vite build",
     "test": "vitest run",
     "lint": "biome lint .",
