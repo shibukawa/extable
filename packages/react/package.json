@@ -19,6 +19,7 @@
     "access": "public"
   },
   "scripts": {
+    "pretest": "npm run build --workspace @extable/core",
     "build": "tsc -p tsconfig.build.json --emitDeclarationOnly && vite build",
     "test": "vitest run",
     "lint": "biome lint .",
@@ -48,6 +49,7 @@
     "type": "git",
     "url": "git+https://github.com/shibukawa/extable.git"
   },
+  "homepage": "https://shibukawa.github.io/extable/",
   "author": "Yoshiki Shibukawa",
   "license": "Apache-2.0"
 }

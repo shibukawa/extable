@@ -5,10 +5,12 @@ test.setTimeout(60_000);
 test('subscriptions: tableState and selection can unsubscribe safely', async ({ page }) => {
   await page.goto('/');
 
-  await page.locator('input[name="render-mode"][value="html"]').check();
   await page.locator('input[name="edit-mode"][value="commit"]').check();
 
   await expect(page.locator('td[data-col-key="name"]').first()).toBeVisible();
+
+  // Bot UA should force HTML renderer in auto mode.
+  await expect(page.locator('#commit-state')).toContainText('mode=html');
 
   const counts = await page.evaluate(() => {
     const core = (window as any).__extableCore;

@@ -5,11 +5,11 @@ test.setTimeout(60_000);
 test('search sidebar works and stays interactive', async ({ page }) => {
   await page.goto('/');
 
-  // Use HTML mode to make cells accessible for the smoke test.
-  await page.locator('input[name="render-mode"][value="html"]').check();
-
   const firstNameCell = page.locator('td[data-col-key="name"]').first();
   await expect(firstNameCell).toBeVisible();
+
+  // Bot UA should force HTML renderer in auto mode.
+  await expect(page.locator('#commit-state')).toContainText('mode=html');
   await firstNameCell.click();
 
   await page.evaluate(() => (window as any).__extableCore?.showSearchPanel?.('find'));
