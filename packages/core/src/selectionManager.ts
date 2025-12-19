@@ -69,6 +69,24 @@ export class SelectionManager {
   private composing = false;
   private lastCompositionEnd = 0;
   private readonly handleSelectionBlur = () => this.teardownSelectionInput();
+  private readonly handleRootKeydown = async (ev: KeyboardEvent) => {
+    if (ev.defaultPrevented) return;
+    if (!this.selectionMode) return;
+    if (this.inputEl) return;
+    if (ev.isComposing || this.composing) return;
+    const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+    const accel = isMac ? ev.metaKey : ev.ctrlKey;
+    if (!accel) return;
+    const key = ev.key.toLowerCase();
+    if (key === "c") {
+      ev.preventDefault();
+      await this.copySelection();
+    } else if (key === "x") {
+      ev.preventDefault();
+      await this.copySelection();
+      this.clearSelectionValues();
+    }
+  };
   private isCellReadonly: (rowId: string, colKey: string) => boolean;
   private sequenceLangs?: readonly string[];
 
@@ -241,6 +259,7 @@ export class SelectionManager {
     this.root.removeEventListener("pointermove", this.handlePointerMove);
     this.root.removeEventListener("pointerup", this.handlePointerUp);
     this.root.removeEventListener("pointercancel", this.handlePointerUp);
+    this.root.removeEventListener("keydown", this.handleRootKeydown);
     if (this.handleDocumentContextMenu) {
       document.removeEventListener("contextmenu", this.handleDocumentContextMenu, true);
     }
@@ -263,6 +282,7 @@ export class SelectionManager {
     this.root.addEventListener("pointermove", this.handlePointerMove);
     this.root.addEventListener("pointerup", this.handlePointerUp);
     this.root.addEventListener("pointercancel", this.handlePointerUp);
+    this.root.addEventListener("keydown", this.handleRootKeydown);
     this.handleDocumentContextMenu = (ev: MouseEvent) => this.handleContextMenu(ev);
     document.addEventListener("contextmenu", this.handleDocumentContextMenu, { capture: true });
   }
@@ -347,12 +367,12 @@ export class SelectionManager {
     const toast = document.createElement("div");
     toast.className = "extable-toast";
     toast.dataset.extableCopyToast = "1";
-    toast.setAttribute("popover", "manual");
     toast.style.position = "absolute";
     toast.style.left = "0";
     toast.style.top = "0";
     toast.style.pointerEvents = "none";
     toast.style.zIndex = "1000";
+    toast.style.display = "none";
     // Keep it from affecting layout.
     toast.style.margin = "0";
     this.root.appendChild(toast);
@@ -366,7 +386,7 @@ export class SelectionManager {
       this.copyToastTimer = null;
     }
     if (!this.copyToastEl) return;
-    this.copyToastEl.hidePopover?.();
+    this.copyToastEl.style.display = "none";
     removeFromParent(this.copyToastEl);
     this.copyToastEl = null;
   }
@@ -376,25 +396,37 @@ export class SelectionManager {
     const w = this.copyToastEl.offsetWidth || 0;
     const h = this.copyToastEl.offsetHeight || 0;
     const inset = 16;
-    const left = Math.max(0, this.root.scrollLeft + this.root.clientWidth - w - inset);
-    const top = Math.max(0, this.root.scrollTop + this.root.clientHeight - h - inset);
-    this.copyToastEl.style.left = `${left}px`;
-    this.copyToastEl.style.top = `${top}px`;
+    const maxLeft = Math.max(0, this.root.scrollLeft + this.root.clientWidth - w - inset);
+    const maxTop = Math.max(0, this.root.scrollTop + this.root.clientHeight - h - inset);
+    const minLeft = Math.max(0, this.root.scrollLeft + inset);
+    const minTop = Math.max(0, this.root.scrollTop + inset);
+    const rootRect = this.root.getBoundingClientRect();
+    const rect = this.getActiveCellRect();
+    if (rect) {
+      const candidateLeft = rect.right - rootRect.left + this.root.scrollLeft - w + 8;
+      const candidateTop = rect.top - rootRect.top + this.root.scrollTop - h + 8;
+      const left = Math.min(maxLeft, Math.max(minLeft, candidateLeft));
+      const top = Math.min(maxTop, Math.max(minTop, candidateTop));
+      this.copyToastEl.style.left = `${left}px`;
+      this.copyToastEl.style.top = `${top}px`;
+      return;
+    }
+    this.copyToastEl.style.left = `${maxLeft}px`;
+    this.copyToastEl.style.top = `${maxTop}px`;
   }
 
   private showCopyToast(message: string, variant: "info" | "error" = "info", durationMs = 1200) {
     const toast = this.ensureCopyToast();
     toast.textContent = message;
     toast.dataset.variant = variant;
-    toast.hidePopover?.();
-    toast.showPopover?.();
+    toast.style.display = "block";
     this.positionCopyToast();
     if (this.copyToastTimer) {
       window.clearTimeout(this.copyToastTimer);
       this.copyToastTimer = null;
     }
     this.copyToastTimer = window.setTimeout(() => {
-      toast.hidePopover?.();
+      toast.style.display = "none";
     }, durationMs);
   }
 
@@ -518,6 +550,58 @@ export class SelectionManager {
     const height = this.dataModel.getRowHeight(rowId) ?? defaultRowHeight;
     const width = colWidths[colIndex] ?? 100;
     return { left, top, width, height, rowIndex, colIndex };
+  }
+
+  private getActiveCellRect() {
+    const active = this.activeCell;
+    if (!active) return null;
+    const rootRect = this.root.getBoundingClientRect();
+    const schema = this.dataModel.getSchema();
+    const view = this.dataModel.getView();
+    if (active.rowId === "__all__" && active.colKey === "__all__") {
+      return new DOMRect(rootRect.left, rootRect.top, ROW_HEADER_WIDTH_PX, HEADER_HEIGHT_PX);
+    }
+    if (active.rowId === "__header__" && active.colKey !== null) {
+      const key = this.escapeCssAttrValue(String(active.colKey));
+      const headerEl = this.root.querySelector<HTMLElement>(`th[data-col-key="${key}"]`);
+      if (headerEl) return headerEl.getBoundingClientRect();
+      const colIndex = schema.columns.findIndex((c) => String(c.key) === String(active.colKey));
+      if (colIndex >= 0) {
+        const colWidths = getColumnWidths(schema, view);
+        let x = ROW_HEADER_WIDTH_PX;
+        for (let i = 0; i < colIndex; i += 1) x += colWidths[i] ?? 100;
+        const width = colWidths[colIndex] ?? 100;
+        return new DOMRect(
+          rootRect.left + x - this.root.scrollLeft,
+          rootRect.top,
+          width,
+          HEADER_HEIGHT_PX,
+        );
+      }
+    }
+    if (active.colKey === null) {
+      const rowIndex = this.dataModel.getRowIndex(active.rowId);
+      if (rowIndex >= 0) {
+        let y = HEADER_HEIGHT_PX;
+        const rows = this.dataModel.listRows();
+        for (let i = 0; i < rowIndex; i += 1) {
+          const row = rows[i];
+          if (!row) break;
+          y += this.dataModel.getRowHeight(row.id) ?? DEFAULT_ROW_HEIGHT_PX;
+        }
+        const height = this.dataModel.getRowHeight(active.rowId) ?? DEFAULT_ROW_HEIGHT_PX;
+        return new DOMRect(
+          rootRect.left,
+          rootRect.top + y - this.root.scrollTop,
+          ROW_HEADER_WIDTH_PX,
+          height,
+        );
+      }
+    }
+    if (active.colKey === null) return null;
+    const cellEl = this.findHtmlCellElement(active.rowId, active.colKey);
+    if (cellEl) return cellEl.getBoundingClientRect();
+    return this.computeCanvasCellRect(active.rowId, active.colKey);
   }
 
   private ensureVisibleCell(rowId: string, colKey: string) {
@@ -699,16 +783,17 @@ export class SelectionManager {
       this.selectionRanges = [range];
       this.onSelectionChange(this.selectionRanges);
       this.dragging = false;
-      this.selectionMode = false;
+      this.selectionMode = true;
       this.dragStart = null;
       this.selectionAnchor = null;
-      this.suppressNextClick = true;
+      this.suppressNextClick = false;
       const targetRow = rows[0];
       const targetCol = schema.columns[colIndex];
       if (targetRow && targetCol) {
         this.activeCell = { rowId: targetRow.id, colKey: targetCol.key };
         this.onActiveChange(targetRow.id, targetCol.key);
       }
+      this.focusSelectionInput("");
       return;
     }
 
@@ -1147,7 +1232,7 @@ export class SelectionManager {
     }
   }
 
-  private handleSelectionKeydown = (ev: KeyboardEvent) => {
+  private handleSelectionKeydown = async (ev: KeyboardEvent) => {
     if (!this.selectionMode) return;
     if (!this.activeCell) return;
     if (ev.isComposing || this.composing) return;
@@ -1184,13 +1269,14 @@ export class SelectionManager {
       }
       if (key === "c") {
         ev.preventDefault();
-        document.execCommand("copy");
+        await this.copySelection();
         this.selectionAnchor = null;
         return;
       }
       if (key === "x") {
         ev.preventDefault();
-        document.execCommand("cut");
+        await this.copySelection();
+        this.clearSelectionValues();
         this.selectionAnchor = null;
         return;
       }
@@ -1270,7 +1356,17 @@ export class SelectionManager {
     if (this.selectionRanges.length > 0) {
       const first = this.selectionRanges[0];
       if (!first) return null;
-      return this.normalizeRange(first);
+      const normalized = this.normalizeRange(first);
+      if (normalized.kind === "rows") {
+        return {
+          kind: "cells",
+          startRow: normalized.startRow,
+          endRow: normalized.endRow,
+          startCol: normalized.startCol,
+          endCol: normalized.endCol,
+        };
+      }
+      return normalized;
     }
     if (!this.activeCell) return null;
     const ac = this.activeCell;
@@ -1590,22 +1686,77 @@ export class SelectionManager {
       this.activeCell?.rowId === hit.rowId &&
       String(this.activeCell?.colKey) === String(hit.colKey);
     if (hit.rowId === "__all__" && hit.colKey === "__all__") {
+      const schema = this.dataModel.getSchema();
+      const rows = this.dataModel.listRows();
       this.teardownInput(false);
-      this.activeCell = null;
-      this.onActiveChange("__all__", "__all__");
-      this.selectionAnchor = null;
+      if (rows.length && schema.columns.length) {
+        this.selectionRanges = [
+          {
+            kind: "cells",
+            startRow: 0,
+            endRow: rows.length - 1,
+            startCol: 0,
+            endCol: schema.columns.length - 1,
+          },
+        ];
+        this.activeCell = { rowId: rows[0].id, colKey: schema.columns[0]?.key ?? null };
+        this.onActiveChange(this.activeCell.rowId, this.activeCell.colKey);
+        this.onSelectionChange(this.selectionRanges);
+        this.updateFillHandleFlag();
+        this.selectionMode = true;
+        this.selectionAnchor = null;
+        this.focusSelectionInput("");
+      } else {
+        this.activeCell = null;
+        this.onActiveChange("__all__", "__all__");
+        this.selectionAnchor = null;
+      }
       return;
     }
     this.onRowSelect(hit.rowId);
+    if (hit.rowId === "__header__") {
+      const schema = this.dataModel.getSchema();
+      const rows = this.dataModel.listRows();
+      const colIndex = schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
+      if (rows.length && colIndex >= 0) {
+        this.selectionRanges = [
+          {
+            kind: "cells",
+            startRow: 0,
+            endRow: rows.length - 1,
+            startCol: colIndex,
+            endCol: colIndex,
+          },
+        ];
+        this.activeCell = { rowId: rows[0].id, colKey: hit.colKey };
+        this.onActiveChange(this.activeCell.rowId, this.activeCell.colKey);
+        this.onSelectionChange(this.selectionRanges);
+        this.updateFillHandleFlag();
+        this.selectionMode = true;
+        this.selectionAnchor = null;
+        this.focusSelectionInput("");
+      }
+      return;
+    }
     this.applySelectionFromHit(ev, hit);
     if (hit.colKey === null || hit.colKey === "__all__") {
+      this.selectionMode = true;
+      this.selectionAnchor = null;
+      this.focusSelectionInput("");
+      return;
+    }
+    if (hit.rowId === "__header__") {
+      this.selectionMode = true;
+      this.selectionAnchor = null;
+      this.focusSelectionInput("");
       return;
     }
     if (this.isCellReadonly(hit.rowId, hit.colKey)) {
       this.selectionMode = true;
       this.selectionAnchor = null;
       this.teardownInput(false);
-      this.teardownSelectionInput();
+      const current = this.dataModel.getCell(hit.rowId, hit.colKey);
+      this.focusSelectionInput(this.cellToClipboardString(current));
       return;
     }
     const col = this.findColumn(hit.colKey);
@@ -1723,6 +1874,11 @@ export class SelectionManager {
     this.onActiveChange(anchorCell.rowId, anchorCell.colKey);
     this.onSelectionChange(this.selectionRanges);
     this.updateFillHandleFlag();
+    if (targetRange.kind === "rows") {
+      this.selectionMode = true;
+      this.selectionAnchor = null;
+      this.focusSelectionInput("");
+    }
   }
 
   private mergeRanges(ranges: SelectionRange[]) {

@@ -826,10 +826,10 @@ export class CanvasRenderer implements Renderer {
       };
 
       let totalRowsHeight = heightIndex.fenwick.total();
-      let contentScrollTop = Math.max(
-        0,
-        Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)),
-      );
+      const viewportHeight = this.canvas?.height ?? this.root.clientHeight;
+      const dataViewportHeight = Math.max(0, viewportHeight - this.headerHeight);
+      let maxContentScrollTop = Math.max(0, totalRowsHeight - dataViewportHeight);
+      let contentScrollTop = Math.max(0, Math.min(scrollTop, maxContentScrollTop));
       let { accum, visibleStart, visibleEnd } = computeVisibleRange(contentScrollTop);
 
       if (wrapAny && cacheKey) {
@@ -846,17 +846,15 @@ export class CanvasRenderer implements Renderer {
         this.applyRowHeightUpdates(updates);
         totalRowsHeight = heightIndex.fenwick.total();
         this.dataModel.setRowHeightsBulk(updates);
-        contentScrollTop = Math.max(
-          0,
-          Math.min(scrollTop, Math.max(0, totalRowsHeight - this.rowHeight)),
-        );
+        maxContentScrollTop = Math.max(0, totalRowsHeight - dataViewportHeight);
+        contentScrollTop = Math.max(0, Math.min(scrollTop, maxContentScrollTop));
         ({ accum, visibleStart, visibleEnd } = computeVisibleRange(contentScrollTop));
         if (this.rowHeightMeasureTask || Object.keys(updates).length > 0)
           this.scheduleRowHeightMeasurement();
       }
 
       if (this.spacer) {
-        this.spacer.style.height = `${totalRowsHeight + this.headerHeight}px`;
+        this.spacer.style.height = `${maxContentScrollTop}px`;
         this.spacer.style.width = `${totalWidth}px`;
       }
       const dataXOffset = this.rowHeaderWidth - scrollLeft;
@@ -1302,13 +1300,10 @@ export class CanvasRenderer implements Renderer {
     const heightIndex = this.heightIndex;
     if (!heightIndex) return null;
     const totalRowsHeight = heightIndex.fenwick.total();
-    const contentScrollTop = Math.max(
-      0,
-      Math.min(
-        this.root.scrollTop - this.headerHeight,
-        Math.max(0, totalRowsHeight - this.rowHeight),
-      ),
-    );
+    const viewportHeight = this.canvas?.height ?? this.root.clientHeight;
+    const dataViewportHeight = Math.max(0, viewportHeight - this.headerHeight);
+    const maxContentScrollTop = Math.max(0, totalRowsHeight - dataViewportHeight);
+    const contentScrollTop = Math.max(0, Math.min(this.root.scrollTop, maxContentScrollTop));
     if (viewportY < headerHeight && viewportX < this.rowHeaderWidth) {
       return {
         rowId: "__all__",
