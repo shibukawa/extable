@@ -48,6 +48,7 @@
     "type": "git",
     "url": "git+https://github.com/shibukawa/extable.git"
   },
+  "homepage": "https://shibukawa.github.io/extable/",
   "author": "Yoshiki Shibukawa",
   "license": "Apache-2.0"
 }

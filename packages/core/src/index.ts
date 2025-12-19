@@ -228,7 +228,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
       type UserAgentBrand = { brand?: string };
       type NavigatorWithUAData = Navigator & { userAgentData?: { brands?: UserAgentBrand[] } };
       const isBot =
-        /bot|crawl|spider/i.test(ua) ||
+        /bot|crawl|spider|playwright|puppeteer|selenium|phantomjs/i.test(ua) ||
         (typeof navigator !== "undefined" &&
           "userAgentData" in navigator &&
           (navigator as NavigatorWithUAData).userAgentData?.brands?.some((b) =>

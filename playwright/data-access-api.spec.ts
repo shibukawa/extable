@@ -5,13 +5,14 @@ test.setTimeout(60_000);
 test('public data access api works end-to-end (demo)', async ({ page }) => {
   await page.goto('/');
 
-  // Use HTML mode to make cells accessible for the smoke test.
-  await page.locator('input[name="render-mode"][value="html"]').check();
   await page.locator('input[name="edit-mode"][value="commit"]').check();
   await page.locator('input[name="data-mode"][value="standard"]').check();
 
   const firstNameCell = page.locator('td[data-col-key="name"]').first();
   await expect(firstNameCell).toBeVisible();
+
+  // Bot UA should force HTML renderer in auto mode.
+  await expect(page.locator('#commit-state')).toContainText('mode=html');
 
   await page.evaluate(() => {
     const core = (window as any).__extableCore;
@@ -77,12 +78,14 @@ test('public data access api works end-to-end (demo)', async ({ page }) => {
 test('direct mode: edits apply immediately without pending map', async ({ page }) => {
   await page.goto('/');
 
-  await page.locator('input[name="render-mode"][value="html"]').check();
   await page.locator('input[name="edit-mode"][value="direct"]').check();
   await page.locator('input[name="data-mode"][value="standard"]').check();
 
   const firstNameCell = page.locator('td[data-col-key="name"]').first();
   await expect(firstNameCell).toBeVisible();
+
+  // Bot UA should force HTML renderer in auto mode.
+  await expect(page.locator('#commit-state')).toContainText('mode=html');
 
   await page.evaluate(() => {
     const core = (window as any).__extableCore;

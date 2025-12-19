@@ -94,6 +94,43 @@ The root container receives these classes:
 | `extable-filter-sort-open` | Filter/sort panel is open |
 | Custom classes | From `defaultClass` option |
 
+### Automatic HTML Mode for Playwright (Recommended)
+
+`ExtableCore` automatically selects the HTML renderer when the User-Agent contains bot-like strings. During Playwright execution, you can add `"PlaywrightBot"` to the UA without switching render modes via UI, enabling E2E testing in HTML mode. No special global injection to `window` is performed.
+
+```ts
+// playwright.config.ts (excerpt)
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  use: {
+    baseURL: 'http://127.0.0.1:5173',
+    userAgent: `${devices['Desktop Chrome'].userAgent} PlaywrightBot`,
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        userAgent: `${devices['Desktop Chrome'].userAgent} PlaywrightBot`,
+        launchOptions: { args: ['--headless=old'] },
+      },
+    },
+    // firefox / webkit should also have UA appended as needed
+  ],
+});
+```
+
+Example to verify HTML mode is active in tests:
+
+```ts
+await expect(page.locator('#commit-state')).toContainText('mode=html');
+// or check the data-extable-renderer attribute:
+await expect(page.locator('table')).toHaveAttribute('data-extable-renderer', 'html');
+```
+
+This approach eliminates the need for render mode UI interactions and enables stable E2E execution with the highly accessible HTML renderer.
+
 ### Row and Column Identification
 
 #### By Cell Value
