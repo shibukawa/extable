@@ -1699,8 +1699,8 @@ export class SelectionManager {
             endCol: schema.columns.length - 1,
           },
         ];
-        this.activeCell = { rowId: rows[0].id, colKey: schema.columns[0]?.key ?? null };
-        this.onActiveChange(this.activeCell.rowId, this.activeCell.colKey);
+        this.activeCell = { rowId: "__all__", colKey: "__all__" };
+        this.onActiveChange("__all__", "__all__");
         this.onSelectionChange(this.selectionRanges);
         this.updateFillHandleFlag();
         this.selectionMode = true;
