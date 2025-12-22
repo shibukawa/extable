@@ -11,3 +11,4 @@
 - Init options reference and callbacks guide.
 - Button and link cell types with `action`/`link` click handling.
 - Conditional `readonly`/`disabled` support for applicable column types.
+- Auto-fill sequences expanded (US states, kanji numerals, Windows/macOS/Debian versions, element symbols, prefectures, shoguns, state abbreviations, weekday/month variants, roman numerals).
