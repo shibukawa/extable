@@ -2,7 +2,7 @@
 
 This reference describes the initialization payload for `ExtableCore` and the `options` object used by all wrappers.
 
-## CoreInit<T>
+## `CoreInit<T>`
 
 ```ts
 new ExtableCore<T>({

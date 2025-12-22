@@ -45,6 +45,7 @@ export default defineConfig({
         { text: "Data Format", link: "/guides/data-format" },
         { text: "Edit Modes", link: "/guides/editmode" },
         { text: "Data Access from API", link: "/guides/data-access" },
+        { text: "Callbacks", link: "/guides/callbacks" },
         { text: "Validation", link: "/guides/validation" },
         { text: "Style", link: "/guides/style" },
         { text: "Formulas", link: "/guides/formulas" },
@@ -78,7 +79,11 @@ export default defineConfig({
           { text: "Conditional Disable/Readonly", link: "/demos/conditional-access" },
         ]},
       ],
-      "/reference/": [{ text: "Core API", link: "/reference/core" }],
+      "/reference/": [
+        { text: "Core API", link: "/reference/core" },
+        { text: "Events", link: "/reference/events" },
+        { text: "constructor options", link: "/reference/init-options" },
+      ],
     },
   },
 });
