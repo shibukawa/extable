@@ -60,7 +60,7 @@ Color-code by availability thresholds:
   key: 'uptime',
   header: 'Uptime %',
   type: 'number',
-  number: { scale: 2 },
+  format: { scale: 2 },
   conditionalStyle: (row) => {
     if (row.uptime >= 99.9) return { backgroundColor: '#c8e6c9', bold: true };
     if (row.uptime >= 99) return { backgroundColor: '#e8f5e9' };
@@ -101,7 +101,7 @@ Highlight based on relationships between multiple columns:
   key: 'variance',
   header: 'Budget Variance',
   type: 'number',
-  number: { scale: 2 },
+  format: { scale: 2 },
   conditionalStyle: (row) => {
     const diff = row.actual - row.budgeted;
     const percentVariance = (diff / row.budgeted) * 100;

@@ -24,7 +24,7 @@ const schema = defineSchema<InvoiceItem>({
       key: "quantity",
       header: "Qty",
       type: "number",
-      number: { precision: 6, scale: 0 },
+      format: { precision: 6, scale: 0 },
       width: 80,
       style: { align: "center" },
     },
@@ -32,7 +32,7 @@ const schema = defineSchema<InvoiceItem>({
       key: "unitPrice",
       header: "Unit Price ($)",
       type: "number",
-      number: { precision: 8, scale: 2 },
+      format: { precision: 8, scale: 2 },
       width: 130,
       style: { align: "right" },
     },
@@ -40,7 +40,7 @@ const schema = defineSchema<InvoiceItem>({
       key: "discountPercent",
       header: "Discount (%)",
       type: "number",
-      number: { precision: 5, scale: 1 },
+      format: { precision: 5, scale: 1 },
       width: 120,
       style: { align: "center" },
     },
@@ -48,7 +48,7 @@ const schema = defineSchema<InvoiceItem>({
       key: "total",
       header: "Total ($)",
       type: "number",
-      number: { precision: 10, scale: 2 },
+      format: { precision: 10, scale: 2 },
       readonly: true,
       formula: (row) => row.quantity * row.unitPrice * (1 - row.discountPercent / 100),
       width: 130,
@@ -97,10 +97,6 @@ function generateInvoiceData(): InvoiceItem[] {
 const defaultData = generateInvoiceData();
 const user: UserInfo = { id: "demo-user", name: "Demo User" };
 
-function handleSearch() {
-  tableRef.value?.toggleSearchPanel("find");
-}
-
 function handleUndo() {
   tableRef.value?.undo();
 }
@@ -125,9 +121,6 @@ function handleRedo() {
     </div>
 
     <div class="demo-controls">
-      <div class="search-panel">
-        <button @click="handleSearch">🔍 Search</button>
-      </div>
       <div class="edit-controls">
         <button @click="handleUndo">↶ Undo</button>
         <button @click="handleRedo">↷ Redo</button>
@@ -168,11 +161,6 @@ function handleRedo() {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.search-panel {
-  display: flex;
-  gap: 4px;
 }
 
 .edit-controls {

@@ -23,9 +23,6 @@ const options = computed<CoreOptions>(() => ({
   user: { id: "demo-user", name: "Demo User" },
 }));
 
-function handleSearch() {
-  tableRef.value?.toggleSearchPanel("find");
-}
 </script>
 
 <template>
@@ -36,9 +33,6 @@ function handleSearch() {
     </div>
 
     <div class="demo-controls">
-      <div class="search-panel">
-        <button @click="handleSearch">🔍 Search</button>
-      </div>
       <div class="edit-controls">
         <button disabled>↶ Undo</button>
         <button disabled>↷ Redo</button>
@@ -78,12 +72,6 @@ function handleSearch() {
 .demo-controls {
   display: flex;
   gap: 8px;
-  align-items: center;
-}
-
-.search-panel {
-  display: flex;
-  gap: 4px;
   align-items: center;
 }
 

@@ -49,7 +49,7 @@ Extable automatically validates against your column's defined type:
   key: 'age',
   header: 'Age',
   type: 'number',
-  number: {
+  format: {
     signed: false  // Only non-negative values
   }
 }
@@ -90,7 +90,7 @@ Extable automatically validates against your column's defined type:
 {
   key: 'rating',
   type: 'number',
-  number: {
+  format: {
     signed: false  // Must be >= 0
     // ✓ 0, 1, 2, 3, 4, 5 (valid)
     // ✗ -1 (negative not allowed)
@@ -253,7 +253,7 @@ Combine conditional formatting with error detection:
   key: 'discount',
   header: 'Discount %',
   type: 'number',
-  number: { min: 0, max: 100 },
+  format: { min: 0, max: 100 },
   
   // Computed column that validates and shows warnings
   formula: (row) => {
@@ -560,7 +560,7 @@ console.log(`Table has ${state.activeErrors.length} validation issues`);
   key: 'completionPercent',
   header: 'Complete %',
   type: 'number',
-  number: { min: 0, max: 100, scale: 0 },
+  format: { min: 0, max: 100, scale: 0 },
   
   formula: (row) => {
     const pct = row.completionPercent;

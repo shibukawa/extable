@@ -3,6 +3,7 @@ import type {
   CellDiagnostic,
   ColumnSchema,
   ColumnDiagnosticFilter,
+  ColumnType,
   ConditionalStyleFn,
   InternalRow,
   RowObject,
@@ -266,13 +267,48 @@ export class DataModel {
     return Boolean((row.raw as Record<string, unknown>)._readonly);
   }
 
+  private isActionType(colType: ColumnType | undefined) {
+    return colType === "button" || colType === "link";
+  }
+
+  private supportsConditionalReadonly(colType: ColumnType | undefined) {
+    return (
+      colType === "boolean" ||
+      colType === "number" ||
+      colType === "date" ||
+      colType === "time" ||
+      colType === "datetime" ||
+      colType === "string" ||
+      colType === "enum" ||
+      colType === "tags"
+    );
+  }
+
   public isColumnReadonly(colKey: string) {
     const col = this.schema.columns.find((c) => c.key === colKey);
+    if (this.isActionType(col?.type)) return true;
     return Boolean(col?.readonly || col?.formula);
   }
 
+  public getCellInteraction(rowId: string, colKey: string) {
+    const col = this.schema.columns.find((c) => String(c.key) === String(colKey));
+    if (!col) return { readonly: false, disabled: false, muted: false };
+    const baseReadonly = this.isRowReadonly(rowId) || this.isColumnReadonly(colKey);
+    const delta = this.resolveConditionalStyle(rowId, col).delta;
+    const cellStyle = this.getCellStyle(rowId, colKey);
+    const readonlyAllowed = this.supportsConditionalReadonly(col.type);
+    const readonlyFromStyle =
+      readonlyAllowed && Boolean(col.style?.readonly || delta?.readonly || cellStyle?.readonly);
+    const disabledAllowed = this.isActionType(col.type);
+    const disabled =
+      disabledAllowed && Boolean(col.style?.disabled || delta?.disabled || cellStyle?.disabled);
+    const readonly = baseReadonly || readonlyFromStyle || disabled;
+    const muted = disabled || (readonly && !disabledAllowed);
+    return { readonly, disabled, muted };
+  }
+
   public isReadonly(rowId: string, colKey: string) {
-    return this.isRowReadonly(rowId) || this.isColumnReadonly(colKey);
+    return this.getCellInteraction(rowId, colKey).readonly;
   }
 
   public setCell(rowId: string, key: string, value: unknown, committed: boolean) {

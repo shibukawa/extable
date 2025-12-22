@@ -87,7 +87,7 @@ Calculate totals, subtotals, or per-unit costs:
   header: 'Line Total',
   type: 'number',
   readonly: true,
-  number: { scale: 2, thousandSeparator: true },
+  format: { scale: 2, thousandSeparator: true },
   style: { align: 'right' },
   formula: (row) => row.unitPrice * row.quantity
 }
@@ -103,7 +103,7 @@ Apply different logic based on row state:
   header: 'Discount Amount',
   type: 'number',
   readonly: true,
-  number: { scale: 2 },
+  format: { scale: 2 },
   formula: (row) => {
     if (row.customerType === 'VIP') {
       return row.subtotal * 0.20;  // 20% discount for VIP
@@ -140,7 +140,7 @@ Compute boolean states from other columns:
   header: 'Overdue?',
   type: 'boolean',
   readonly: true,
-  booleanDisplay: 'checkbox',
+  format: 'checkbox',
   formula: (row) => {
     const dueDate = new Date(row.dueDate);
     return dueDate < new Date();
@@ -202,7 +202,7 @@ Access all row properties to perform complex calculations:
   header: '% of Total',
   type: 'number',
   readonly: true,
-  number: { scale: 1 },
+  format: { scale: 1 },
   formula: (row) => {
     // Note: To calculate percentage of total across all rows,
     // pre-compute the sum in your data layer and pass it as a derived property
@@ -304,7 +304,7 @@ Return a value directly for normal operation:
   header: 'Net Price',
   type: 'number',
   readonly: true,
-  number: { scale: 2, thousandSeparator: true },
+  format: { scale: 2, thousandSeparator: true },
   formula: (row) => {
     // Critical validation - must throw
     if (!row.basePrice || !row.quantity) {
@@ -465,20 +465,20 @@ A complete invoice row with multiple calculated fields:
       key: 'quantity',
       header: 'Qty',
       type: 'number',
-      number: { precision: 10, scale: 2 }
+      format: { precision: 10, scale: 2 }
     },
     {
       key: 'unitPrice',
       header: 'Unit Price',
       type: 'number',
-      number: { scale: 2 }
+      format: { scale: 2 }
     },
     {
       key: 'subtotal',
       header: 'Subtotal',
       type: 'number',
       readonly: true,
-      number: { scale: 2 },
+      format: { scale: 2 },
       style: { align: 'right' },
       formula: (row) => row.quantity * row.unitPrice
     },
@@ -487,7 +487,7 @@ A complete invoice row with multiple calculated fields:
       header: 'Discount',
       type: 'number',
       readonly: true,
-      number: { scale: 2 },
+      format: { scale: 2 },
       formula: (row) => {
         if (!row.subtotal) return 0;
         const discountRate = row.discountPercent ? row.discountPercent / 100 : 0;
@@ -499,7 +499,7 @@ A complete invoice row with multiple calculated fields:
       header: 'Taxable Amount',
       type: 'number',
       readonly: true,
-      number: { scale: 2 },
+      format: { scale: 2 },
       formula: (row) => (row.subtotal || 0) - (row.discountAmount || 0)
     },
     {
@@ -507,7 +507,7 @@ A complete invoice row with multiple calculated fields:
       header: 'Tax',
       type: 'number',
       readonly: true,
-      number: { scale: 2 },
+      format: { scale: 2 },
       formula: (row) => {
         const taxableAmount = (row.subtotal || 0) - (row.discountAmount || 0);
         const taxRate = row.taxRate ? row.taxRate / 100 : 0;
@@ -519,7 +519,7 @@ A complete invoice row with multiple calculated fields:
       header: 'Total',
       type: 'number',
       readonly: true,
-      number: { scale: 2, thousandSeparator: true },
+      format: { scale: 2, thousandSeparator: true },
       style: { align: 'right', bold: true },
       formula: (row) => {
         const subtotal = row.subtotal || 0;

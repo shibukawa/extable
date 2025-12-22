@@ -11,7 +11,7 @@ This demo shows a table in read-only mode where no editing is allowed.
 </ClientOnly>
 
 ::: info Demo UI Note
-This demo includes **Search** button, while **Undo** and **Redo** buttons are disabled since the table is in read-only mode. In a real application, you would typically use keyboard shortcuts (Ctrl/Cmd+F for Search, etc.). The buttons are provided here as an alternative way to interact with the demo.
+This demo includes **Undo** and **Redo** buttons, but they are disabled since the table is in read-only mode. In a real application, you would typically use keyboard shortcuts (Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z for Redo). The buttons are provided here as an alternative way to interact with the demo.
 :::
 
 ## What You're Seeing

@@ -29,6 +29,8 @@ Explore individual features with focused demos:
 - **[Formatting →](/demos/formatting)** - Currency, dates, numbers, alignment, and styling
 - **[Formulas →](/demos/formulas)** - Computed columns with formulas
 - **[Conditional Style →](/demos/conditional-style)** - Apply colors and styles based on cell values
+- **[Button & Link Cells →](/demos/button-link)** - Action buttons and link navigation
+- **[Conditional Readonly/Disabled →](/demos/conditional-access)** - Toggle editing access and actions
 - **[Unique Constraint →](/demos/unique-constraint)** - Enforce unique values and validation
 - **[Auto-fill Sequences →](/demos/auto-fill-sequence)** - Drag-fill numbers, strings, and list sequences
 

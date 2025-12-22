@@ -73,13 +73,13 @@ export const demoSchema = {
   columns: [
     { key: 'id', header: 'ID', type: 'number', readonly: true, width: 60 },
     { key: 'name', header: 'Name', type: 'string', width: 140 },
-    { key: 'active', header: 'Active', type: 'boolean', booleanDisplay: 'checkbox', width: 80 },
+    { key: 'active', header: 'Active', type: 'boolean', format: 'checkbox', width: 80 },
     { key: 'date', header: 'Date', type: 'date', width: 120 },
     { key: 'time', header: 'Time', type: 'time', width: 100 },
     { key: 'datetime', header: 'DateTime', type: 'datetime', width: 180 },
     { key: 'role', header: 'Role', type: 'enum', enum: { options: ['viewer', 'editor', 'owner'] }, width: 120 },
     { key: 'tags', header: 'Tags', type: 'tags', tags: { options: ['alpha', 'beta', 'priority'] }, width: 140 },
-    { key: 'score', header: 'Score', type: 'number', number: { precision: 6, scale: 2 }, style: { align: 'right' }, width: 100 },
+    { key: 'score', header: 'Score', type: 'number', format: { precision: 6, scale: 2 }, style: { align: 'right' }, width: 100 },
     { key: 'description', header: 'Description', type: 'string', width: 260, wrapText: true },
     { key: 'longNote', header: 'Long Note (wrap)', type: 'string', width: 260, wrapText: true },
     { key: 'longNoWrap', header: 'Long Note (ellipsis)', type: 'string', width: 240 }
@@ -140,17 +140,17 @@ export const dataFormatSchema = {
   columns: [
     { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
     { key: 'intPlain', header: 'Int Plain', type: 'number', width: 100 },
-    { key: 'intGrouped', header: 'Int Grouped', type: 'number', number: { thousandSeparator: true }, width: 120 },
-    { key: 'intGroupedRed', header: 'Int Grouped Red', type: 'number', number: { thousandSeparator: true, negativeRed: true }, width: 140 },
-    { key: 'boolCheck', header: 'Bool Checkbox', type: 'boolean', booleanDisplay: 'checkbox', width: 120 },
-    { key: 'boolTrueFalse', header: 'Bool TRUE/FALSE', type: 'boolean', booleanDisplay: ['TRUE', 'FALSE'], width: 130 },
-    { key: 'boolTrueFalseJp', header: 'Bool 真/偽', type: 'boolean', booleanDisplay: ['真', '偽'], width: 110 },
-    { key: 'dateIso', header: 'Date ISO', type: 'date', dateFormat: 'yyyy-MM-dd', width: 130 },
-    { key: 'dateSlash', header: 'Date Slash', type: 'date', dateFormat: 'yyyy/MM/dd', width: 130 },
-    { key: 'time24s', header: 'Time 24s', type: 'time', timeFormat: 'HH:mm:ss', width: 120 },
-    { key: 'time12', header: 'Time 12h', type: 'time', timeFormat: 'hh:mm a', width: 120 },
-    { key: 'datetimeIso', header: 'DateTime ISO', type: 'datetime', dateTimeFormat: "yyyy-MM-dd'T'HH:mm:ss'Z'", width: 200 },
-    { key: 'datetimeSlash', header: 'DateTime Slash', type: 'datetime', dateTimeFormat: 'yyyy/MM/dd HH:mm', width: 180 }
+    { key: 'intGrouped', header: 'Int Grouped', type: 'number', format: { thousandSeparator: true }, width: 120 },
+    { key: 'intGroupedRed', header: 'Int Grouped Red', type: 'number', format: { thousandSeparator: true, negativeRed: true }, width: 140 },
+    { key: 'boolCheck', header: 'Bool Checkbox', type: 'boolean', format: 'checkbox', width: 120 },
+    { key: 'boolTrueFalse', header: 'Bool TRUE/FALSE', type: 'boolean', format: ['TRUE', 'FALSE'], width: 130 },
+    { key: 'boolTrueFalseJp', header: 'Bool 真/偽', type: 'boolean', format: ['真', '偽'], width: 110 },
+    { key: 'dateIso', header: 'Date ISO', type: 'date', format: 'yyyy-MM-dd', width: 130 },
+    { key: 'dateSlash', header: 'Date Slash', type: 'date', format: 'yyyy/MM/dd', width: 130 },
+    { key: 'time24s', header: 'Time 24s', type: 'time', format: 'HH:mm:ss', width: 120 },
+    { key: 'time12', header: 'Time 12h', type: 'time', format: 'hh:mm a', width: 120 },
+    { key: 'datetimeIso', header: 'DateTime ISO', type: 'datetime', format: "yyyy-MM-dd'T'HH:mm:ss'Z'", width: 200 },
+    { key: 'datetimeSlash', header: 'DateTime Slash', type: 'datetime', format: 'yyyy/MM/dd HH:mm', width: 180 }
   ]
 };
 
@@ -274,7 +274,7 @@ export const conditionalStyleSchema = {
       key: 'score',
       header: 'Performance Score',
       type: 'number',
-      number: { precision: 5, scale: 1 },
+      format: { precision: 5, scale: 1 },
       width: 160,
       style: { align: 'center' },
       conditionalStyle: (row: ConditionalStyleRow) => {
@@ -287,7 +287,7 @@ export const conditionalStyleSchema = {
       key: 'attendance',
       header: 'Attendance (%)',
       type: 'number',
-      number: { precision: 5, scale: 1 },
+      format: { precision: 5, scale: 1 },
       width: 140,
       style: { align: 'center' },
       conditionalStyle: (row: ConditionalStyleRow) => {
@@ -300,7 +300,7 @@ export const conditionalStyleSchema = {
       key: 'projects',
       header: 'Projects Completed',
       type: 'number',
-      number: { precision: 3, scale: 0 },
+      format: { precision: 3, scale: 0 },
       width: 160,
       style: { align: 'center' },
       conditionalStyle: (row: ConditionalStyleRow) => {

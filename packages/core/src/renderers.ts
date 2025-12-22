@@ -3,6 +3,7 @@ import type {
   InternalRow,
   Schema,
   ColumnSchema,
+  NumberFormat,
   SelectionRange,
   View,
   ViewFilterValues,
@@ -25,6 +26,7 @@ import {
 } from "./fillHandle";
 import { removeFromParent } from "./utils";
 import { columnFormatToStyle, mergeStyle, styleToCssText } from "./styleResolver";
+import { getButtonLabel, getLinkLabel, resolveButtonAction, resolveLinkAction } from "./actionValue";
 
 function getColumnSortDir(view: View, colKey: string): "asc" | "desc" | null {
   const s = view.sorts?.[0];
@@ -249,6 +251,9 @@ export interface Renderer {
   hitTest(
     event: MouseEvent,
   ): { rowId: string; colKey: string | null; element?: HTMLElement; rect: DOMRect } | null;
+  hitTestAction?(
+    event: MouseEvent,
+  ): { rowId: string; colKey: string; kind: "button" | "link" } | null;
   setActiveCell(rowId: string | null, colKey: string | null): void;
   setSelection(ranges: SelectionRange[]): void;
 }
@@ -370,6 +375,23 @@ export class HTMLRenderer implements Renderer {
     };
   }
 
+  hitTestAction(event: MouseEvent) {
+    const target = event.target as HTMLElement | null;
+    if (!target) return null;
+    const actionEl = target.closest<HTMLElement>("[data-extable-action]");
+    if (!actionEl) return null;
+    const cell = actionEl.closest<HTMLElement>("td[data-col-key]");
+    const row = cell?.closest<HTMLElement>("tr[data-row-id]");
+    if (!cell || !row) return null;
+    const kind = actionEl.dataset.extableAction as "button" | "link" | undefined;
+    if (kind !== "button" && kind !== "link") return null;
+    return {
+      rowId: row.dataset.rowId ?? "",
+      colKey: cell.dataset.colKey ?? "",
+      kind,
+    };
+  }
+
   private renderHeader(schema: Schema, colWidths: number[]) {
     const thead = document.createElement("thead");
     const tr = document.createElement("tr");
@@ -448,6 +470,9 @@ export class HTMLRenderer implements Renderer {
       const isPending = this.dataModel.hasPending(row.id, col.key);
       const condRes = this.dataModel.resolveConditionalStyle(row.id, col);
       const cellStyle = this.dataModel.getCellStyle(row.id, col.key);
+      const hasTextColor = Boolean(
+        cellStyle?.textColor || condRes.delta?.textColor || col.style?.textColor,
+      );
       if (!cellStyle && !condRes.delta && !isPending) {
         const css = colBaseCss[idx] ?? "";
         if (css) td.style.cssText = css;
@@ -469,8 +494,33 @@ export class HTMLRenderer implements Renderer {
       const formatted = textOverride
         ? { text: textOverride as string }
         : this.formatValue(valueRes.value, col);
-      td.textContent = formatted.text;
-      if (formatted.color) td.style.color = formatted.color;
+      const interaction = this.dataModel.getCellInteraction(row.id, col.key);
+      const isActionType = col.type === "button" || col.type === "link";
+      const actionValue = isActionType
+        ? col.type === "button"
+          ? resolveButtonAction(valueRes.value)
+          : resolveLinkAction(valueRes.value)
+        : null;
+      const actionLabel = isActionType
+        ? col.type === "button"
+          ? getButtonLabel(valueRes.value)
+          : getLinkLabel(valueRes.value)
+        : "";
+      if (isActionType && !textOverride && actionValue && actionLabel) {
+        const actionEl =
+          col.type === "button" ? document.createElement("button") : document.createElement("span");
+        if (actionEl instanceof HTMLButtonElement) actionEl.type = "button";
+        actionEl.className =
+          col.type === "button" ? "extable-action-button" : "extable-action-link";
+        if (interaction.disabled) actionEl.classList.add("extable-action-disabled");
+        if (col.type === "link" && hasTextColor) actionEl.style.color = "inherit";
+        actionEl.dataset.extableAction = col.type;
+        actionEl.textContent = actionLabel;
+        td.replaceChildren(actionEl);
+      } else {
+        td.textContent = actionLabel || formatted.text;
+        if (formatted.color) td.style.color = formatted.color;
+      }
       const marker = this.dataModel.getCellMarker(row.id, col.key);
       if (marker) {
         td.classList.toggle("extable-diag-warning", marker.level === "warning");
@@ -490,11 +540,10 @@ export class HTMLRenderer implements Renderer {
         td.dataset.raw = rawStr;
       }
       if (isPending) td.classList.add("pending");
-      if (this.dataModel.isReadonly(row.id, col.key)) {
-        td.classList.add("extable-readonly", "extable-readonly-muted");
-      } else {
-        td.classList.add("extable-editable");
-      }
+      if (interaction.readonly) td.classList.add("extable-readonly");
+      else td.classList.add("extable-editable");
+      if (interaction.muted) td.classList.add("extable-readonly-muted");
+      if (interaction.disabled) td.classList.add("extable-disabled");
       if (
         this.activeRowId === row.id &&
         this.activeColKey !== null &&
@@ -626,37 +675,47 @@ export class HTMLRenderer implements Renderer {
 
   private formatValue(value: unknown, col: ColumnSchema): { text: string; color?: string } {
     if (value === null || value === undefined) return { text: "" };
+    if (col.type === "button") {
+      const label = getButtonLabel(value);
+      return { text: label || String(value) };
+    }
+    if (col.type === "link") {
+      const label = getLinkLabel(value);
+      return { text: label || String(value) };
+    }
     if (col.type === "boolean") {
-      if (col.booleanDisplay === "checkbox" || !col.booleanDisplay) {
+      if (col.format === "checkbox" || !col.format) {
         return { text: value ? "☑" : "☐" };
       }
-      if (Array.isArray(col.booleanDisplay) && col.booleanDisplay.length >= 2) {
-        return { text: value ? String(col.booleanDisplay[0]) : String(col.booleanDisplay[1]) };
+      if (Array.isArray(col.format) && col.format.length >= 2) {
+        return { text: value ? String(col.format[0]) : String(col.format[1]) };
       }
-      return { text: value ? String(col.booleanDisplay) : "" };
+      return { text: value ? String(col.format) : "" };
     }
     if (col.type === "number" && typeof value === "number") {
       const num = value;
+      const fmt = col.format as NumberFormat | undefined;
       const opts: Intl.NumberFormatOptions = {};
-      if (col.number?.scale !== undefined) {
-        opts.minimumFractionDigits = col.number.scale;
-        opts.maximumFractionDigits = col.number.scale;
+      if (fmt?.scale !== undefined) {
+        opts.minimumFractionDigits = fmt.scale;
+        opts.maximumFractionDigits = fmt.scale;
       }
-      opts.useGrouping = Boolean(col.number?.thousandSeparator);
+      opts.useGrouping = Boolean(fmt?.thousandSeparator);
       const text = this.valueFormatCache.getNumberFormatter(opts).format(num);
-      const color = col.number?.negativeRed && num < 0 ? "#b91c1c" : undefined;
+      const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
       return { text, color };
     }
     if (
       (col.type === "date" || col.type === "time" || col.type === "datetime") &&
       (value instanceof Date || typeof value === "string")
     ) {
+      const fmtValue = col.format as string | undefined;
       const fmt =
         col.type === "date"
-          ? coerceDatePattern(col.dateFormat, "date")
+          ? coerceDatePattern(fmtValue, "date")
           : col.type === "time"
-            ? coerceDatePattern(col.timeFormat, "time")
-            : coerceDatePattern(col.dateTimeFormat, "datetime");
+            ? coerceDatePattern(fmtValue, "time")
+            : coerceDatePattern(fmtValue, "datetime");
       let d: Date | null = null;
       if (value instanceof Date) d = value;
       else {
@@ -906,14 +965,15 @@ export class CanvasRenderer implements Renderer {
             x += w;
             continue;
           }
-          const readOnly = this.dataModel.isReadonly(row.id, c.key);
+          const interaction = this.dataModel.getCellInteraction(row.id, c.key);
+          const muted = interaction.muted;
           ctx.strokeStyle = "#d0d7de";
           const condRes = this.dataModel.resolveConditionalStyle(row.id, c);
           const cellStyle = this.dataModel.getCellStyle(row.id, c.key);
           const baseStyle = colBaseStyles[idx] ?? {};
           const withCond = condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
           const mergedStyle = cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
-          const bg = readOnly ? "#f3f4f6" : (mergedStyle.backgroundColor ?? "#ffffff");
+          const bg = muted ? "#f3f4f6" : (mergedStyle.backgroundColor ?? "#ffffff");
           ctx.fillStyle = bg;
           ctx.fillRect(x, yCursor, w, rowH);
           ctx.strokeRect(x, yCursor, w, rowH);
@@ -921,7 +981,18 @@ export class CanvasRenderer implements Renderer {
           const textOverride =
             valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
           const formatted = textOverride ? { text: "#ERROR" } : this.formatValue(valueRes.value, c);
-          const text = formatted.text;
+          const isActionType = c.type === "button" || c.type === "link";
+          const actionValue = isActionType
+            ? c.type === "button"
+              ? resolveButtonAction(valueRes.value)
+              : resolveLinkAction(valueRes.value)
+            : null;
+          const actionLabel = isActionType
+            ? actionValue?.label ??
+              (c.type === "button" ? getButtonLabel(valueRes.value) : getLinkLabel(valueRes.value))
+            : "";
+          const renderAction = Boolean(isActionType && actionValue && actionLabel && !textOverride);
+          const text = actionLabel || formatted.text;
           const align = c.style?.align ?? (c.type === "number" ? "right" : "left");
           const isActiveCell =
             this.activeRowId === row.id &&
@@ -950,18 +1021,20 @@ export class CanvasRenderer implements Renderer {
               ctx.strokeRect(left + 0.5, top + 0.5, size - 1, size - 1);
             }
           }
+          const actionColor =
+            renderAction && c.type === "link" && !muted && !mergedStyle.textColor
+              ? "#2563eb"
+              : undefined;
           ctx.fillStyle = this.dataModel.hasPending(row.id, c.key)
             ? "#b91c1c"
             : formatted.color
               ? formatted.color
-              : readOnly
+              : muted
                 ? "#94a3b8"
-                : (mergedStyle.textColor ?? "#0f172a");
+                : (actionColor ?? mergedStyle.textColor ?? "#0f172a");
           const wrap = view.wrapText?.[c.key] ?? c.wrapText ?? false;
-          const isBoolean =
-            c.type === "boolean" && (!c.booleanDisplay || c.booleanDisplay === "checkbox");
-          const isCustomBoolean =
-            c.type === "boolean" && Boolean(c.booleanDisplay && c.booleanDisplay !== "checkbox");
+          const isBoolean = c.type === "boolean" && (!c.format || c.format === "checkbox");
+          const isCustomBoolean = c.type === "boolean" && Boolean(c.format && c.format !== "checkbox");
           if (!isBoolean) {
             const fontKey = `${mergedStyle.italic ? "i" : ""}${mergedStyle.bold ? "b" : ""}`;
             if (fontKey !== lastFontKey) {
@@ -980,18 +1053,62 @@ export class CanvasRenderer implements Renderer {
             ctx.font = baseFont;
             lastFontKey = "";
           }
+          const textAreaX = x + 8;
+          const textAreaY = yCursor + 2;
+          const textAreaW = Math.max(0, w - 12);
+          const textAreaH = Math.max(0, rowH - 8);
+          const decorations = {
+            underline: Boolean(mergedStyle.underline) || (renderAction && c.type === "link"),
+            strike: Boolean(mergedStyle.strike),
+          };
+          const actionBounds =
+            renderAction && !isBoolean
+              ? this.measureTextBounds(
+                  ctx,
+                  text,
+                  textAreaX,
+                  textAreaY,
+                  textAreaW,
+                  textAreaH,
+                  wrap,
+                  align,
+                )
+              : null;
+          if (renderAction && c.type === "button" && actionBounds) {
+            const padX = 6;
+            const padY = 4;
+            const left = Math.max(textAreaX, actionBounds.x - padX);
+            const top = Math.max(textAreaY, actionBounds.y - padY);
+            const right = Math.min(textAreaX + textAreaW, actionBounds.x + actionBounds.width + padX);
+            const bottom = Math.min(textAreaY + textAreaH, actionBounds.y + actionBounds.height + padY);
+            const bw = Math.max(0, right - left);
+            const bh = Math.max(0, bottom - top);
+            ctx.save();
+            ctx.fillStyle = muted ? "#f3f4f6" : "#f8fafc";
+            ctx.strokeStyle = muted ? "#e2e8f0" : "#cbd5e1";
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            if (typeof ctx.roundRect === "function") {
+              ctx.roundRect(left, top, bw, bh, 6);
+            } else {
+              ctx.rect(left, top, bw, bh);
+            }
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+          }
           this.drawCellText(
             ctx,
             text,
-            x + 8,
-            yCursor + 2,
-            w - 12,
-            rowH - 8,
+            textAreaX,
+            textAreaY,
+            textAreaW,
+            textAreaH,
             wrap,
             align,
             isBoolean,
             isCustomBoolean,
-            { underline: Boolean(mergedStyle.underline), strike: Boolean(mergedStyle.strike) },
+            decorations,
           );
           const marker = this.dataModel.getCellMarker(row.id, c.key);
           if (marker) drawDiagnosticCorner(ctx, x, yCursor, w, rowH, marker.level);
@@ -1380,6 +1497,70 @@ export class CanvasRenderer implements Renderer {
     return { rowId: row.id, colKey: col.key, rect: cellRect };
   }
 
+  hitTestAction(event: MouseEvent) {
+    if (!this.root || !this.canvas) return null;
+    const hit = this.hitTest(event);
+    if (!hit || !hit.rowId || !hit.colKey) return null;
+    if (hit.rowId === "__all__" || hit.rowId === "__header__") return null;
+    const schema = this.dataModel.getSchema();
+    const col = schema.columns.find((c) => String(c.key) === String(hit.colKey));
+    if (!col || (col.type !== "button" && col.type !== "link")) return null;
+    const valueRes = this.dataModel.resolveCellValue(hit.rowId, col);
+    const condRes = this.dataModel.resolveConditionalStyle(hit.rowId, col);
+    const textOverride = valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
+    if (textOverride) return null;
+    const actionValue =
+      col.type === "button"
+        ? resolveButtonAction(valueRes.value)
+        : resolveLinkAction(valueRes.value);
+    if (!actionValue || !actionValue.label) return null;
+
+    const ctx = this.canvas.getContext("2d");
+    if (!ctx) return null;
+    const baseStyle = columnFormatToStyle(col);
+    const withCond = condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
+    const cellStyle = this.dataModel.getCellStyle(hit.rowId, col.key);
+    const mergedStyle = cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
+    const weight = mergedStyle.bold ? "600 " : "";
+    const ital = mergedStyle.italic ? "italic " : "";
+    ctx.save();
+    ctx.font = `${ital}${weight}14px sans-serif`.trim() || "14px sans-serif";
+    ctx.textBaseline = "alphabetic";
+    const view = this.dataModel.getView();
+    const wrap = view.wrapText?.[col.key] ?? col.wrapText ?? false;
+    const align = col.style?.align ?? "left";
+    const textAreaX = hit.rect.left + 8;
+    const textAreaY = hit.rect.top + 2;
+    const textAreaW = Math.max(0, hit.rect.width - 12);
+    const textAreaH = Math.max(0, hit.rect.height - 8);
+    const bounds = this.measureTextBounds(
+      ctx,
+      actionValue.label,
+      textAreaX,
+      textAreaY,
+      textAreaW,
+      textAreaH,
+      wrap,
+      align,
+    );
+    ctx.restore();
+    if (!bounds) return null;
+    const pad = col.type === "button" ? 6 : 2;
+    const left = Math.max(hit.rect.left, bounds.x - pad);
+    const top = Math.max(hit.rect.top, bounds.y - pad);
+    const right = Math.min(hit.rect.right, bounds.x + bounds.width + pad);
+    const bottom = Math.min(hit.rect.bottom, bounds.y + bounds.height + pad);
+    if (
+      event.clientX >= left &&
+      event.clientX <= right &&
+      event.clientY >= top &&
+      event.clientY <= bottom
+    ) {
+      return { rowId: hit.rowId, colKey: String(hit.colKey), kind: col.type };
+    }
+    return null;
+  }
+
   private isPointInSelection(rowId: string, colKey: string) {
     if (!this.selection.length) return false;
     const schema = this.dataModel.getSchema();
@@ -1590,6 +1771,15 @@ export class CanvasRenderer implements Renderer {
       this.tooltipMessage = null;
     }
 
+    const actionHit = this.hitTestAction(new MouseEvent("mousemove", { clientX, clientY }));
+    if (actionHit) {
+      const interaction = this.dataModel.getCellInteraction(actionHit.rowId, actionHit.colKey);
+      if (!interaction.disabled) {
+        this.canvas.style.cursor = "pointer";
+        return;
+      }
+    }
+
     if (!this.isPointInSelection(hit.rowId, hit.colKey)) {
       this.canvas.style.cursor = "cell";
       return;
@@ -1630,8 +1820,8 @@ export class CanvasRenderer implements Renderer {
     }
 
     const col = this.dataModel.getSchema().columns.find((c) => c.key === hit.colKey);
-    const readOnly = this.dataModel.isReadonly(hit.rowId, hit.colKey);
-    if (readOnly || col?.type === "boolean") cursor = "default";
+    const interaction = this.dataModel.getCellInteraction(hit.rowId, hit.colKey);
+    if (interaction.readonly || col?.type === "boolean") cursor = "default";
     else cursor = "text";
     this.canvas.style.cursor = cursor;
   }
@@ -1691,6 +1881,59 @@ export class CanvasRenderer implements Renderer {
       this.textMeasureCache.delete(firstKey);
     }
     return lines;
+  }
+
+  private fitTextLine(ctx: CanvasRenderingContext2D, text: string, width: number) {
+    let out = text;
+    while (ctx.measureText(out).width > width && out.length > 1) {
+      out = `${out.slice(0, -2)}…`;
+    }
+    return out;
+  }
+
+  private getTextLinesForBounds(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    width: number,
+    wrap: boolean,
+    height: number,
+  ) {
+    const raw = wrap ? this.wrapLines(ctx, text, width) : [this.fitTextLine(ctx, text, width)];
+    const maxLines = Math.max(1, Math.floor(height / this.lineHeight));
+    return raw.slice(0, maxLines);
+  }
+
+  private measureTextBounds(
+    ctx: CanvasRenderingContext2D,
+    text: string,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    wrap: boolean,
+    align: "left" | "right" | "center",
+  ): DOMRect | null {
+    const lines = this.getTextLinesForBounds(ctx, text, width, wrap, height);
+    if (!lines.length) return null;
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    for (let idx = 0; idx < lines.length; idx += 1) {
+      const line = lines[idx] ?? "";
+      const lineWidth = ctx.measureText(line).width;
+      let startX = x;
+      if (align === "right") startX = x + width - lineWidth;
+      else if (align === "center") startX = x + (width - lineWidth) / 2;
+      const lineTop = y + this.lineHeight * idx;
+      const lineBottom = lineTop + this.lineHeight;
+      minX = Math.min(minX, startX);
+      maxX = Math.max(maxX, startX + lineWidth);
+      minY = Math.min(minY, lineTop);
+      maxY = Math.max(maxY, lineBottom);
+    }
+    if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+    return new DOMRect(minX, minY, maxX - minX, maxY - minY);
   }
 
   private drawCellText(
@@ -1765,11 +2008,7 @@ export class CanvasRenderer implements Renderer {
         renderLine(lines[idx], idx + 1);
       }
     } else {
-      let out = text;
-      while (ctx.measureText(out).width > width && out.length > 1) {
-        out = `${out.slice(0, -2)}…`;
-      }
-      renderLine(out, 1);
+      renderLine(this.fitTextLine(ctx, text, width), 1);
     }
     ctx.textAlign = "left";
     ctx.font = fontBackup;
@@ -1778,37 +2017,47 @@ export class CanvasRenderer implements Renderer {
 
   private formatValue(value: unknown, col: ColumnSchema): { text: string; color?: string } {
     if (value === null || value === undefined) return { text: "" };
+    if (col.type === "button") {
+      const label = getButtonLabel(value);
+      return { text: label || String(value) };
+    }
+    if (col.type === "link") {
+      const label = getLinkLabel(value);
+      return { text: label || String(value) };
+    }
     if (col.type === "boolean") {
-      if (col.booleanDisplay === "checkbox" || !col.booleanDisplay) {
+      if (col.format === "checkbox" || !col.format) {
         return { text: value ? "☑" : "☐" };
       }
-      if (Array.isArray(col.booleanDisplay) && col.booleanDisplay.length >= 2) {
-        return { text: value ? String(col.booleanDisplay[0]) : String(col.booleanDisplay[1]) };
+      if (Array.isArray(col.format) && col.format.length >= 2) {
+        return { text: value ? String(col.format[0]) : String(col.format[1]) };
       }
-      return { text: value ? String(col.booleanDisplay) : "" };
+      return { text: value ? String(col.format) : "" };
     }
     if (col.type === "number" && typeof value === "number") {
       const num = value;
+      const fmt = col.format as NumberFormat | undefined;
       const opts: Intl.NumberFormatOptions = {};
-      if (col.number?.scale !== undefined) {
-        opts.minimumFractionDigits = col.number.scale;
-        opts.maximumFractionDigits = col.number.scale;
+      if (fmt?.scale !== undefined) {
+        opts.minimumFractionDigits = fmt.scale;
+        opts.maximumFractionDigits = fmt.scale;
       }
-      opts.useGrouping = Boolean(col.number?.thousandSeparator);
+      opts.useGrouping = Boolean(fmt?.thousandSeparator);
       const text = this.valueFormatCache.getNumberFormatter(opts).format(num);
-      const color = col.number?.negativeRed && num < 0 ? "#b91c1c" : undefined;
+      const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
       return { text, color };
     }
     if (
       (col.type === "date" || col.type === "time" || col.type === "datetime") &&
       (value instanceof Date || typeof value === "string")
     ) {
+      const fmtValue = col.format as string | undefined;
       const fmt =
         col.type === "date"
-          ? (col.dateFormat ?? "yyyy-MM-dd")
+          ? (fmtValue ?? "yyyy-MM-dd")
           : col.type === "time"
-            ? (col.timeFormat ?? "HH:mm")
-            : (col.dateTimeFormat ?? "yyyy-MM-dd'T'HH:mm:ss'Z'");
+            ? (fmtValue ?? "HH:mm")
+            : (fmtValue ?? "yyyy-MM-dd'T'HH:mm:ss'Z'");
       let d: Date | null = null;
       if (value instanceof Date) d = value;
       else {

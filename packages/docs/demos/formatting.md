@@ -11,7 +11,7 @@ This demo shows various column style options.
 </ClientOnly>
 
 ::: info Demo UI Note
-This demo includes **Search**, **Undo**, and **Redo** buttons above the table. In a real application, these operations are typically triggered via keyboard shortcuts (Ctrl/Cmd+F for Search, Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z for Redo). The buttons are provided here as an alternative way to interact with the demo without keyboard shortcuts.
+This demo includes **Undo** and **Redo** buttons above the table. In a real application, these operations are typically triggered via keyboard shortcuts (Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z for Redo). The buttons are provided here as an alternative way to interact with the demo without keyboard shortcuts.
 :::
 
 ## What You're Seeing
@@ -65,7 +65,7 @@ const tableSchema = defineSchema<Product>({
       key: "price",
       header: "Price ($)",
       type: "number",
-      number: { precision: 8, scale: 2 },
+      format: { precision: 8, scale: 2 },
       width: 120,
       style: {
         align: "right",
@@ -76,7 +76,7 @@ const tableSchema = defineSchema<Product>({
       key: "stock",
       header: "Stock",
       type: "number",
-      number: { precision: 6, scale: 0 },
+      format: { precision: 6, scale: 0 },
       width: 100,
       style: {
         align: "center",
@@ -97,7 +97,7 @@ const tableSchema = defineSchema<Product>({
       key: "revenue",
       header: "Revenue ($)",
       type: "number",
-      number: { precision: 12, scale: 2 },
+      format: { precision: 12, scale: 2 },
       width: 140,
       style: {
         align: "right",
@@ -151,7 +151,7 @@ Define decimal places for number columns:
   key: "price",
   header: "Price",
   type: "number",
-  number: {
+  format: {
     precision: 10,   // Total digits
     scale: 2,        // Decimal places
     signed: false,   // Allow negative

@@ -11,6 +11,8 @@ export function columnFormatToStyle(col: ColumnSchema): ResolvedCellStyle {
     italic: dec?.italic,
     underline: dec?.underline,
     strike: dec?.strike,
+    readonly: fmt?.readonly,
+    disabled: fmt?.disabled,
   };
 }
 
@@ -23,6 +25,8 @@ export function mergeStyle(base: ResolvedCellStyle, override?: StyleDelta | null
     italic: override.italic ?? base.italic,
     underline: override.underline ?? base.underline,
     strike: override.strike ?? base.strike,
+    readonly: override.readonly ?? base.readonly,
+    disabled: override.disabled ?? base.disabled,
   };
 }
 

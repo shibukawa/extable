@@ -3,6 +3,8 @@ import type { Theme } from "vitepress";
 import BasicUsageDemo from "../../components/BasicUsageDemo.vue";
 import AutoFillSequenceDemo from "../../components/AutoFillSequenceDemo.vue";
 import AsyncDataLoadingDemo from "../../components/AsyncDataLoadingDemo.vue";
+import ButtonLinkDemo from "../../components/ButtonLinkDemo.vue";
+import ButtonLinkConditionalDemo from "../../components/ButtonLinkConditionalDemo.vue";
 import ReadonlyModeDemo from "../../components/ReadonlyModeDemo.vue";
 import CommitModeDemo from "../../components/CommitModeDemo.vue";
 import StyleDemo from "../../components/StyleDemo.vue";
@@ -23,6 +25,8 @@ export default {
     app.component("BasicUsageDemo", BasicUsageDemo);
     app.component("AutoFillSequenceDemo", AutoFillSequenceDemo);
     app.component("AsyncDataLoadingDemo", AsyncDataLoadingDemo);
+    app.component("ButtonLinkDemo", ButtonLinkDemo);
+    app.component("ButtonLinkConditionalDemo", ButtonLinkConditionalDemo);
     app.component("ReadonlyModeDemo", ReadonlyModeDemo);
     app.component("CommitModeDemo", CommitModeDemo);
     app.component("StyleDemo", StyleDemo);

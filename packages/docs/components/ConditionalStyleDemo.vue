@@ -26,7 +26,7 @@ const schema = defineSchema<Performance>({
       key: "score",
       header: "Performance Score",
       type: "number",
-      number: { precision: 5, scale: 1 },
+      format: { precision: 5, scale: 1 },
       width: 160,
       style: { align: "center" },
       conditionalStyle: (row) => {
@@ -39,7 +39,7 @@ const schema = defineSchema<Performance>({
       key: "attendance",
       header: "Attendance (%)",
       type: "number",
-      number: { precision: 5, scale: 1 },
+      format: { precision: 5, scale: 1 },
       width: 140,
       style: { align: "center" },
       conditionalStyle: (row) => {
@@ -52,7 +52,7 @@ const schema = defineSchema<Performance>({
       key: "projects",
       header: "Projects Completed",
       type: "number",
-      number: { precision: 3, scale: 0 },
+      format: { precision: 3, scale: 0 },
       width: 160,
       style: { align: "center" },
       conditionalStyle: (row) => {
@@ -110,10 +110,6 @@ function generatePerformanceData(): Performance[] {
 const defaultData = generatePerformanceData();
 const user: UserInfo = { id: "demo-user", name: "Demo User" };
 
-function handleSearch() {
-  tableRef.value?.toggleSearchPanel("find");
-}
-
 function handleUndo() {
   tableRef.value?.undo();
 }
@@ -169,9 +165,6 @@ function handleRedo() {
     </div>
 
     <div class="demo-controls">
-      <div class="search-panel">
-        <button @click="handleSearch">🔍 Search</button>
-      </div>
       <div class="edit-controls">
         <button @click="handleUndo">↶ Undo</button>
         <button @click="handleRedo">↷ Redo</button>
@@ -212,11 +205,6 @@ function handleRedo() {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.search-panel {
-  display: flex;
-  gap: 4px;
 }
 
 .edit-controls {

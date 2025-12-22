@@ -43,7 +43,7 @@ const schema = defineSchema<Product>({
       key: "price",
       header: "Price ($)",
       type: "number",
-      number: { precision: 8, scale: 2 },
+      format: { precision: 8, scale: 2 },
       width: 120,
       style: {
         align: "right",
@@ -54,7 +54,7 @@ const schema = defineSchema<Product>({
       key: "stock",
       header: "Stock",
       type: "number",
-      number: { precision: 6, scale: 0 },
+      format: { precision: 6, scale: 0 },
       width: 100,
       style: {
         align: "center",
@@ -75,7 +75,7 @@ const schema = defineSchema<Product>({
       key: "revenue",
       header: "Revenue ($)",
       type: "number",
-      number: { precision: 12, scale: 2 },
+      format: { precision: 12, scale: 2 },
       width: 140,
       style: {
         align: "right",
@@ -120,10 +120,6 @@ function generateProductData(): Product[] {
 const defaultData = generateProductData();
 const user: UserInfo = { id: "demo-user", name: "Demo User" };
 
-function handleSearch() {
-  tableRef.value?.toggleSearchPanel("find");
-}
-
 function handleUndo() {
   tableRef.value?.undo();
 }
@@ -156,9 +152,6 @@ function handleRedo() {
     </div>
 
     <div class="demo-controls">
-      <div class="search-panel">
-        <button @click="handleSearch">🔍 Search</button>
-      </div>
       <div class="edit-controls">
         <button @click="handleUndo">↶ Undo</button>
         <button @click="handleRedo">↷ Redo</button>
@@ -199,11 +192,6 @@ function handleRedo() {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.search-panel {
-  display: flex;
-  gap: 4px;
 }
 
 .edit-controls {

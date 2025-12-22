@@ -1,10 +1,15 @@
 export type CellPrimitive = string | number | boolean | null;
 
+export type ButtonValue = string | { label: string; command: string; commandfor: string };
+export type LinkValue = string | { label: string; href: string; target?: string };
+
 export type CellValue =
   | CellPrimitive
   | Date
   | { kind: "enum"; value: string }
-  | { kind: "tags"; values: string[] };
+  | { kind: "tags"; values: string[] }
+  | ButtonValue
+  | LinkValue;
 
 export type ColumnType =
   | "string"
@@ -14,7 +19,42 @@ export type ColumnType =
   | "date"
   | "time"
   | "enum"
-  | "tags";
+  | "tags"
+  | "button"
+  | "link";
+
+export type StringFormat = {
+  maxLength?: number;
+  regex?: string;
+};
+
+export type NumberFormat = {
+  precision?: number;
+  scale?: number;
+  signed?: boolean;
+  thousandSeparator?: boolean;
+  negativeRed?: boolean;
+  format?: string; // optional custom formatter token
+};
+
+export type BooleanFormat = "checkbox" | string | [string, string];
+export type DateFormat = string;
+export type TimeFormat = string;
+export type DateTimeFormat = string;
+
+export type ColumnFormat<TType extends ColumnType> = TType extends "string"
+  ? StringFormat
+  : TType extends "number"
+    ? NumberFormat
+    : TType extends "boolean"
+      ? BooleanFormat
+      : TType extends "date"
+        ? DateFormat
+        : TType extends "time"
+          ? TimeFormat
+          : TType extends "datetime"
+            ? DateTimeFormat
+            : never;
 
 export type ResolvedCellStyle = {
   backgroundColor?: string;
@@ -23,6 +63,8 @@ export type ResolvedCellStyle = {
   italic?: boolean;
   underline?: boolean;
   strike?: boolean;
+  readonly?: boolean;
+  disabled?: boolean;
 };
 
 export type StyleDelta = Partial<ResolvedCellStyle>;
@@ -72,21 +114,9 @@ export interface ColumnSchema<
    */
   unique?: boolean;
   nullable?: boolean;
-  string?: { maxLength?: number; regex?: string };
-  number?: {
-    precision?: number;
-    scale?: number;
-    signed?: boolean;
-    thousandSeparator?: boolean;
-    negativeRed?: boolean;
-    format?: string; // optional custom formatter token
-  };
+  format?: ColumnFormat<TType>;
   enum?: { options: string[]; allowCustom?: boolean };
   tags?: { options: string[]; allowCustom?: boolean };
-  booleanDisplay?: "checkbox" | string | [string, string]; // arbitrary label set; default checkbox when absent
-  dateFormat?: string;
-  timeFormat?: string;
-  dateTimeFormat?: string;
   width?: number; // px
   wrapText?: boolean; // allow per-column wrapping
   style?: {
@@ -94,6 +124,8 @@ export interface ColumnSchema<
     backgroundColor?: string;
     align?: "left" | "right" | "center";
     decorations?: { strike?: boolean; underline?: boolean; bold?: boolean; italic?: boolean };
+    readonly?: boolean;
+    disabled?: boolean;
   };
   formula?: (data: TData) => unknown;
   conditionalStyle?: ConditionalStyleFn<RData>;
@@ -192,6 +224,13 @@ export interface Command {
   payload?: unknown;
 }
 
+export type CommitChanges = {
+  commands: Command[];
+  user?: UserInfo;
+};
+
+export type CommitHandler = (changes: CommitChanges) => Promise<void>;
+
 export interface UserInfo {
   id: string;
   name: string;
@@ -218,32 +257,10 @@ export interface CoreOptions {
   lockMode?: LockMode;
   /** Preferred languages for auto-fill sequence matching (e.g. ["ja", "en"]). */
   langs?: string[];
-  /** Loading UI configuration used when `defaultData` is `null`. */
-  loading?: {
-    /** Enable built-in loading overlay/spinner. Default: true */
-    enabled?: boolean;
-  };
   defaultClass?: string | string[];
   defaultStyle?: Partial<CSSStyleDeclaration>;
   server?: ServerAdapter;
   user?: UserInfo;
-  findReplace?: {
-    /** Enable Find/Replace feature (engine + integrations). Default: true */
-    enabled?: boolean;
-    /**
-     * Enable the default built-in UI and its shortcut bindings. Default: true
-     * Note: legacy name is `dialog`; `sidebar` is the preferred name.
-     */
-    sidebar?: boolean;
-    /** @deprecated Use `sidebar` instead. */
-    dialog?: boolean;
-    /**
-     * When true, always intercept `Ctrl/Cmd+F` and show extable's search sidebar.
-     * Use this when the table is the primary focus of the page and browser Find/Reload should be overridden.
-     * Default: true (always intercept).
-     */
-    enableSearch?: boolean;
-  };
 }
 
 export interface TableConfig<T extends object = Record<string, unknown>> {
@@ -293,13 +310,23 @@ export type TableError = {
   target?: { rowId?: string; colKey?: string };
 };
 
+export type ButtonActionValue =
+  | { label: string; command?: undefined; commandfor?: undefined }
+  | { label: string; command: string; commandfor: string };
+
+export type CellAction = {
+  kind: "button";
+  rowId: string;
+  colKey: string;
+  value: ButtonActionValue;
+};
+
 export type TableState = {
   canCommit: boolean;
   pendingCommandCount: number;
   pendingCellCount?: number;
   undoRedo: { canUndo: boolean; canRedo: boolean };
   renderMode: "html" | "canvas";
-  ui: { searchPanelOpen: boolean };
   activeErrors: TableError[];
 };
 
@@ -337,6 +364,7 @@ export type SelectionSnapshot = {
   activeValueDisplay: string;
   activeValueType: ColumnType | null;
   diagnostic: CellDiagnostic | null;
+  action?: CellAction | null;
   styles: {
     columnStyle: Partial<ResolvedCellStyle>;
     cellStyle: Partial<ResolvedCellStyle>;
@@ -347,6 +375,7 @@ export type SelectionSnapshot = {
 export type SelectionChangeReason =
   | "selection"
   | "edit"
+  | "action"
   | "style"
   | "schema"
   | "view"

@@ -499,97 +499,71 @@ const hasChanges = table.hasPendingChanges();    // boolean
 const cellCount = table.getPendingCellCount();   // number
 ```
 
-### Accessing Data After Commit
+### Commit Return Values
 
-The `getData()` method returns current state at any time. To capture what was actually committed, use the commit callback:
+`commit()` resolves with `RowStateSnapshot<T, R>[]` for both overloads:
 
-```typescript
-table.on("commit", (event) => {
-  // During this callback, getData() returns the committed state
-  const committedData = table.getData();  // R[]
-  const changedRowIds = event.changedRowIds;  // string[]
+- `commit(): Promise<RowStateSnapshot<T, R>[]>`
+- `commit(handler): Promise<RowStateSnapshot<T, R>[]>`
 
-  console.log("Successfully committed:", {
-    rows: changedRowIds,
-    data: committedData,
-  });
-});
-```
+Each snapshot contains:
+- `rowId`: row identifier
+- `rowIndex`: current index in the view
+- `data`: computed row data (`R`)
+- `pending`: pending raw values (commit mode only)
+- `diagnostics`: active validation/diagnostic errors for the row
+
+The list includes rows touched by the pending command batch.
 
 ## Commit Mode Data Retrieval
 
 ### Before Commit
 
 ```typescript
-// Get what will be committed
 const pending = table.getPending();        // Map<string, Partial<T>>
 const raw = table.getRawData();            // T[]
 
-// Make decision
 if (pending.size > 0) {
   await table.commit();
 }
 ```
 
-### During Commit Callback
+### Commit with Async Handler
+
+Use the async handler to validate or sync with a server before applying changes. If the handler throws, the commit is aborted and the error is propagated.
 
 ```typescript
-table.on("commit", (event) => {
-  // Capture committed data at this moment
-  const currentData = table.getData();  // R[] (committed state)
-  const changedIds = event.changedRowIds;
-
-  // Send to server, analytics, etc.
-  console.log("Committed changes:", {
-    rows: changedIds,
-    state: currentData,
+const snapshots = await table.commit(async (changes) => {
+  await sendToServer({
+    user: changes.user,
+    commands: changes.commands,
   });
 });
+
+// snapshots: RowStateSnapshot<T, R>[]
 ```
 
 ### After Commit
 
 ```typescript
-// After commit completes and pending is cleared
 const noLongerPending = table.getPending();  // Empty or minimal
 const current = table.getData();             // Current table state
-
-// getData() no longer marks data as "committed"
-// It's just the current state
 ```
 
-### Commit with Server Sync
-
-Monitor pending changes and send delta updates to the server:
+### Commit with Server Sync (Delta Updates)
 
 ```typescript
-// Subscribe to table state changes to detect when edits occur
-table.subscribeTableState((current, previous) => {
-  // Check if there are any pending changes
-  if (current.pendingCellCount === 0 && current.pendingCommandCount === 0) {
-    return;  // No changes to commit
-  }
-
-  // When changes are detected, commit them
-  try {
-    const changes = await table.commit();
-    // changes is RowStateSnapshot<T, R>[] - list of changed rows
-    // Send delta updates to your server
-    await sendToServer({
-      action: "bulk-update",
-      changes: changes,
-      timestamp: Date.now(),
-    });
-  } catch (error) {
-    console.error("Commit failed:", error);
-  }
+const snapshots = await table.commit(async (changes) => {
+  await sendToServer({
+    action: "bulk-update",
+    commands: changes.commands,
+    user: changes.user,
+    timestamp: Date.now(),
+  });
 });
-```
 
-The `commit()` method returns a `Promise<RowStateSnapshot<T, R>[]>` containing:
-- Each changed row with its raw data (`T`) and computed data (`R`)
-- Row ID and current state
-- This list can be used to construct precise delta updates for your backend
+// snapshots is RowStateSnapshot<T, R>[] - list of changed rows
+```
 
 Example server integration:
 
@@ -664,56 +638,70 @@ const ageGroup = table.getCell("1", "ageGroup");  // string | undefined
 
 ## Subscriptions
 
-Monitor table changes in real-time by subscribing to events:
+Monitor table changes in real-time by subscribing to events. Each subscription returns an unsubscribe function.
 
 ### Subscribe to Table State Changes
 
-Listen for changes to pending edits, undo/redo state, errors, and UI visibility:
+Listen for changes to pending edits, undo/redo state, errors, and render mode:
 
 ```typescript
-table.subscribeTableState((current, previous) => {
+const unsubscribe = table.subscribeTableState((current, previous) => {
   console.log("Pending changes:", current.pendingCellCount);
   console.log("Can undo:", current.undoRedo.canUndo);
   console.log("Can commit:", current.canCommit);
   console.log("Active errors:", current.activeErrors);
-  
-  // Unsubscribe by calling the returned function
-  // const unsubscribe = table.subscribeTableState(...);
-  // unsubscribe();
 });
+
+// Later
+unsubscribe();
 ```
 
 ### Subscribe to Selection Changes
 
-Listen for cell selection, active cell, and editing state:
+Listen for selection ranges and active cell state:
 
 ```typescript
-table.subscribeSelection((current, previous, reason) => {
+const unsubscribe = table.subscribeSelection((current, previous, reason) => {
   console.log("Active row:", current.activeRowKey);
   console.log("Active column:", current.activeColumnKey);
-  console.log("Change reason:", reason);  // 'selection', 'edit', 'data', etc.
+  console.log("Change reason:", reason);  // 'selection', 'edit', 'action', 'data', etc.
   
   // Check the active cell value
   if (current.activeRowKey && current.activeColumnKey) {
     console.log("Active value:", current.activeValueDisplay);
   }
+
+  // Button cell action payload (reason === "action")
+  if (reason === "action" && current.action) {
+    console.log("Button action:", current.action.value);
+  }
 });
+
+// Later
+unsubscribe();
 ```
+
+When a button cell is activated (click or Space), `reason` is `"action"` and `current.action` contains the button payload. Link cells navigate and do not emit action payloads.
 
 ### Subscribe to Row State Changes
 
 Listen for row-level events (insert, edit, delete):
 
 ```typescript
-table.subscribeRowState((rowId, event) => {
-  if (event === "edit") {
-    console.log(`Row ${rowId} was edited`);
-  } else if (event === "new") {
-    console.log(`Row ${rowId} was inserted`);
-  } else if (event === "delete") {
+const unsubscribe = table.subscribeRowState((rowId, next, prev, reason) => {
+  if (reason === "delete") {
     console.log(`Row ${rowId} was deleted`);
+    return;
   }
+  if (reason === "new") {
+    console.log(`Row ${rowId} was inserted`, next?.data);
+    return;
+  }
+  console.log(`Row ${rowId} was edited`, { prev: prev?.data, next: next?.data });
 });
+
+// Later
+unsubscribe();
 ```
 
 ## Examples
@@ -728,9 +716,8 @@ table.subscribeTableState((current, previous) => {
 });
 
 table.subscribeSelection((current, prev, reason) => {
-  // When edit completes (cell loses focus)
-  if (reason === "edit" && prev?.editingRowId && !current.editingRowId) {
-    const newValue = table.getCell(prev.editingRowId, prev.editingColKey!);
+  if (reason === "edit" && prev?.activeRowKey && prev.activeColumnKey) {
+    const newValue = table.getCell(prev.activeRowKey, prev.activeColumnKey);
     console.log("Edit confirmed:", newValue);
   }
 });

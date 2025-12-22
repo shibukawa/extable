@@ -11,7 +11,6 @@ vi.mock('@extable/react', async () => {
           destroy: () => {},
           setData: () => {},
           setView: () => {},
-          showSearchPanel: () => {},
           undo: () => {},
           redo: () => {},
           commit: () => Promise.resolve(),

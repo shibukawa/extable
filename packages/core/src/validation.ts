@@ -1,5 +1,5 @@
 import { coerceDatePattern, parseIsoDate } from "./dateUtils";
-import type { ColumnSchema } from "./types";
+import type { ColumnSchema, NumberFormat, StringFormat } from "./types";
 
 const isValidDate = (d: Date) => !Number.isNaN(d.getTime());
 
@@ -35,12 +35,13 @@ export function validateCellValue(value: unknown, col: ColumnSchema): string | n
   switch (col.type) {
     case "string": {
       if (typeof value !== "string") return "Expected a string";
-      if (col.string?.maxLength !== undefined && value.length > col.string.maxLength) {
-        return `Too long (max ${col.string.maxLength})`;
+      const fmt = col.format as StringFormat | undefined;
+      if (fmt?.maxLength !== undefined && value.length > fmt.maxLength) {
+        return `Too long (max ${fmt.maxLength})`;
       }
-      if (col.string?.regex) {
+      if (fmt?.regex) {
         try {
-          const re = new RegExp(col.string.regex);
+          const re = new RegExp(fmt.regex);
           if (!re.test(value)) return "Does not match pattern";
         } catch {
           // ignore invalid regex config
@@ -50,7 +51,8 @@ export function validateCellValue(value: unknown, col: ColumnSchema): string | n
     }
     case "number": {
       if (typeof value !== "number" || !Number.isFinite(value)) return "Expected a number";
-      if (col.number?.signed === false && value < 0) return "Expected a non-negative number";
+      const fmt = col.format as NumberFormat | undefined;
+      if (fmt?.signed === false && value < 0) return "Expected a non-negative number";
       return null;
     }
     case "boolean": {
@@ -81,9 +83,10 @@ export function validateCellValue(value: unknown, col: ColumnSchema): string | n
     case "time":
     case "datetime": {
       // Enforce allowed format tokens per type; fall back to ISO preset if invalid.
-      if (col.type === "date") coerceDatePattern(col.dateFormat, "date");
-      else if (col.type === "time") coerceDatePattern(col.timeFormat, "time");
-      else coerceDatePattern(col.dateTimeFormat, "datetime");
+      const fmt = col.format as string | undefined;
+      if (col.type === "date") coerceDatePattern(fmt, "date");
+      else if (col.type === "time") coerceDatePattern(fmt, "time");
+      else coerceDatePattern(fmt, "datetime");
       if (value instanceof Date) return isValidDate(value) ? null : "Invalid date";
       if (typeof value === "string") {
         const d = parseIsoDate(value);

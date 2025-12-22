@@ -15,7 +15,7 @@ Initialize an Extable table with data, schema, and optional configuration.
 - `schema: Schema<T, R>` - Column definitions, validation rules, and formatting
 - `defaultData?: NullableData<T>` - Initial table data
 - `defaultView?: View` - Initial filters, sorts, and column visibility
-- `options?: CoreOptions` - Render mode, edit mode, lock mode, styling, and feature flags
+- `options?: CoreOptions` - Render mode, edit mode, lock mode, styling, and server integration
 
 **Example**:
 ```typescript
@@ -97,6 +97,18 @@ Get the current view state (filters, sorts, hidden columns).
 
 See [Filter Support](/demos/filter-support.md) for view configuration details.
 
+### Readonly / Disabled Matrix
+
+| Column Type | Schema `readonly` | Conditional `{ readonly: true }` | Schema `disabled` | Conditional `{ disabled: true }` | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `button` | Always readonly (not configurable) | Not supported | Supported | Supported | Disabled uses readonly gray and blocks interaction. |
+| `link` | Always readonly (not configurable) | Not supported | Supported | Supported | Disabled uses readonly gray and blocks interaction. |
+| `formula` | Always readonly (not configurable) | Not supported | Not supported | Not supported | Conditional readonly/disabled ignored. |
+| `boolean/number/date/time/datetime` | Supported | Supported | Not supported | Not supported | Readonly can be set in schema or conditionalStyle. |
+| `string/enum/tags` | Supported | Supported | Not supported | Not supported | Readonly can be set in schema or conditionalStyle. |
+
+`disabled` is configured via `style.disabled` or `conditionalStyle` for button/link only.
+
 ---
 
 ## Commit Mode API
@@ -114,6 +126,10 @@ Get the total number of pending cell edits across all rows.
 
 #### `commit(): Promise<RowStateSnapshot<T, R>[]>`
 Save all pending edits and return the committed rows. Only available in commit mode.
+
+#### `commit(handler: (changes) => Promise<void>): Promise<RowStateSnapshot<T, R>[]>`
+Run an async handler before applying the commit. If the handler resolves, the commit is applied.
+If the handler throws, the commit is aborted and the error is propagated.
 
 See [Commit Mode](/demos/commit-mode.md) for examples.
 
@@ -166,19 +182,6 @@ Apply inline styles to the root element.
 
 ## User Interface
 
-### SFind/Replace Panel
-
-#### `showSearchPanel(mode?: "find" | "replace")`
-Display the Find & Replace panel. Default mode is "find".
-
-#### `hideSearchPanel()`
-Hide the Find & Replace panel.
-
-#### `toggleSearchPanel(mode?: "find" | "replace")`
-Toggle visibility of the Find & Replace panel.
-
-See [Find & Replace](/usage/search) for examples.
-
 ### Filter & Sort Panel
 
 #### `showFilterSortPanel(colKey: string)`
@@ -208,17 +211,19 @@ See [Filtering and Sorting](/demos/filter-support.md) for examples.
 #### `subscribeTableState(listener: TableStateListener): () => void`
 Subscribe to table state changes (data, view, errors, etc.). Returns an unsubscribe function.
 
-**Listener signature**: `(next: TableState, prev: TableState) => void`
+**Listener signature**: `(next: TableState, prev: TableState | null) => void`
 
 #### `subscribeSelection(listener: SelectionListener): () => void`
 Subscribe to selection changes (active cell, selected ranges).
 
-**Listener signature**: `(next: SelectionSnapshot, prev: SelectionSnapshot, reason: string) => void`
+**Listener signature**: `(next: SelectionSnapshot, prev: SelectionSnapshot | null, reason: SelectionChangeReason) => void`
 
 #### `subscribeRowState(listener: RowStateListener<T, R>): () => void`
 Subscribe to changes for specific rows (useful for tracking edits to individual rows).
 
-**Listener signature**: `(rowId: string, next: RowStateSnapshot<T, R>, prev: RowStateSnapshot<T, R>) => void`
+**Listener signature**: `(rowId: string, next: RowStateSnapshot<T, R> | null, prev: RowStateSnapshot<T, R> | null, reason: RowChangeReason) => void`
+
+See [Callbacks](/guides/callbacks) for usage examples.
 
 ---
 

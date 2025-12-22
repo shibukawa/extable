@@ -11,15 +11,14 @@ Start with the [Basic Usage Demo](../demos/basic-usage.md) to understand initial
 See also:
 - [Data Format Guide](./data-format.md) - Schema definition and supported types
 - [Data Access from API](./data-access.md) - Async data fetching patterns
+- [Init Options Reference](../reference/init-options.md) - Table initialization options
 
 ### Shortcut Key Registration
 
-Register keyboard shortcuts for Search (Ctrl/Cmd+F) and Undo/Redo (Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z) operations.
+Register keyboard shortcuts for Undo/Redo operations.
 
 :::tabs
 == Vanilla
-
-Initialize with find/replace enabled and register keyboard shortcut handler:
 
 ```typescript
 import { ExtableCore } from "@extable/core";
@@ -29,29 +28,13 @@ const table = new ExtableCore({
   schema,
   defaultData,
   defaultView: {},
-  options: {
-    findReplace: {
-      enabled: true,           // Enable find/replace engine
-      sidebar: true,           // Show default sidebar UI
-      enableSearch: true,      // Enable Ctrl/Cmd+F shortcuts
-    },
-  },
 });
 
-// Register keyboard handler for Ctrl+F / Cmd+F (search) and Ctrl+Z / Ctrl+Shift+Z (undo/redo)
+// Register keyboard handler for Ctrl+Z / Ctrl+Shift+Z (undo/redo)
 const onKey = (e: KeyboardEvent) => {
   const key = e.key.toLowerCase();
   const isMod = e.metaKey || e.ctrlKey;
   if (!isMod) return;
-
-  // Search: Ctrl/Cmd+F
-  if (key === "f") {
-    if (!table) return;
-    e.preventDefault();
-    e.stopPropagation();
-    table.toggleSearchPanel("find");
-    return;
-  }
 
   // Undo: Ctrl/Cmd+Z
   if (key === "z") {
@@ -73,8 +56,6 @@ window.addEventListener("beforeunload", () => {
 
 == React
 
-Initialize with find/replace enabled. The keyboard handler is automatically bound within the component lifecycle:
-
 ```typescript
 import { Extable } from "@extable/react";
 import { useRef, useEffect } from "react";
@@ -87,15 +68,6 @@ export function MyTable() {
       const key = e.key.toLowerCase();
       const isMod = e.metaKey || e.ctrlKey;
       if (!isMod) return;
-
-      // Search: Ctrl/Cmd+F
-      if (key === "f") {
-        if (!tableRef.current) return;
-        e.preventDefault();
-        e.stopPropagation();
-        tableRef.current.toggleSearchPanel("find");
-        return;
-      }
 
       // Undo: Ctrl/Cmd+Z
       if (key === "z") {
@@ -116,27 +88,11 @@ export function MyTable() {
     };
   }, []);
 
-  return (
-    <Extable
-      ref={tableRef}
-      schema={schema}
-      defaultData={data}
-      defaultView={{}}
-      options={{
-        findReplace: {
-          enabled: true,
-          sidebar: true,
-          enableSearch: true,
-        },
-      }}
-    />
-  );
+  return <Extable ref={tableRef} schema={schema} defaultData={data} defaultView={{}} />;
 }
 ```
 
 == Vue
-
-Initialize with find/replace enabled. The keyboard handler is registered in `onMounted`:
 
 ```vue
 <script setup lang="ts">
@@ -150,15 +106,6 @@ const onKey = (e: KeyboardEvent) => {
   const key = e.key.toLowerCase();
   const isMod = e.metaKey || e.ctrlKey;
   if (!isMod) return;
-
-  // Search: Ctrl/Cmd+F
-  if (key === "f") {
-    if (!tableRef.value) return;
-    e.preventDefault();
-    e.stopPropagation();
-    tableRef.value.toggleSearchPanel("find");
-    return;
-  }
 
   // Undo: Ctrl/Cmd+Z
   if (key === "z") {
@@ -183,30 +130,17 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <Extable
-    ref="tableRef"
-    :schema="schema"
-    :default-data="data"
-    :default-view="{}"
-    :options="{
-      findReplace: {
-        enabled: true,
-        sidebar: true,
-        enableSearch: true,
-      },
-    }"
-  />
+  <Extable ref="tableRef" :schema="schema" :default-data="data" :default-view="{}" />
 </template>
 ```
 
 :::
 
 **Keyboard Shortcuts:**
-- **Ctrl/Cmd+F** - Toggle Search & Find-Replace sidebar
 - **Ctrl/Cmd+Z** - Undo last change
 - **Ctrl/Cmd+Shift+Z** - Redo last undone change
 
-See [Find & Replace](../usage/search) for search function reference, and [Data Access API](./data-access.md#undo--redo) for undo/redo details.
+See [Data Access API](./data-access.md#undo--redo) for undo/redo details.
 
 ### Layout & Responsive Design
 

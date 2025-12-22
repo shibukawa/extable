@@ -15,6 +15,9 @@
     "build:wrappers": "npm run build --workspace @extable/react && npm run build --workspace @extable/vue",
     "build:demos": "npm run build --workspace @extable/demo && npm run build --workspace @extable/demo-react && npm run build --workspace @extable/demo-vue",
     "build:server": "npm run build --workspace @extable/server-hono",
+    "build:sequence": "npm run build --workspace @extable/sequence",
+    "prebuild:docs": "npm run build:core",
+    "build:docs": "npm run build --workspace @extable/docs",
     "test": "npm run test --ws --if-present",
     "lint": "biome lint . && npm run lint --ws --if-present",
     "format": "biome format --write . && npm run format --ws --if-present",
@@ -24,11 +27,9 @@
     "dev:demo-vue": "npm run dev --workspace @extable/demo-vue",
     "dev:server": "npm run dev --workspace @extable/server-hono",
     "dev:docs": "npm run dev --workspace @extable/docs",
+    "dev:sequence": "npm run dev --workspace @extable/sequence",
     "e2e": "npm run e2e --ws --if-present",
-    "docs:dev": "npm run dev:docs",
-    "predocs:build": "npm run build:core",
-    "docs:build": "npm run build --workspace @extable/docs",
-    "docs:preview": "npm run preview --workspace @extable/docs",
+    "preview:docs": "npm run preview --workspace @extable/docs",
     "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium firefox webkit"
   },
   "overrides": {

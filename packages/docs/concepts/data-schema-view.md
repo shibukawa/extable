@@ -35,7 +35,9 @@ Extable handles a variety of data types natively:
 - **time**: Time values (HH:mm:ss format)
 - **datetime**: Timestamp with date and time
 - **enum**: Predefined list of allowed values
-- **tag**: Multiple tags per cell from a predefined list
+- **tags**: Multiple tags per cell from a predefined list
+- **button**: Action cell that emits a button event
+- **link**: Link cell that navigates to a URL
 
 ### Setting and Updating Data
 
@@ -105,7 +107,7 @@ const schema = {
       key: 'salary',
       type: 'number',
       header: 'Salary (USD)',
-      number: { precision: 2 },
+      format: { precision: 2 },
       style: { align: 'right' },
       conditionalStyle: (row) => {
         if (row.salary > 90000) return { backgroundColor: '#d4edda' };  // Green for high salaries
@@ -116,7 +118,7 @@ const schema = {
       key: 'active',
       type: 'boolean',
       header: 'Active',
-      booleanDisplay: 'checkbox'
+      format: 'checkbox'
     },
     {
       key: 'notes',
@@ -145,6 +147,18 @@ const schema = {
 - **Conditional Formatting**: Dynamic styles based on cell values (using function callbacks)
 - **Readonly Columns**: Prevent user edits; useful for IDs and computed values
 - **Computed Columns**: Formulas defined as JavaScript functions (not user-editable)
+
+### Readonly / Disabled Matrix
+
+| Column Type | Schema `readonly` | Conditional `{ readonly: true }` | Schema `disabled` | Conditional `{ disabled: true }` | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `button` | Always readonly (not configurable) | Not supported | Supported | Supported | Disabled uses readonly gray and blocks interaction. |
+| `link` | Always readonly (not configurable) | Not supported | Supported | Supported | Disabled uses readonly gray and blocks interaction. |
+| `formula` | Always readonly (not configurable) | Not supported | Not supported | Not supported | Conditional readonly/disabled ignored. |
+| `boolean/number/date/time/datetime` | Supported | Supported | Not supported | Not supported | Readonly can be set in schema or conditionalStyle. |
+| `string/enum/tags` | Supported | Supported | Not supported | Not supported | Readonly can be set in schema or conditionalStyle. |
+
+`disabled` is configured via `style.disabled` or `conditionalStyle` for button/link only.
 
 ### Why Fixed Schema?
 
@@ -218,4 +232,3 @@ const table = new ExtableCore({
 - Learn detailed [schema configuration and data types](/guides/data-format)
 - Understand how [readonly and formula columns](/guides/editmode) work
 - Explore [uncontrolled-only philosophy](/concepts/uncontrolled) for managing state outside the table
-

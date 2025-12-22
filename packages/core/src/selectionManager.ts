@@ -1,4 +1,4 @@
-import type { Command, EditMode, SelectionRange } from "./types";
+import type { CellAction, Command, EditMode, SelectionRange } from "./types";
 import type { DataModel } from "./dataModel";
 import {
   FILL_HANDLE_HIT_SIZE_PX,
@@ -15,6 +15,7 @@ import {
   ROW_HEADER_WIDTH_PX,
   getColumnWidths,
 } from "./geometry";
+import { resolveButtonAction, resolveLinkAction } from "./actionValue";
 
 type EditHandler = (cmd: Command, commit: boolean) => void;
 type RowSelectHandler = (rowId: string) => void;
@@ -22,6 +23,9 @@ type MoveHandler = (rowId?: string) => void;
 type HitTest = (
   event: MouseEvent,
 ) => { rowId: string; colKey: string | null; element?: HTMLElement; rect: DOMRect } | null;
+type ActionHitTest = (
+  event: MouseEvent,
+) => { rowId: string; colKey: string; kind: "button" | "link" } | null;
 type ActiveChange = (rowId: string | null, colKey: string | null) => void;
 type ContextMenuHandler = (
   rowId: string | null,
@@ -31,6 +35,7 @@ type ContextMenuHandler = (
 ) => void;
 type SelectionChange = (ranges: SelectionRange[]) => void;
 type UndoRedoHandler = () => void;
+type ActionHandler = (action: CellAction) => void;
 
 export class SelectionManager {
   private root: HTMLElement;
@@ -39,6 +44,7 @@ export class SelectionManager {
   private onRowSelect: RowSelectHandler;
   private onMove: MoveHandler;
   private hitTest: HitTest;
+  private hitAction: ActionHitTest | null = null;
   private onContextMenu: ContextMenuHandler;
   private handleDocumentContextMenu: ((ev: MouseEvent) => void) | null = null;
   private selectionRanges: SelectionRange[] = [];
@@ -89,6 +95,7 @@ export class SelectionManager {
   };
   private isCellReadonly: (rowId: string, colKey: string) => boolean;
   private sequenceLangs?: readonly string[];
+  private onCellAction: ActionHandler;
 
   constructor(
     root: HTMLElement,
@@ -97,9 +104,11 @@ export class SelectionManager {
     onRowSelect: RowSelectHandler,
     onMove: MoveHandler,
     hitTest: HitTest,
+    hitAction: ActionHitTest | null,
     private dataModel: DataModel,
     sequenceLangs: readonly string[] | undefined,
     isCellReadonly: (rowId: string, colKey: string) => boolean,
+    onCellAction: ActionHandler,
     private onActiveChange: ActiveChange,
     onContextMenu: ContextMenuHandler,
     private onSelectionChange: SelectionChange,
@@ -112,8 +121,10 @@ export class SelectionManager {
     this.onRowSelect = onRowSelect;
     this.onMove = onMove;
     this.hitTest = hitTest;
+    this.hitAction = hitAction;
     this.sequenceLangs = sequenceLangs;
     this.isCellReadonly = isCellReadonly;
+    this.onCellAction = onCellAction;
     this.onContextMenu = onContextMenu;
     this.bind();
   }
@@ -1289,9 +1300,17 @@ export class SelectionManager {
 
     if (ev.key === " " && this.activeCell.colKey !== null) {
       const col = this.findColumn(this.activeCell.colKey);
+      if (col?.type === "button" || col?.type === "link") {
+        ev.preventDefault();
+        this.triggerCellAction(this.activeCell.rowId, this.activeCell.colKey, col.type);
+        this.selectionAnchor = null;
+        return;
+      }
       if (col?.type === "boolean") {
         ev.preventDefault();
-          this.toggleBoolean(this.activeCell.rowId, this.activeCell.colKey);
+        this.toggleBoolean(this.activeCell.rowId, this.activeCell.colKey);
+        this.selectionAnchor = null;
+        return;
       }
       this.selectionAnchor = null;
       return;
@@ -1382,6 +1401,10 @@ export class SelectionManager {
     if (value instanceof Date) return value.toISOString();
     if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
     if (typeof value === "number") return String(value);
+    const linkAction = resolveLinkAction(value);
+    if (linkAction?.href) return linkAction.href;
+    const buttonAction = resolveButtonAction(value);
+    if (buttonAction?.label) return buttonAction.label;
     if (typeof value === "object") {
       const obj = value as Record<string, unknown>;
       const kind = obj.kind;
@@ -1678,6 +1701,14 @@ export class SelectionManager {
         ? this.getHitAtClientPoint(ev.clientX, ev.clientY)
         : this.hitTest(ev);
     if (!hit) return;
+    const actionHit = this.hitAction ? this.hitAction(ev) : null;
+    if (actionHit) {
+      const triggered = this.triggerCellAction(actionHit.rowId, actionHit.colKey, actionHit.kind);
+      if (triggered) {
+        ev.preventDefault();
+        return;
+      }
+    }
     const wasSameCell =
       this.selectionMode &&
       !ev.shiftKey &&
@@ -1792,6 +1823,44 @@ export class SelectionManager {
       this.openEditorAtActiveCell();
     }
   };
+
+  private triggerCellAction(rowId: string, colKey: string, kind: "button" | "link") {
+    const col = this.findColumn(colKey);
+    if (!col) return false;
+    if (col.type !== kind) return false;
+    const interaction = this.dataModel.getCellInteraction(rowId, colKey);
+    if (interaction.disabled) return false;
+    const valueRes = this.dataModel.resolveCellValue(rowId, col);
+    const condRes = this.dataModel.resolveConditionalStyle(rowId, col);
+    const textOverride = valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
+    if (textOverride) return false;
+    if (col.type === "button") {
+      const actionValue = resolveButtonAction(valueRes.value);
+      if (!actionValue) return false;
+      this.onCellAction({ kind: "button", rowId, colKey, value: actionValue });
+      return true;
+    }
+    if (col.type === "link") {
+      const linkValue = resolveLinkAction(valueRes.value);
+      if (!linkValue?.href) return false;
+      this.openLink(linkValue.href, linkValue.target);
+      return true;
+    }
+    return false;
+  }
+
+  private openLink(href: string, target?: string) {
+    if (typeof document === "undefined") return;
+    if (!href) return;
+    const link = document.createElement("a");
+    link.href = href;
+    link.target = target ?? "_self";
+    link.rel = "noopener noreferrer";
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
 
   private toggleBoolean(rowId: string, colKey: string) {
     const current = this.dataModel.getCell(rowId, colKey);
