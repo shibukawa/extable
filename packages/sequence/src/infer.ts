@@ -496,6 +496,25 @@ const createKanjiIterator = (last: number, step: number, style: KanjiStyle): Ite
   };
 };
 
+const createEmbeddedKanjiIterator = (
+  template: { prefix: string; suffix: string; style: KanjiStyle },
+  last: number,
+  step: number
+): Iterator<string> => {
+  let offset = 0;
+  return {
+    next() {
+      offset += 1;
+      const nextValue = last + step * offset;
+      const value = toKanjiNumber(nextValue, template.style);
+      if (!value) {
+        return { value: undefined, done: true } as IteratorResult<string>;
+      }
+      return { value: `${template.prefix}${value}${template.suffix}`, done: false };
+    }
+  };
+};
+
 const matchArithmetic = (values: readonly number[]): number | null => {
   if (values.length < 2) {
     return null;
@@ -630,7 +649,11 @@ const inferStringSequence = (
         const last = parsed[parsed.length - 1]!;
         return {
           kind: 'arithmetic',
-          iterator: createKanjiIterator(last.num, step, last.style)
+          iterator: createEmbeddedKanjiIterator(
+            { prefix: template.prefix, suffix: template.suffix, style: template.style },
+            last.num,
+            step
+          )
         };
       }
     }

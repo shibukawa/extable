@@ -208,7 +208,7 @@ describe("public data access api", () => {
         schema: { columns: [{ key: "name", type: "string" }] },
         view: {},
       },
-      { renderMode: "html", editMode: "commit", lockMode: "none" },
+      { renderMode: "html", editMode: "direct", lockMode: "none" },
     );
     mountTable(root, core);
 

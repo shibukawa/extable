@@ -183,7 +183,7 @@ describe('inferSequence', () => {
 
   it('matches Debian versions', () => {
     const seq = inferSequence(['buster', 'bullseye']);
-    expect(drain(seq, 2)).toEqual(['bookworm']);
+    expect(drain(seq, 2)).toEqual(['bookworm', 'trixie']);
   });
 
   it('honors user matchers over list matches by score', () => {

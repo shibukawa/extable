@@ -638,8 +638,8 @@ const shogunsKamakura: SequenceList = {
     '源頼朝',
     '源頼家',
     '源実朝',
-    '藤原頼経',
-    '藤原頼嗣',
+    '九条頼経',
+    '九条頼嗣',
     '宗尊親王',
     '惟康親王',
     '久明親王',
@@ -1115,7 +1115,8 @@ export const registerBuiltInMatchers = (registry: SequenceRegistry): void => {
 };
 
 export const createBuiltInRegistry = (langs?: readonly string[]): SequenceRegistry => {
-  const registry = new SequenceRegistry({ langs });
+  const effectiveLangs = langs ?? ['en', 'ja'];
+  const registry = new SequenceRegistry({ langs: effectiveLangs });
   registerBuiltInLists(registry);
   registerBuiltInMatchers(registry);
   return registry;
