@@ -11,7 +11,7 @@ This embedded demo loads **10,000 rows** to showcase baseline rendering performa
 </ClientOnly>
 
 ::: info Demo UI Note
-This demo includes **Search**, **Undo**, and **Redo** buttons above the table. In a real application, these operations are typically triggered via keyboard shortcuts (Ctrl/Cmd+F for Search, Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z for Redo). The buttons are provided here as an alternative way to interact with the demo without keyboard shortcuts.
+This demo includes **Undo** and **Redo** buttons above the table. In a real application, these operations are typically triggered via keyboard shortcuts (Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z for Redo). The buttons are provided here as an alternative way to interact with the demo without keyboard shortcuts.
 :::
 
 ## What You're Seeing
@@ -47,12 +47,12 @@ const schema = {
   columns: [
     { key: "id", header: "ID", type: "string", readonly: true, width: 80 },
     { key: "name", header: "Name", type: "string", width: 150 },
-    { key: "active", header: "Active", type: "boolean", booleanDisplay: "checkbox", width: 100 },
+    { key: "active", header: "Active", type: "boolean", format: "checkbox", width: 100 },
     {
       key: "score",
       header: "Score",
       type: "number",
-      number: { precision: 6, scale: 2 },
+      format: { precision: 6, scale: 2 },
       style: { align: "right" },
       width: 120,
     },
@@ -133,12 +133,12 @@ const schema = {
   columns: [
     { key: "id", header: "ID", type: "string", readonly: true, width: 80 },
     { key: "name", header: "Name", type: "string", width: 150 },
-    { key: "active", header: "Active", type: "boolean", booleanDisplay: "checkbox", width: 100 },
+    { key: "active", header: "Active", type: "boolean", format: "checkbox", width: 100 },
     {
       key: "score",
       header: "Score",
       type: "number",
-      number: { precision: 6, scale: 2 },
+      format: { precision: 6, scale: 2 },
       style: { align: "right" },
       width: 120,
     },
@@ -223,12 +223,12 @@ const schema = {
   columns: [
     { key: "id", header: "ID", type: "string", readonly: true, width: 80 },
     { key: "name", header: "Name", type: "string", width: 150 },
-    { key: "active", header: "Active", type: "boolean", booleanDisplay: "checkbox", width: 100 },
+    { key: "active", header: "Active", type: "boolean", format: "checkbox", width: 100 },
     {
       key: "score",
       header: "Score",
       type: "number",
-      number: { precision: 6, scale: 2 },
+      format: { precision: 6, scale: 2 },
       style: { align: "right" },
       width: 120,
     },

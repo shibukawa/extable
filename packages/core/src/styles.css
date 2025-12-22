@@ -262,6 +262,46 @@
     color: #94a3b8 !important;
   }
 
+  & td.extable-disabled {
+    cursor: default;
+  }
+
+  & .extable-action-button,
+  & .extable-action-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: none;
+  }
+
+  & .extable-action-button {
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+  }
+
+  & .extable-action-link {
+    color: #2563eb;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  & .extable-action-disabled {
+    color: #94a3b8;
+    border-color: #e2e8f0;
+    background: #f3f4f6;
+    cursor: default;
+    text-decoration: none;
+  }
+
   /* Selection highlight must remain visible even on readonly cells. */
   & td.extable-selected.extable-readonly-muted {
     background: rgba(59, 130, 246, 0.12) !important;
@@ -447,7 +487,6 @@
   }
 
   /* Sidebars */
-  & .extable-search-sidebar,
   & .extable-filter-sort-sidebar {
     flex: 0 0 0px;
     width: 0px;
@@ -476,25 +515,6 @@
     border-width: 0;
   }
 
-  &.extable-search-open .extable-search-sidebar {
-    flex-basis: 440px;
-    width: 440px;
-    padding: 12px;
-    opacity: 1;
-    transform: translateX(0);
-    pointer-events: auto;
-    visibility: visible;
-    border-width: 1px;
-    transition:
-      flex-basis 180ms ease-out,
-      width 180ms ease-out,
-      padding 180ms ease-out,
-      border-width 180ms ease-out,
-      opacity 180ms ease-out,
-      transform 180ms ease-out,
-      visibility 0s linear 0s;
-  }
-
   &.extable-filter-sort-open .extable-filter-sort-sidebar {
     flex-basis: 440px;
     width: 440px;
@@ -514,30 +534,11 @@
       visibility 0s linear 0s;
   }
 
-  & .extable-search-sidebar input,
-  & .extable-search-sidebar button {
-    border-radius: 8px;
-    border: 1px solid rgba(148, 163, 184, 0.7);
-    background: white;
-    font-family: inherit;
-    font-size: 0.85rem;
-  }
-
-  & .extable-search-sidebar input[type="checkbox"],
   & .extable-filter-sort-sidebar input[type="checkbox"] {
     width: 16px;
     height: 16px;
     accent-color: #0f172a;
     vertical-align: middle;
-  }
-
-  & .extable-search-sidebar input {
-    padding: 6px 8px;
-  }
-
-  & .extable-search-sidebar button {
-    padding: 6px 10px;
-    cursor: pointer;
   }
 }
 
@@ -727,170 +728,6 @@
 /* Tooltip is defined at top-level to apply even when appended to <body>. */
 
 .extable-root {
-  /* Search sidebar contents */
-  & .extable-search-header {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  & .extable-search-row {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    flex-wrap: wrap;
-
-    & label {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      white-space: nowrap;
-    }
-  }
-
-  & .extable-search-label {
-    flex: 1;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-
-  & .extable-search-title {
-    font-weight: 700;
-    color: #0f172a;
-  }
-
-  & .extable-search-close {
-    border: none;
-    background: transparent;
-    font-size: 18px;
-    line-height: 1;
-    padding: 6px 8px;
-    cursor: pointer;
-  }
-
-  & .extable-search-status {
-    justify-content: space-between;
-    font-size: 12px;
-    color: #475569;
-  }
-
-  & .extable-search-error {
-    color: #b91c1c;
-  }
-
-  & .extable-search-body {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    min-height: 0;
-
-    & label {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: 0.85rem;
-    }
-  }
-
-  & .extable-search-actions {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-
-    & button {
-      padding: 6px 10px;
-      border-radius: 8px;
-      border: 1px solid #d0d7de;
-      background: #ffffff;
-      cursor: pointer;
-    }
-
-    & button:disabled {
-      opacity: 0.5;
-      cursor: default;
-    }
-  }
-
-  & .extable-search-results {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    background: #fff;
-    font-size: 13px;
-  }
-
-  & .extable-search-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-    table-layout: fixed;
-
-    & th,
-    & td {
-      border-bottom: 1px solid #eef2f7;
-      padding: 6px 8px;
-      vertical-align: middle;
-      line-height: 1.4;
-    }
-
-    & td {
-      color: #1f2937;
-    }
-
-    & th {
-      position: sticky;
-      top: 0;
-      background: #ffffff;
-      z-index: 1;
-      text-align: left;
-      color: #334155;
-      font-weight: 700;
-    }
-
-    & th:first-child,
-    & td:first-child {
-      width: 72px;
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      overflow: hidden;
-    }
-
-    & th:nth-child(2),
-    & td:nth-child(2) {
-      width: auto;
-      min-width: 0;
-    }
-
-    & td:nth-child(2) {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-  }
-
-  & .extable-search-result-row {
-    cursor: pointer;
-
-    &:hover,
-    &:focus-visible {
-      outline: none;
-      background: rgba(59, 130, 246, 0.08);
-    }
-
-    &[data-active="1"] {
-      background: rgba(59, 130, 246, 0.12);
-    }
-  }
-
-  & .extable-search-sidebar[data-extable-fr-readonly="1"] [data-extable-fr="replace-row"],
-  & .extable-search-sidebar[data-extable-fr-readonly="1"] [data-extable-fr="replace-toggle-row"],
-  & .extable-search-sidebar[data-extable-fr-readonly="1"] [data-extable-fr-only="replace"] {
-    display: none !important;
-  }
-
   /* Toasts */
   & .extable-toast {
     border-radius: 8px;

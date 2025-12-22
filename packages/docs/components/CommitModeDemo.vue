@@ -44,10 +44,6 @@ onUnmounted(() => {
   }
 });
 
-function handleSearch() {
-  tableRef.value?.toggleSearchPanel("find");
-}
-
 async function handleCommit() {
   const table = tableRef.value;
   if (!table) return;
@@ -87,9 +83,6 @@ function handleRedo() {
     </div>
 
     <div class="demo-controls">
-      <div class="search-panel">
-        <button @click="handleSearch">🔍 Search</button>
-      </div>
       <div class="edit-controls">
         <button @click="handleUndo">↶ Undo</button>
         <button @click="handleRedo">↷ Redo</button>
@@ -145,12 +138,6 @@ function handleRedo() {
 .demo-controls {
   display: flex;
   gap: 8px;
-  align-items: center;
-}
-
-.search-panel {
-  display: flex;
-  gap: 4px;
   align-items: center;
 }
 

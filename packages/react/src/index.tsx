@@ -1,6 +1,7 @@
 import type { CSSProperties, HTMLAttributes } from "react";
 import { forwardRef, useEffect, useImperativeHandle, useRef, type ForwardedRef } from "react";
 import type {
+  CommitHandler,
   CoreOptions,
   EditMode,
   LockMode,
@@ -10,7 +11,6 @@ import type {
   SelectionSnapshot,
   TableState,
   View,
-  FindReplaceMode,
 } from "@extable/core";
 import { ExtableCore } from "@extable/core";
 
@@ -18,11 +18,6 @@ type CoreApi<T extends object, R extends object = T> = Pick<
   ExtableCore<T, R>,
   | "setData"
   | "setView"
-  | "showSearchPanel"
-  | "hideSearchPanel"
-  | "toggleSearchPanel"
-  | "openFindReplaceDialog"
-  | "closeFindReplaceDialog"
   | "getData"
   | "getRawData"
   | "getSchema"
@@ -110,6 +105,7 @@ export const Extable = forwardRef(function ExtableInner<
     activeValueDisplay: "",
     activeValueType: null,
     diagnostic: null,
+    action: null,
     styles: { columnStyle: {}, cellStyle: {}, resolved: {} },
   };
 
@@ -166,12 +162,6 @@ export const Extable = forwardRef(function ExtableInner<
         },
         setData: (data) => coreRef.current?.setData(data),
         setView: (view) => coreRef.current?.setView(view),
-        showSearchPanel: (mode?: FindReplaceMode) => coreRef.current?.showSearchPanel(mode),
-        hideSearchPanel: () => coreRef.current?.hideSearchPanel(),
-        toggleSearchPanel: (mode?: FindReplaceMode) => coreRef.current?.toggleSearchPanel(mode),
-        openFindReplaceDialog: (mode?: FindReplaceMode) =>
-          coreRef.current?.openFindReplaceDialog(mode),
-        closeFindReplaceDialog: () => coreRef.current?.closeFindReplaceDialog(),
         getData: () => coreRef.current?.getData() ?? [],
         getRawData: () => coreRef.current?.getRawData() ?? [],
         getSchema: () => coreRef.current?.getSchema() ?? initialSchemaRef.current,
@@ -199,7 +189,10 @@ export const Extable = forwardRef(function ExtableInner<
         undo: () => coreRef.current?.undo(),
         redo: () => coreRef.current?.redo(),
         getUndoRedoHistory: () => coreRef.current?.getUndoRedoHistory() ?? { undo: [], redo: [] },
-        commit: () => coreRef.current?.commit() ?? Promise.resolve([]),
+        commit: (handler?: CommitHandler) =>
+          handler
+            ? coreRef.current?.commit(handler) ?? Promise.resolve([])
+            : coreRef.current?.commit() ?? Promise.resolve([]),
         subscribeTableState: (listener: any) =>
           coreRef.current?.subscribeTableState(listener) ?? (() => false),
         subscribeSelection: (listener: any) =>

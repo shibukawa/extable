@@ -28,6 +28,6 @@ features:
 
 - Concepts: [Uncontrolled Model](/concepts/uncontrolled)
 - Guides: [Integration](/guides/integration), [Data Format](/guides/data-format), [Edit Modes](/guides/editmode)
-- Usage: [Search](/usage/search), [Sort & Filter](/usage/sort-filter)
+- Usage: [Sort & Filter](/usage/sort-filter)
 - Demos: [Overview](/demos/)
 - Reference: [Core API](/reference/core)

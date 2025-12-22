@@ -76,7 +76,7 @@ Right-aligned monetary values with thousand separators:
   key: 'revenue',
   header: 'Revenue',
   type: 'number',
-  number: { scale: 2, thousandSeparator: true },
+  format: { scale: 2, thousandSeparator: true },
   style: { align: 'right', textColor: '#2e7d32' }  // Green
 }
 ```

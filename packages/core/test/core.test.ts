@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { createTablePlaceholder, mountTable } from "../src/index";
 
 describe("core placeholder", () => {
@@ -309,6 +309,72 @@ describe("public data access api", () => {
     core.destroy();
     root.remove();
   });
+
+  test("commit handler applies pending changes after resolve", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const core = createTablePlaceholder(
+      {
+        data: [{ name: "A" }],
+        schema: { columns: [{ key: "name", type: "string" }] },
+        view: {},
+      },
+      {
+        renderMode: "html",
+        editMode: "commit",
+        lockMode: "none",
+        user: { id: "tester", name: "Test User" },
+      },
+    );
+    mountTable(root, core);
+
+    core.setCellValue(0, "name", "Updated");
+    const handler = vi.fn(async (changes) => {
+      expect(changes.commands.length).toBe(1);
+      expect(changes.commands[0]?.kind).toBe("edit");
+      expect(changes.user).toEqual({ id: "tester", name: "Test User" });
+    });
+
+    const snapshots = await core.commit(handler);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(snapshots.length).toBe(1);
+    expect(core.getTableState().pendingCommandCount).toBe(0);
+
+    core.destroy();
+    root.remove();
+  });
+
+  test("commit handler errors keep pending changes and surface commit error", async () => {
+    const root = document.createElement("div");
+    document.body.appendChild(root);
+    const core = createTablePlaceholder(
+      {
+        data: [{ name: "A" }],
+        schema: { columns: [{ key: "name", type: "string" }] },
+        view: {},
+      },
+      {
+        renderMode: "html",
+        editMode: "commit",
+        lockMode: "none",
+        user: { id: "tester", name: "Test User" },
+      },
+    );
+    mountTable(root, core);
+
+    core.setCellValue(0, "name", "Updated");
+    const handler = vi.fn(async () => {
+      throw new Error("server refused");
+    });
+
+    await expect(core.commit(handler)).rejects.toThrow("server refused");
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(core.getTableState().pendingCommandCount).toBe(1);
+    expect(core.getTableState().activeErrors.some((e) => e.scope === "commit")).toBe(true);
+
+    core.destroy();
+    root.remove();
+  });
 });
 
 describe("subscription semantics", () => {
@@ -339,12 +405,12 @@ describe("subscription semantics", () => {
     expect(b[0]!.prev).toBe(null);
 
     // Same state should not trigger another call.
-    core.hideSearchPanel();
+    core.setView(core.getView());
     expect(a.length).toBe(1);
     expect(b.length).toBe(1);
 
     // Actual change triggers.
-    core.showSearchPanel("find");
+    core.setCellValue(0, "name", "Updated");
     expect(a.length).toBe(2);
     expect(b.length).toBe(2);
 
@@ -352,7 +418,7 @@ describe("subscription semantics", () => {
     unsubA(); // idempotent
     unsubB();
     unsubB(); // idempotent
-    core.hideSearchPanel();
+    core.setCellValue(0, "name", "Final");
     expect(a.length).toBe(2);
     expect(b.length).toBe(2);
 

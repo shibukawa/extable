@@ -33,7 +33,7 @@ const schema = {
       key: "amount",
       header: "Amount ($)",
       type: "number",
-      number: { precision: 10, scale: 2 },
+      format: { precision: 10, scale: 2 },
       width: 130,
       style: { align: "right" },
     },
@@ -122,10 +122,6 @@ function updateFilterInfo(view: View) {
 const defaultData = generateOrderData();
 const user: UserInfo = { id: "demo-user", name: "Demo User" };
 
-function handleSearch() {
-  tableRef.value?.toggleSearchPanel("find");
-}
-
 function handleUndo() {
   tableRef.value?.undo();
 }
@@ -148,9 +144,6 @@ updateFilterInfo(initialView);
     </div>
 
     <div class="demo-controls">
-      <div class="search-panel">
-        <button @click="handleSearch">🔍 Search</button>
-      </div>
       <div class="edit-controls">
         <button @click="handleUndo">↶ Undo</button>
         <button @click="handleRedo">↷ Redo</button>
@@ -169,7 +162,7 @@ updateFilterInfo(initialView);
     </div>
 
     <div class="filter-tip">
-      <small><strong>Tip:</strong> Use Cmd+F (Mac) or Ctrl+F (Windows/Linux) to open Find & Replace panel, or click the filter icon in column headers.</small>
+      <small><strong>Tip:</strong> Click the filter icon in column headers to open the filter panel.</small>
     </div>
   </div>
 </template>
@@ -195,11 +188,6 @@ updateFilterInfo(initialView);
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.search-panel {
-  display: flex;
-  gap: 4px;
 }
 
 .edit-controls {

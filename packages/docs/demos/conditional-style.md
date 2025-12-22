@@ -11,7 +11,7 @@ This demo shows tables with conditional style applied.
 </ClientOnly>
 
 ::: info Demo UI Note
-This demo includes **Search**, **Undo**, and **Redo** buttons above the table. In a real application, these operations are typically triggered via keyboard shortcuts (Ctrl/Cmd+F for Search, Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z for Redo). The buttons are provided here as an alternative way to interact with the demo without keyboard shortcuts.
+This demo includes **Undo** and **Redo** buttons above the table. In a real application, these operations are typically triggered via keyboard shortcuts (Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z for Redo). The buttons are provided here as an alternative way to interact with the demo without keyboard shortcuts.
 :::
 
 ## What You're Seeing
@@ -48,7 +48,7 @@ const tableSchema = defineSchema<Performance>({
       key: "score",
       header: "Performance Score",
       type: "number",
-      number: { precision: 5, scale: 1 },
+      format: { precision: 5, scale: 1 },
       width: 160,
       style: { align: "center" },
       conditionalStyle: (row) => {
@@ -61,7 +61,7 @@ const tableSchema = defineSchema<Performance>({
       key: "attendance",
       header: "Attendance (%)",
       type: "number",
-      number: { precision: 5, scale: 1 },
+      format: { precision: 5, scale: 1 },
       width: 140,
       style: { align: "center" },
       conditionalStyle: (row) => {
@@ -74,7 +74,7 @@ const tableSchema = defineSchema<Performance>({
       key: "projects",
       header: "Projects Completed",
       type: "number",
-      number: { precision: 3, scale: 0 },
+      format: { precision: 3, scale: 0 },
       width: 160,
       style: { align: "center" },
       conditionalStyle: (row) => {

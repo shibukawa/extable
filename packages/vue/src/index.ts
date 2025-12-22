@@ -1,4 +1,5 @@
 import type {
+  CommitHandler,
   CoreOptions,
   EditMode,
   LockMode,
@@ -8,7 +9,6 @@ import type {
   SelectionSnapshot,
   TableState,
   View,
-  FindReplaceMode,
 } from "@extable/core";
 import { ExtableCore } from "@extable/core";
 import type { PropType } from "vue";
@@ -18,14 +18,9 @@ type CoreApi<T extends object, R extends object = T> = Pick<
   ExtableCore<T, R>,
   | "setData"
   | "setView"
-  | "showSearchPanel"
-  | "hideSearchPanel"
-  | "toggleSearchPanel"
   | "showFilterSortPanel"
   | "hideFilterSortPanel"
   | "toggleFilterSortPanel"
-  | "openFindReplaceDialog"
-  | "closeFindReplaceDialog"
   | "getData"
   | "getRawData"
   | "getSchema"
@@ -113,6 +108,7 @@ export const Extable = defineComponent({
       activeValueDisplay: "",
       activeValueType: null,
       diagnostic: null,
+      action: null,
       styles: { columnStyle: {}, cellStyle: {}, resolved: {} },
     };
 
@@ -160,14 +156,9 @@ export const Extable = defineComponent({
       },
       setData: (data) => core?.setData(data),
       setView: (view) => core?.setView(view),
-      showSearchPanel: (mode?: FindReplaceMode) => core?.showSearchPanel(mode),
-      hideSearchPanel: () => core?.hideSearchPanel(),
-      toggleSearchPanel: (mode?: FindReplaceMode) => core?.toggleSearchPanel(mode),
       showFilterSortPanel: (colKey: string) => core?.showFilterSortPanel(colKey),
       hideFilterSortPanel: () => core?.hideFilterSortPanel(),
       toggleFilterSortPanel: (colKey: string) => core?.toggleFilterSortPanel(colKey),
-      openFindReplaceDialog: (mode?: FindReplaceMode) => core?.openFindReplaceDialog(mode),
-      closeFindReplaceDialog: () => core?.closeFindReplaceDialog(),
       getData: () => core?.getData() ?? [],
       getRawData: () => core?.getRawData() ?? [],
       getSchema: () => core?.getSchema() ?? initialSchema,
@@ -194,7 +185,8 @@ export const Extable = defineComponent({
       undo: () => core?.undo(),
       redo: () => core?.redo(),
       getUndoRedoHistory: () => core?.getUndoRedoHistory() ?? { undo: [], redo: [] },
-      commit: () => core?.commit() ?? Promise.resolve([]),
+      commit: (handler?: CommitHandler) =>
+        handler ? core?.commit(handler) ?? Promise.resolve([]) : core?.commit() ?? Promise.resolve([]),
       subscribeTableState: (listener: any) => core?.subscribeTableState(listener) ?? (() => false),
       subscribeSelection: (listener: any) => core?.subscribeSelection(listener) ?? (() => false),
       getSelectionSnapshot: () => core?.getSelectionSnapshot() ?? emptySelectionSnapshot,

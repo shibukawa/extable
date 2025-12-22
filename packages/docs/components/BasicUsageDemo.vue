@@ -22,12 +22,12 @@ const schema = defineSchema<DemoRow>({
   columns: [
     { key: "id", header: "ID", type: "string", readonly: true, width: 80 },
     { key: "name", header: "Name", type: "string", width: 150 },
-    { key: "active", header: "Active", type: "boolean", booleanDisplay: "checkbox", width: 100 },
+    { key: "active", header: "Active", type: "boolean", format: "checkbox", width: 100 },
     {
       key: "score",
       header: "Score",
       type: "number",
-      number: { precision: 6, scale: 2 },
+      format: { precision: 6, scale: 2 },
       style: { align: "right" },
       width: 120,
     },
@@ -97,10 +97,6 @@ stats.value = {
 
 const user: UserInfo = { id: "demo-user", name: "Demo User" };
 
-function handleSearch() {
-  tableRef.value?.toggleSearchPanel("find");
-}
-
 function handleUndo() {
   tableRef.value?.undo();
 }
@@ -117,9 +113,6 @@ function handleRedo() {
     </div>
 
     <div class="demo-controls">
-      <div class="search-panel">
-        <button @click="handleSearch">🔍 Search</button>
-      </div>
       <div class="edit-controls">
         <button @click="handleUndo">↶ Undo</button>
         <button @click="handleRedo">↷ Redo</button>
@@ -158,12 +151,6 @@ function handleRedo() {
 .demo-controls {
   display: flex;
   gap: 8px;
-  align-items: center;
-}
-
-.search-panel {
-  display: flex;
-  gap: 4px;
   align-items: center;
 }
 

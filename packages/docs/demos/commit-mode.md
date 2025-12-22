@@ -11,7 +11,7 @@ This demo shows commit mode where edits are staged before being submitted.
 </ClientOnly>
 
 ::: info Demo UI Note
-This demo includes **Search**, **Undo**, **Redo**, and **Commit** buttons. The **Commit** button saves staged changes. In a real application, these operations are typically triggered via keyboard shortcuts and programmatic APIs. The buttons are provided here as an alternative way to interact with the demo.
+This demo includes **Undo**, **Redo**, and **Commit** buttons. The **Commit** button saves staged changes. In a real application, these operations are typically triggered via keyboard shortcuts and programmatic APIs. The buttons are provided here as an alternative way to interact with the demo.
 :::
 
 ## What You're Seeing

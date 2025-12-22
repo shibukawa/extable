@@ -40,6 +40,13 @@ Finite lists (stop at end):
 - Planets (en/ja, 8 planets)
 - Kuji-in (ja only: 九字)
 - Eight virtues (ja only: 八徳)
+- Element symbols (ja/en, supports Japanese element names)
+- Japanese shoguns (Kamakura/Ashikaga/Tokugawa)
+- Japanese prefectures (ja only)
+- US states (en only)
+- Windows versions (consumer releases)
+- macOS codenames
+- Debian codenames
 
 ::: info Tip
 The first two rows in each column are the seeds. Drag the fill handle downward to generate the sequence.

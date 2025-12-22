@@ -11,7 +11,7 @@ This demo shows tables with computed formula columns.
 </ClientOnly>
 
 ::: info Demo UI Note
-This demo includes **Search**, **Undo**, and **Redo** buttons above the table. In a real application, these operations are typically triggered via keyboard shortcuts (Ctrl/Cmd+F for Search, Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z for Redo). The buttons are provided here as an alternative way to interact with the demo without keyboard shortcuts.
+This demo includes **Undo** and **Redo** buttons above the table. In a real application, these operations are typically triggered via keyboard shortcuts (Ctrl/Cmd+Z for Undo, Ctrl/Cmd+Shift+Z for Redo). The buttons are provided here as an alternative way to interact with the demo without keyboard shortcuts.
 :::
 
 ## What You're Seeing
@@ -45,7 +45,7 @@ const tableSchema = defineSchema<InvoiceItem>({
       key: "quantity",
       header: "Qty",
       type: "number",
-      number: { precision: 6, scale: 0 },
+      format: { precision: 6, scale: 0 },
       width: 80,
       style: { align: "center" },
     },
@@ -53,7 +53,7 @@ const tableSchema = defineSchema<InvoiceItem>({
       key: "unitPrice",
       header: "Unit Price ($)",
       type: "number",
-      number: { precision: 8, scale: 2 },
+      format: { precision: 8, scale: 2 },
       width: 130,
       style: { align: "right" },
     },
@@ -61,7 +61,7 @@ const tableSchema = defineSchema<InvoiceItem>({
       key: "discountPercent",
       header: "Discount (%)",
       type: "number",
-      number: { precision: 5, scale: 1 },
+      format: { precision: 5, scale: 1 },
       width: 120,
       style: { align: "center" },
     },
@@ -69,7 +69,7 @@ const tableSchema = defineSchema<InvoiceItem>({
       key: "total",
       header: "Total ($)",
       type: "number",
-      number: { precision: 10, scale: 2 },
+      format: { precision: 10, scale: 2 },
       readonly: true,
       formula: (row) => row.quantity * row.unitPrice * (1 - row.discountPercent / 100),
       width: 130,

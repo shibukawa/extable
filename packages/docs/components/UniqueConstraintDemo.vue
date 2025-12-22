@@ -104,10 +104,6 @@ const user: UserInfo = { id: "demo-user", name: "Demo User" };
 const validationMessage =
   "Try editing email or username columns to test unique constraint validation. Use the filter menu to explore data and find duplicate values with ease.";
 
-function handleSearch() {
-  tableRef.value?.toggleSearchPanel("find");
-}
-
 function handleUndo() {
   tableRef.value?.undo();
 }
@@ -153,9 +149,6 @@ function handleRedo() {
     </div>
 
     <div class="demo-controls">
-      <div class="search-panel">
-        <button @click="handleSearch">🔍 Search</button>
-      </div>
       <div class="edit-controls">
         <button @click="handleUndo">↶ Undo</button>
         <button @click="handleRedo">↷ Redo</button>
@@ -196,11 +189,6 @@ function handleRedo() {
   display: flex;
   gap: 8px;
   align-items: center;
-}
-
-.search-panel {
-  display: flex;
-  gap: 4px;
 }
 
 .edit-controls {

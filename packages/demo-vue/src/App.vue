@@ -416,14 +416,6 @@ onMounted(() => {
     });
     if (!isMod) return;
 
-    if (key === "f" && !e.altKey && !e.shiftKey) {
-      if (!tableRef.value) return;
-      e.preventDefault();
-      e.stopPropagation();
-      tableRef.value.showSearchPanel("find");
-      return;
-    }
-
     // Undo: Ctrl/Cmd+Z
     if (key === "z") {
       if (!tableRef.value) return;

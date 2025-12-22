@@ -446,15 +446,7 @@ function main() {
       target: (e.target as HTMLElement | null)?.tagName ?? "unknown",
     });
 
-    if (key === "f" && !e.altKey && !e.shiftKey) {
-      if (!core) return;
-      e.preventDefault();
-      e.stopPropagation();
-      core.showSearchPanel("find");
-      return;
-    }
-
-    // Undo: Ctrl/Cmd+Z (Search is handled by core's ensureFindReplaceShortcut)
+    // Undo: Ctrl/Cmd+Z
     if (key === "z") {
       console.log("[onKey-z] core exists:", !!core, "shiftKey:", e.shiftKey);
       if (!core) return;

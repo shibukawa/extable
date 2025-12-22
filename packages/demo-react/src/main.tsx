@@ -308,16 +308,7 @@ export function App() {
       });
       if (!isMod) return;
 
-      if (key === "f" && !e.altKey && !e.shiftKey) {
-        const handle = tableRef.current;
-        if (!handle) return;
-        e.preventDefault();
-        e.stopPropagation();
-        handle.showSearchPanel("find");
-        return;
-      }
-
-      // Undo: Ctrl/Cmd+Z (Search is handled by core's ensureFindReplaceShortcut)
+      // Undo: Ctrl/Cmd+Z
       if (key === "z") {
         const handle = tableRef.current;
         console.log("[onKey-z] handle exists:", !!handle, "shiftKey:", e.shiftKey);

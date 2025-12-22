@@ -90,7 +90,6 @@ The root container receives these classes:
 | `extable-root` | Base root element (recommended selector) |
 | `extable-readonly-all` | Entire table is readonly mode |
 | `extable-loading` | Table data is loading |
-| `extable-search-open` | Search panel is open |
 | `extable-filter-sort-open` | Filter/sort panel is open |
 | Custom classes | From `defaultClass` option |
 

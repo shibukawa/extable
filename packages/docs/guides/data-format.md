@@ -10,7 +10,7 @@ Every column in your schema requires:
 {
   key: 'columnName',           // Unique identifier for this column
   header: 'Display Label',     // User-visible header text
-  type: 'string' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum' | 'tags',
+  type: 'string' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum' | 'tags' | 'button' | 'link',
   width?: number,              // Optional: column width in pixels
   readonly?: boolean,          // Optional: prevent user edits
   nullable?: boolean,          // Optional: allow empty/null values
@@ -97,7 +97,7 @@ Numeric values with optional precision, scale, and sign constraints.
   key: 'salary',
   header: 'Annual Salary',
   type: 'number',
-  number: {
+  format: {
     precision?: 10,           // Total significant digits
     scale?: 2,                // Decimal places
     min?: 0,                  // Minimum value
@@ -124,13 +124,13 @@ True/false values with customizable display format.
   header: 'Active Status',
   type: 'boolean',
   // Display variants:
-  booleanDisplay: 'checkbox'           // ☑️ / ☐
+  format: 'checkbox'           // ☑️ / ☐
   // OR
-  booleanDisplay: ['TRUE', 'FALSE']    // Text display
+  format: ['TRUE', 'FALSE']    // Text display
   // OR
-  booleanDisplay: ['Yes', 'No']        // Localized text
+  format: ['Yes', 'No']        // Localized text
   // OR
-  booleanDisplay: ['真', '偽']         // Non-English
+  format: ['真', '偽']         // Non-English
 }
 ```
 
@@ -142,7 +142,7 @@ True/false values with customizable display format.
 
 Calendar dates without time component. Allowed tokens: `yyyy`, `MM`, `dd` (and literals).
 
-**Presets (dateFormat):**
+**Presets (format):**
 
 | Preset | Pattern        | Note                |
 | ------ | -------------- | ------------------- |
@@ -157,7 +157,7 @@ Examples: `iso`, `us`, `eu`, or a custom pattern using allowed tokens.
   key: 'joinDate',
   header: 'Join Date',
   type: 'date',
-  dateFormat?: 'yyyy-MM-dd'  // ISO standard (default)
+  format?: 'yyyy-MM-dd'  // ISO standard (default)
   // Other common formats:
   // 'yyyy/MM/dd'             // Slash format
   // 'MM/dd/yyyy'             // US format
@@ -175,7 +175,7 @@ Examples: `iso`, `us`, `eu`, or a custom pattern using allowed tokens.
 
 Time-of-day values without date component. Allowed tokens: `HH`, `hh`, `mm`, `ss`, `a` (and literals).
 
-**Presets (timeFormat):**
+**Presets (format):**
 
 | Preset | Pattern      | Note                 |
 | ------ | ------------ | -------------------- |
@@ -188,7 +188,7 @@ Time-of-day values without date component. Allowed tokens: `HH`, `hh`, `mm`, `ss
   key: 'startTime',
   header: 'Start Time',
   type: 'time',
-  timeFormat?: 'HH:mm:ss'    // 24-hour with seconds (default)
+  format?: 'HH:mm:ss'    // 24-hour with seconds (default)
   // Other common formats:
   // 'HH:mm'                  // 24-hour without seconds
   // 'hh:mm a'                // 12-hour with AM/PM
@@ -205,7 +205,7 @@ Time-of-day values without date component. Allowed tokens: `HH`, `hh`, `mm`, `ss
 
 Combined date and time values. Allowed tokens are the union of Date+Time tokens.
 
-**Presets (dateTimeFormat):**
+**Presets (format):**
 
 | Preset   | Pattern                          | Note                                  |
 | -------- | -------------------------------- | ------------------------------------- |
@@ -224,7 +224,7 @@ Combined date and time values. Allowed tokens are the union of Date+Time tokens.
   key: 'createdAt',
   header: 'Created At',
   type: 'datetime',
-  dateTimeFormat?: "yyyy-MM-dd'T'HH:mm:ss'Z'"  // ISO 8601 (default)
+  format?: "yyyy-MM-dd'T'HH:mm:ss'Z'"  // ISO 8601 (default)
   // Other common formats:
   // 'yyyy/MM/dd HH:mm'       // Date and time, no seconds
   // 'MM/dd/yyyy hh:mm a'     // US format with AM/PM
@@ -285,6 +285,51 @@ Multi-select from a predefined list of tag options.
 - Click cell to open multi-select dialog
 - Check/uncheck tags
 - If `allowCustom: true`, users can add new tags (not recommended for data integrity)
+
+### Button
+
+Interactive action cell. Buttons are **always readonly** and never editable.
+
+```typescript
+{
+  key: 'action',
+  header: 'Action',
+  type: 'button',
+  style: { align: 'center' }
+}
+```
+
+**Value shapes:**
+- `string` → label (e.g. `"Open"`)
+- `{ label: string; command: string; commandfor: string }` → action payload
+
+`command` and `commandfor` must be provided together.
+
+**Behavior:**
+- Click or press **Space** on the button to emit a cell action event
+- Use `style.disabled` or `conditionalStyle` → `{ disabled: true }` to disable (button only)
+
+### Link
+
+Interactive link cell. Links are **always readonly** and never editable.
+
+```typescript
+{
+  key: 'docs',
+  header: 'Docs',
+  type: 'link'
+}
+```
+
+**Value shapes:**
+- `string` → URL (label + href)
+- `{ label: string; href: string; target?: string }` → link with label
+
+`target` defaults to `_self`.
+
+**Behavior:**
+- Click or press **Space** to navigate
+- Use `style.disabled` or `conditionalStyle` → `{ disabled: true }` to disable (link only)
 
 ## Shared Properties
 
@@ -418,7 +463,7 @@ const schema = {
       key: 'salary',
       header: 'Salary',
       type: 'number',
-      number: { scale: 2, thousandSeparator: true, negativeRed: true },
+      format: { scale: 2, thousandSeparator: true, negativeRed: true },
       style: { align: 'right' },
       width: 120
     },
@@ -427,7 +472,7 @@ const schema = {
       key: 'active',
       header: 'Active',
       type: 'boolean',
-      booleanDisplay: 'checkbox',
+      format: 'checkbox',
       width: 80
     },
     // Join Date - formatted date
@@ -435,7 +480,7 @@ const schema = {
       key: 'joinDate',
       header: 'Join Date',
       type: 'date',
-      dateFormat: 'yyyy/MM/dd',
+      format: 'yyyy/MM/dd',
       width: 130
     },
     // Skills - tag list
@@ -452,7 +497,7 @@ const schema = {
       header: 'Annual Comp',
       type: 'number',
       readonly: true,
-      number: { scale: 0, thousandSeparator: true },
+      format: { scale: 0, thousandSeparator: true },
       style: { align: 'right' },
       formula: (row) => row.salary * 1.25,  // Salary + 25% benefits
       width: 140
