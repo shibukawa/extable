@@ -164,6 +164,22 @@ function drawSortArrowIcon(
   ctx.restore();
 }
 
+function resolveTagValues(value: unknown): string[] | null {
+  if (Array.isArray(value) && value.every((v) => typeof v === "string")) {
+    return value as string[];
+  }
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    if (obj.kind === "tags") {
+      const values = obj.values;
+      if (Array.isArray(values)) {
+        return values.filter((v): v is string => typeof v === "string");
+      }
+    }
+  }
+  return null;
+}
+
 class FenwickTree {
   // 1-based BIT
   private tree: number[];
@@ -253,7 +269,10 @@ export interface Renderer {
   ): { rowId: string; colKey: string | null; element?: HTMLElement; rect: DOMRect } | null;
   hitTestAction?(
     event: MouseEvent,
-  ): { rowId: string; colKey: string; kind: "button" | "link" } | null;
+  ):
+    | { rowId: string; colKey: string; kind: "button" | "link" }
+    | { rowId: string; colKey: string; kind: "tag-remove"; tagIndex: number }
+    | null;
   setActiveCell(rowId: string | null, colKey: string | null): void;
   setSelection(ranges: SelectionRange[]): void;
 }
@@ -375,9 +394,29 @@ export class HTMLRenderer implements Renderer {
     };
   }
 
-  hitTestAction(event: MouseEvent) {
+  hitTestAction(
+    event: MouseEvent,
+  ):
+    | { rowId: string; colKey: string; kind: "button" | "link" }
+    | { rowId: string; colKey: string; kind: "tag-remove"; tagIndex: number }
+    | null {
     const target = event.target as HTMLElement | null;
     if (!target) return null;
+    const tagRemove = target.closest<HTMLButtonElement>("[data-extable-tag-remove]");
+    if (tagRemove && !tagRemove.disabled) {
+      const cell = tagRemove.closest<HTMLElement>("td[data-col-key]");
+      const row = cell?.closest<HTMLElement>("tr[data-row-id]");
+      if (!cell || !row) return null;
+      const indexStr = tagRemove.dataset.extableTagIndex;
+      const tagIndex = indexStr ? Number.parseInt(indexStr, 10) : Number.NaN;
+      if (!Number.isFinite(tagIndex)) return null;
+      return {
+        rowId: row.dataset.rowId ?? "",
+        colKey: cell.dataset.colKey ?? "",
+        kind: "tag-remove" as const,
+        tagIndex,
+      };
+    }
     const actionEl = target.closest<HTMLElement>("[data-extable-action]");
     if (!actionEl) return null;
     const cell = actionEl.closest<HTMLElement>("td[data-col-key]");
@@ -495,6 +534,8 @@ export class HTMLRenderer implements Renderer {
         ? { text: textOverride as string }
         : this.formatValue(valueRes.value, col);
       const interaction = this.dataModel.getCellInteraction(row.id, col.key);
+      const tagValues =
+        col.type === "tags" && !textOverride ? resolveTagValues(valueRes.value) : null;
       const isActionType = col.type === "button" || col.type === "link";
       const actionValue = isActionType
         ? col.type === "button"
@@ -506,7 +547,30 @@ export class HTMLRenderer implements Renderer {
           ? getButtonLabel(valueRes.value)
           : getLinkLabel(valueRes.value)
         : "";
-      if (isActionType && !textOverride && actionValue && actionLabel) {
+      if (tagValues && tagValues.length) {
+        const list = document.createElement("div");
+        list.className = "extable-tag-list";
+        tagValues.forEach((tag, index) => {
+          const chip = document.createElement("span");
+          chip.className = "extable-tag";
+          const label = document.createElement("span");
+          label.className = "extable-tag-label";
+          label.textContent = tag;
+          const remove = document.createElement("button");
+          remove.type = "button";
+          remove.className = "extable-tag-remove";
+          remove.dataset.extableTagRemove = "1";
+          remove.dataset.extableTagIndex = String(index);
+          remove.textContent = "×";
+          if (interaction.readonly || interaction.disabled) {
+            remove.disabled = true;
+          }
+          chip.appendChild(label);
+          chip.appendChild(remove);
+          list.appendChild(chip);
+        });
+        td.replaceChildren(list);
+      } else if (isActionType && !textOverride && actionValue && actionLabel) {
         const actionEl =
           col.type === "button" ? document.createElement("button") : document.createElement("span");
         if (actionEl instanceof HTMLButtonElement) actionEl.type = "button";
@@ -555,7 +619,7 @@ export class HTMLRenderer implements Renderer {
     }
     // variable row height based on measured content when wrap enabled
     const wrapAny = schema.columns.some((c) => view.wrapText?.[c.key] ?? c.wrapText);
-    if (wrapAny) {
+      if (wrapAny) {
       let maxHeight = this.defaultRowHeight;
       for (let idx = 0; idx < schema.columns.length; idx += 1) {
         const col = schema.columns[idx];
@@ -683,6 +747,10 @@ export class HTMLRenderer implements Renderer {
       const label = getLinkLabel(value);
       return { text: label || String(value) };
     }
+    if (col.type === "tags") {
+      const tags = resolveTagValues(value);
+      if (tags) return { text: tags.join(", ") };
+    }
     if (col.type === "boolean") {
       if (col.format === "checkbox" || !col.format) {
         return { text: value ? "☑" : "☐" };
@@ -756,6 +824,8 @@ export class CanvasRenderer implements Renderer {
   private pendingCursorPoint: { x: number; y: number } | null = null;
   private hoverHeaderColKey: string | null = null;
   private hoverHeaderIcon = false;
+  private hoverActionKey: string | null = null;
+  private activeActionKey: string | null = null;
   private rowHeightCacheKey: string | null = null;
   private rowHeightMeasuredVersion = new Map<string, number>();
   private rowHeightMeasureRaf: number | null = null;
@@ -790,6 +860,8 @@ export class CanvasRenderer implements Renderer {
     this.canvas.style.zIndex = "1";
     this.canvas.style.cursor = "cell";
     this.canvas.addEventListener("pointermove", this.handlePointerMove);
+    this.canvas.addEventListener("pointerdown", this.handlePointerDown);
+    this.canvas.addEventListener("pointerup", this.handlePointerUp);
     this.canvas.addEventListener("pointerleave", this.handlePointerLeave);
     this.canvas.addEventListener("click", this.handleClick);
     this.spacer = document.createElement("div");
@@ -1084,8 +1156,22 @@ export class CanvasRenderer implements Renderer {
             const bw = Math.max(0, right - left);
             const bh = Math.max(0, bottom - top);
             ctx.save();
-            ctx.fillStyle = muted ? "#f3f4f6" : "#f8fafc";
-            ctx.strokeStyle = muted ? "#e2e8f0" : "#cbd5e1";
+            const actionKey = `${row.id}::${c.key}::button`;
+            const isHover = this.hoverActionKey === actionKey;
+            const isActive = this.activeActionKey === actionKey;
+            if (muted) {
+              ctx.fillStyle = "#f3f4f6";
+              ctx.strokeStyle = "#e2e8f0";
+            } else if (isActive) {
+              ctx.fillStyle = "#cbd5e1";
+              ctx.strokeStyle = "#94a3b8";
+            } else if (isHover) {
+              ctx.fillStyle = "#e2e8f0";
+              ctx.strokeStyle = "#94a3b8";
+            } else {
+              ctx.fillStyle = "#f8fafc";
+              ctx.strokeStyle = "#cbd5e1";
+            }
             ctx.lineWidth = 1;
             ctx.beginPath();
             if (typeof ctx.roundRect === "function") {
@@ -1184,6 +1270,14 @@ export class CanvasRenderer implements Renderer {
       // selection overlay
       if (this.selection.length) {
         ctx.save();
+        ctx.beginPath();
+        ctx.rect(
+          this.rowHeaderWidth,
+          this.headerHeight,
+          this.canvas.width - this.rowHeaderWidth,
+          this.canvas.height - this.headerHeight,
+        );
+        ctx.clip();
         ctx.strokeStyle = "#3b82f6";
         ctx.fillStyle = "rgba(59,130,246,0.12)";
         for (const range of this.selection) {
@@ -1229,6 +1323,8 @@ export class CanvasRenderer implements Renderer {
     this.heightIndex = null;
     if (this.canvas) {
       this.canvas.removeEventListener("pointermove", this.handlePointerMove);
+      this.canvas.removeEventListener("pointerdown", this.handlePointerDown);
+      this.canvas.removeEventListener("pointerup", this.handlePointerUp);
       this.canvas.removeEventListener("pointerleave", this.handlePointerLeave);
       this.canvas.removeEventListener("click", this.handleClick);
     }
@@ -1596,6 +1692,33 @@ export class CanvasRenderer implements Renderer {
     if (this.tooltip) this.tooltip.dataset.visible = "0";
     this.tooltipTarget = null;
     this.tooltipMessage = null;
+    if (this.hoverActionKey || this.activeActionKey) {
+      this.hoverActionKey = null;
+      this.activeActionKey = null;
+      this.render();
+    }
+  };
+
+  private handlePointerDown = (ev: PointerEvent) => {
+    if (!this.canvas) return;
+    const actionHit = this.hitTestAction(
+      new MouseEvent("mousemove", { clientX: ev.clientX, clientY: ev.clientY }),
+    );
+    if (!actionHit || actionHit.kind !== "button") return;
+    const interaction = this.dataModel.getCellInteraction(actionHit.rowId, actionHit.colKey);
+    if (interaction.disabled) return;
+    const nextKey = `${actionHit.rowId}::${actionHit.colKey}::${actionHit.kind}`;
+    if (nextKey !== this.activeActionKey) {
+      this.activeActionKey = nextKey;
+      this.render();
+    }
+  };
+
+  private handlePointerUp = () => {
+    if (this.activeActionKey) {
+      this.activeActionKey = null;
+      this.render();
+    }
   };
 
   private positionTooltipAtRect(rect: DOMRect) {
@@ -1731,6 +1854,7 @@ export class CanvasRenderer implements Renderer {
       if (this.tooltip) this.tooltip.dataset.visible = "0";
       this.tooltipTarget = null;
       this.tooltipMessage = null;
+      this.hoverActionKey = null;
       return;
     }
     if (hit.colKey === "__all__" || hit.colKey === null) {
@@ -1738,6 +1862,7 @@ export class CanvasRenderer implements Renderer {
       if (this.tooltip) this.tooltip.dataset.visible = "0";
       this.tooltipTarget = null;
       this.tooltipMessage = null;
+      this.hoverActionKey = null;
       return;
     }
     // In readonly editMode, keep spreadsheet-like cursor for all body cells.
@@ -1772,6 +1897,11 @@ export class CanvasRenderer implements Renderer {
     }
 
     const actionHit = this.hitTestAction(new MouseEvent("mousemove", { clientX, clientY }));
+    const nextHoverKey = actionHit ? `${actionHit.rowId}::${actionHit.colKey}::${actionHit.kind}` : null;
+    if (nextHoverKey !== this.hoverActionKey) {
+      this.hoverActionKey = nextHoverKey;
+      this.render();
+    }
     if (actionHit) {
       const interaction = this.dataModel.getCellInteraction(actionHit.rowId, actionHit.colKey);
       if (!interaction.disabled) {
@@ -2024,6 +2154,10 @@ export class CanvasRenderer implements Renderer {
     if (col.type === "link") {
       const label = getLinkLabel(value);
       return { text: label || String(value) };
+    }
+    if (col.type === "tags") {
+      const tags = resolveTagValues(value);
+      if (tags) return { text: tags.join(", ") };
     }
     if (col.type === "boolean") {
       if (col.format === "checkbox" || !col.format) {

@@ -1,5 +1,17 @@
 # History
 
+## Unreleased
+
+### Changed
+- Formula columns no longer use readonly-muted styling but remain readonly for editing.
+- Canvas selection overlay is clipped to keep headers on top.
+- Buttons now show hover feedback.
+- Tags render as pill chips with remove controls.
+- Ordinal sequences preserve prefixes/suffixes and support English word ordinals.
+
+### Fixed
+- IME composition end now suppresses immediate Enter commits.
+
 ## 0.3.0
 
 ### Changed

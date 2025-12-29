@@ -25,7 +25,10 @@ type HitTest = (
 ) => { rowId: string; colKey: string | null; element?: HTMLElement; rect: DOMRect } | null;
 type ActionHitTest = (
   event: MouseEvent,
-) => { rowId: string; colKey: string; kind: "button" | "link" } | null;
+) =>
+  | { rowId: string; colKey: string; kind: "button" | "link" }
+  | { rowId: string; colKey: string; kind: "tag-remove"; tagIndex: number }
+  | null;
 type ActiveChange = (rowId: string | null, colKey: string | null) => void;
 type ContextMenuHandler = (
   rowId: string | null,
@@ -74,6 +77,13 @@ export class SelectionManager {
   private activeHostOriginalText: string | null = null;
   private composing = false;
   private lastCompositionEnd = 0;
+  private readonly handleInputCompositionStart = () => {
+    this.composing = true;
+  };
+  private readonly handleInputCompositionEnd = () => {
+    this.composing = false;
+    this.lastCompositionEnd = Date.now();
+  };
   private readonly handleSelectionBlur = () => this.teardownSelectionInput();
   private readonly handleRootKeydown = async (ev: KeyboardEvent) => {
     if (ev.defaultPrevented) return;
@@ -1342,6 +1352,15 @@ export class SelectionManager {
       return;
     }
 
+    if (
+      this.activeCell.colKey !== null &&
+      this.isCellReadonly(this.activeCell.rowId, this.activeCell.colKey)
+    ) {
+      ev.preventDefault();
+      this.selectionAnchor = null;
+      return;
+    }
+
     this.selectionMode = false;
     this.selectionAnchor = null;
     this.teardownSelectionInput();
@@ -1703,11 +1722,24 @@ export class SelectionManager {
     if (!hit) return;
     const actionHit = this.hitAction ? this.hitAction(ev) : null;
     if (actionHit) {
-      const triggered = this.triggerCellAction(actionHit.rowId, actionHit.colKey, actionHit.kind);
-      if (triggered) {
-        ev.preventDefault();
-        return;
+      if ((globalThis as { __EXTABLE_DEBUG_ACTIONS?: boolean }).__EXTABLE_DEBUG_ACTIONS) {
+        console.log("[extable][canvas][action-click]", actionHit);
       }
+      if (actionHit.kind === "tag-remove") {
+        const removed = this.removeTagValue(actionHit.rowId, actionHit.colKey, actionHit.tagIndex);
+        if (removed) {
+          ev.preventDefault();
+          return;
+        }
+      } else {
+        const triggered = this.triggerCellAction(actionHit.rowId, actionHit.colKey, actionHit.kind);
+        if (triggered) {
+          ev.preventDefault();
+          return;
+        }
+      }
+    } else if ((globalThis as { __EXTABLE_DEBUG_ACTIONS?: boolean }).__EXTABLE_DEBUG_ACTIONS) {
+      console.log("[extable][canvas][action-click]", null);
     }
     const wasSameCell =
       this.selectionMode &&
@@ -1847,6 +1879,47 @@ export class SelectionManager {
       return true;
     }
     return false;
+  }
+
+  private removeTagValue(rowId: string, colKey: string, tagIndex: number) {
+    if (this.isCellReadonly(rowId, colKey)) return false;
+    const col = this.findColumn(colKey);
+    if (!col || col.type !== "tags") return false;
+    const current = this.dataModel.getCell(rowId, colKey);
+    const values = this.normalizeTagValues(current);
+    if (!values || tagIndex < 0 || tagIndex >= values.length) return false;
+    const nextValues = values.filter((_, i) => i !== tagIndex);
+    const next =
+      current && typeof current === "object" && (current as Record<string, unknown>).kind === "tags"
+        ? { kind: "tags", values: nextValues }
+        : nextValues;
+    const cmd: Command = {
+      kind: "edit",
+      rowId,
+      colKey,
+      next,
+    };
+    const commitNow = this.editMode === "direct";
+    this.onEdit(cmd, commitNow);
+    return true;
+  }
+
+  private normalizeTagValues(value: unknown): string[] | null {
+    if (Array.isArray(value) && value.every((v) => typeof v === "string")) {
+      return value as string[];
+    }
+    if (value && typeof value === "object") {
+      const obj = value as Record<string, unknown>;
+      if (obj.kind === "tags" && Array.isArray(obj.values)) {
+        return obj.values.filter((v): v is string => typeof v === "string");
+      }
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+      return trimmed.split(/\s*,\s*/).filter(Boolean);
+    }
+    return null;
   }
 
   private openLink(href: string, target?: string) {
@@ -2100,6 +2173,8 @@ export class SelectionManager {
     input.style.textAlign = col?.style?.align ?? (col?.type === "number" ? "right" : "left");
     input.style.pointerEvents = "auto";
     input.addEventListener("keydown", (e) => this.handleKey(e as KeyboardEvent, wrapper));
+    input.addEventListener("compositionstart", this.handleInputCompositionStart);
+    input.addEventListener("compositionend", this.handleInputCompositionEnd);
     input.addEventListener("focus", () => {
       if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) input.select();
     });
@@ -2267,6 +2342,7 @@ export class SelectionManager {
     this.floatingInputWrapper = null;
     this.activeHost = null;
     this.activeHostOriginalText = null;
+    this.composing = false;
     if (clearActive) {
       this.activeCell = null;
       this.onActiveChange(null, null);

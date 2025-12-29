@@ -282,10 +282,36 @@
   }
 
   & .extable-action-button {
-    padding: 2px 8px;
-    border-radius: 6px;
-    border: 1px solid #cbd5e1;
-    background: #f8fafc;
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid #94a3b8;
+    background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%);
+    color: #0f172a;
+    box-shadow:
+      0 1px 0 rgba(15, 23, 42, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    transition:
+      background 140ms ease,
+      border-color 140ms ease,
+      box-shadow 140ms ease,
+      transform 80ms ease;
+
+    &:hover,
+    &:focus-visible {
+      background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
+      border-color: #64748b;
+      box-shadow:
+        0 2px 0 rgba(15, 23, 42, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      outline: none;
+    }
+
+    &:active {
+      transform: translateY(1px);
+      box-shadow:
+        0 0 0 rgba(15, 23, 42, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    }
   }
 
   & .extable-action-link {
@@ -297,9 +323,57 @@
   & .extable-action-disabled {
     color: #94a3b8;
     border-color: #e2e8f0;
-    background: #f3f4f6;
+    background: linear-gradient(180deg, #f8fafc 0%, #e5e7eb 100%);
     cursor: default;
     text-decoration: none;
+    box-shadow: none;
+  }
+
+  & .extable-tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+  }
+
+  & .extable-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    background: #e2e8f0;
+    color: #0f172a;
+    font-size: 12px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  & .extable-tag-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    border: none;
+    background: transparent;
+    color: #475569;
+    cursor: pointer;
+    padding: 0;
+
+    &:hover,
+    &:focus-visible {
+      outline: none;
+      background: rgba(148, 163, 184, 0.4);
+      color: #0f172a;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
   }
 
   /* Selection highlight must remain visible even on readonly cells. */
@@ -576,6 +650,13 @@
     border: 1px solid rgba(148, 163, 184, 0.5);
     background: rgba(255, 255, 255, 0.8);
     cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      outline: none;
+      border-color: rgba(59, 130, 246, 0.7);
+      background: rgba(226, 232, 240, 0.9);
+    }
   }
 
   & .extable-filter-sort-body {
@@ -663,24 +744,46 @@
     }
 
     & button {
-      padding: 6px 10px;
+      padding: 6px 12px;
       border-radius: 10px;
-      border: 1px solid rgba(148, 163, 184, 0.55);
-      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(100, 116, 139, 0.6);
+      background: linear-gradient(180deg, #ffffff 0%, #e2e8f0 100%);
+      box-shadow:
+        0 1px 0 rgba(15, 23, 42, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
       cursor: pointer;
+      transition:
+        background 140ms ease,
+        border-color 140ms ease,
+        box-shadow 140ms ease,
+        transform 80ms ease;
 
       &:hover,
       &:focus-visible {
         outline: none;
         border-color: rgba(59, 130, 246, 0.7);
+        background: linear-gradient(180deg, #ffffff 0%, #dbeafe 100%);
+        box-shadow:
+          0 2px 0 rgba(15, 23, 42, 0.12),
+          inset 0 1px 0 rgba(255, 255, 255, 0.95);
+      }
+
+      &:active {
+        transform: translateY(1px);
+        box-shadow:
+          0 0 0 rgba(15, 23, 42, 0.12),
+          inset 0 1px 0 rgba(255, 255, 255, 0.85);
       }
     }
 
     & button[data-extable-fs="apply-filter"],
     & button[data-active="1"] {
-      background: #0f172a;
+      background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
       color: #f8fafc;
       border-color: #0f172a;
+      box-shadow:
+        0 2px 0 rgba(15, 23, 42, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
     }
   }
 }
