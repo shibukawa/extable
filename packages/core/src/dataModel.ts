@@ -303,7 +303,8 @@ export class DataModel {
     const disabled =
       disabledAllowed && Boolean(col.style?.disabled || delta?.disabled || cellStyle?.disabled);
     const readonly = baseReadonly || readonlyFromStyle || disabled;
-    const muted = disabled || (readonly && !disabledAllowed);
+    const isFormulaCol = Boolean(col.formula);
+    const muted = disabled || (readonly && !disabledAllowed && !isFormulaCol);
     return { readonly, disabled, muted };
   }
 

@@ -55,6 +55,11 @@ describe('inferSequence', () => {
     expect(drain(seq, 3)).toEqual(['4th', '5th', '6th']);
   });
 
+  it('matches english word ordinals', () => {
+    const seq = inferSequence(['first', 'second', 'third']);
+    expect(drain(seq, 3)).toEqual(['fourth', 'fifth', 'sixth']);
+  });
+
   it('matches greek letter symbols', () => {
     const seq = inferSequence(['α', 'β']);
     expect(drain(seq, 3)).toEqual(['γ', 'δ', 'ε']);
@@ -91,6 +96,13 @@ describe('inferSequence', () => {
   it('supports embedded number progressions', () => {
     const seq = inferSequence(['第10回', '第11回']);
     expect(drain(seq, 3)).toEqual(['第12回', '第13回', '第14回']);
+  });
+
+  it('preserves embedded ordinal prefixes and suffixes', () => {
+    const seq = inferSequence(['Item 1st!', 'Item 2nd!']);
+    expect(drain(seq, 2)).toEqual(['Item 3rd!', 'Item 4th!']);
+    const words = inferSequence(['Stage first', 'Stage second']);
+    expect(drain(words, 2)).toEqual(['Stage third', 'Stage fourth']);
   });
 
   it('supports roman numeral progressions up to 100', () => {

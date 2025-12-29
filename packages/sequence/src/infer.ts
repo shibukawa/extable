@@ -1,4 +1,9 @@
-import { createBuiltInRegistry } from './builtins';
+import {
+  createBuiltInRegistry,
+  formatEnglishOrdinalWord,
+  ordinalSuffix,
+  parseEnglishOrdinalWord
+} from './builtins';
 import { Sequence } from './sequence';
 import type { SequenceKind, SequenceValue } from './types';
 import type { SequenceMatchResult, SequenceRegistry } from './registry';
@@ -113,6 +118,62 @@ const parseEmbeddedNumber = (value: string): { prefix: string; num: number; widt
   }
   const width = digits.replace('-', '').length;
   return { prefix, num, width, suffix };
+};
+
+const parseEmbeddedOrdinal = (
+  value: string
+): { prefix: string; num: number; suffix: string; format: 'numeric' | 'word' } | null => {
+  const numMatch = /^(.*?)(\d+)(st|nd|rd|th)([^0-9]*)$/i.exec(value);
+  if (numMatch) {
+    const num = Number(numMatch[2]);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    const suffixToken = numMatch[3]?.toLowerCase();
+    if (ordinalSuffix(num) !== suffixToken) return null;
+    return {
+      prefix: numMatch[1] ?? '',
+      num,
+      suffix: numMatch[4] ?? '',
+      format: 'numeric'
+    };
+  }
+  const wordMatch = /^(.*?)([A-Za-z-]+)([^A-Za-z]*)$/.exec(value);
+  if (!wordMatch) return null;
+  const num = parseEnglishOrdinalWord(wordMatch[2] ?? '');
+  if (num === null) return null;
+  return {
+    prefix: wordMatch[1] ?? '',
+    num,
+    suffix: wordMatch[3] ?? '',
+    format: 'word'
+  };
+};
+
+const createEmbeddedOrdinalIterator = (
+  template: { prefix: string; suffix: string; format: 'numeric' | 'word' },
+  last: number,
+  step: number
+): Iterator<string> => {
+  let offset = 0;
+  return {
+    next() {
+      offset += 1;
+      const next = last + step * offset;
+      if (next <= 0 || !Number.isFinite(next)) {
+        return { value: undefined, done: true } as IteratorResult<string>;
+      }
+      if (template.format === 'word') {
+        const word = formatEnglishOrdinalWord(next);
+        if (!word) {
+          return { value: undefined, done: true } as IteratorResult<string>;
+        }
+        return { value: `${template.prefix}${word}${template.suffix}`, done: false };
+      }
+      return {
+        value: `${template.prefix}${next}${ordinalSuffix(next)}${template.suffix}`,
+        done: false
+      };
+    }
+  };
 };
 
 const createEmbeddedNumberIterator = (
@@ -550,6 +611,38 @@ const matchGeometric = (values: readonly number[]): number | null => {
 const inferStringSequence = (
   seed: readonly string[]
 ): { kind: SequenceKind; iterator: Iterator<string> } | null => {
+  const embeddedOrdinal = seed.map((value) => parseEmbeddedOrdinal(value));
+  if (embeddedOrdinal.every((value) => value !== null)) {
+    const parsed = embeddedOrdinal as Array<{
+      prefix: string;
+      num: number;
+      suffix: string;
+      format: 'numeric' | 'word';
+    }>;
+    const template = parsed[0]!;
+    const matchesTemplate = parsed.every(
+      (item) =>
+        item.prefix === template.prefix &&
+        item.suffix === template.suffix &&
+        item.format === template.format
+    );
+    if (matchesTemplate) {
+      const numeric = parsed.map((item) => item.num);
+      const step = matchArithmetic(numeric);
+      if (step !== null) {
+        const last = parsed[parsed.length - 1]!;
+        return {
+          kind: 'arithmetic',
+          iterator: createEmbeddedOrdinalIterator(
+            { prefix: template.prefix, suffix: template.suffix, format: template.format },
+            last.num,
+            step
+          )
+        };
+      }
+    }
+  }
+
   const embedded = seed.map((value) => parseEmbeddedNumber(value));
   if (embedded.every(Boolean)) {
     const first = embedded[0]!;

@@ -1055,7 +1055,7 @@ const builtInLists: SequenceList[] = [
   debianVersions
 ];
 
-const ordinalSuffix = (value: number): string => {
+export const ordinalSuffix = (value: number): string => {
   const mod100 = value % 100;
   if (mod100 >= 11 && mod100 <= 13) return 'th';
   const mod10 = value % 10;
@@ -1065,14 +1065,104 @@ const ordinalSuffix = (value: number): string => {
   return 'th';
 };
 
-const parseOrdinal = (value: string): number | null => {
-  const match = /^(\d+)(st|nd|rd|th)$/.exec(value);
-  if (!match) return null;
-  const num = Number(match[1]);
-  if (!Number.isFinite(num) || num <= 0) return null;
-  const suffix = match[2];
-  if (ordinalSuffix(num) !== suffix) return null;
-  return num;
+const ordinalUnitWords: Record<number, string> = {
+  1: 'first',
+  2: 'second',
+  3: 'third',
+  4: 'fourth',
+  5: 'fifth',
+  6: 'sixth',
+  7: 'seventh',
+  8: 'eighth',
+  9: 'ninth',
+  10: 'tenth',
+  11: 'eleventh',
+  12: 'twelfth',
+  13: 'thirteenth',
+  14: 'fourteenth',
+  15: 'fifteenth',
+  16: 'sixteenth',
+  17: 'seventeenth',
+  18: 'eighteenth',
+  19: 'nineteenth'
+};
+
+const ordinalTensWords: Record<number, string> = {
+  20: 'twentieth',
+  30: 'thirtieth',
+  40: 'fortieth',
+  50: 'fiftieth',
+  60: 'sixtieth',
+  70: 'seventieth',
+  80: 'eightieth',
+  90: 'ninetieth'
+};
+
+const cardinalTensWords: Record<number, string> = {
+  20: 'twenty',
+  30: 'thirty',
+  40: 'forty',
+  50: 'fifty',
+  60: 'sixty',
+  70: 'seventy',
+  80: 'eighty',
+  90: 'ninety'
+};
+
+const ordinalUnitLookup = Object.fromEntries(
+  Object.entries(ordinalUnitWords).map(([key, value]) => [value, Number(key)])
+);
+const ordinalTensLookup = Object.fromEntries(
+  Object.entries(ordinalTensWords).map(([key, value]) => [value, Number(key)])
+);
+const cardinalTensLookup = Object.fromEntries(
+  Object.entries(cardinalTensWords).map(([key, value]) => [value, Number(key)])
+);
+
+export const parseEnglishOrdinalWord = (value: string): number | null => {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  const direct = ordinalUnitLookup[normalized] ?? ordinalTensLookup[normalized];
+  if (direct) return direct;
+  const parts = normalized.split(/[-\s]+/);
+  if (parts.length !== 2) return null;
+  const tens = cardinalTensLookup[parts[0] ?? ''];
+  const unit = ordinalUnitLookup[parts[1] ?? ''];
+  if (!tens || !unit) return null;
+  return tens + unit;
+};
+
+export const formatEnglishOrdinalWord = (value: number): string | null => {
+  if (!Number.isFinite(value) || value <= 0 || Math.floor(value) !== value) return null;
+  if (value <= 19) return ordinalUnitWords[value] ?? null;
+  if (value < 100) {
+    if (ordinalTensWords[value]) return ordinalTensWords[value] ?? null;
+    const tens = Math.floor(value / 10) * 10;
+    const unit = value % 10;
+    const tensWord = cardinalTensWords[tens];
+    const unitWord = ordinalUnitWords[unit];
+    if (!tensWord || !unitWord) return null;
+    return `${tensWord}-${unitWord}`;
+  }
+  return null;
+};
+
+type OrdinalParse = { value: number; format: 'numeric' | 'word' };
+
+const parseOrdinal = (value: string): OrdinalParse | null => {
+  const match = /^(\d+)(st|nd|rd|th)$/i.exec(value);
+  if (match) {
+    const num = Number(match[1]);
+    if (!Number.isFinite(num) || num <= 0) return null;
+    const suffix = match[2]?.toLowerCase();
+    if (ordinalSuffix(num) !== suffix) return null;
+    return { value: num, format: 'numeric' };
+  }
+  const word = parseEnglishOrdinalWord(value);
+  if (word !== null) {
+    return { value: word, format: 'word' };
+  }
+  return null;
 };
 
 const ordinalMatcher: SequenceMatch = {
@@ -1080,23 +1170,33 @@ const ordinalMatcher: SequenceMatch = {
   langs: ['en'],
   match(seed) {
     if (seed.length < 2) return null;
-    const values = seed.map((value) => parseOrdinal(value));
-    if (values.some((value) => value === null)) return null;
-    const nums = values as number[];
+    const parsed = seed.map((value) => parseOrdinal(value));
+    if (parsed.some((value) => value === null)) return null;
+    const format = parsed[0]!.format;
+    if (parsed.some((entry) => entry?.format !== format)) return null;
+    const nums = parsed.map((entry) => entry!.value);
     const step = nums[1]! - nums[0]!;
     for (let i = 2; i < nums.length; i += 1) {
       if (nums[i]! - nums[i - 1]! !== step) return null;
     }
-    return { score: 80, step };
+    return { score: 80, step, state: { format } };
   },
   createIterator(seed, ctx) {
-    const last = parseOrdinal(seed[seed.length - 1] ?? '');
-    let current = last ?? 0;
+    const parsed = parseOrdinal(seed[seed.length - 1] ?? '');
+    const format = (ctx.state as { format?: 'numeric' | 'word' } | undefined)?.format ?? 'numeric';
+    let current = parsed?.value ?? 0;
     return {
       next() {
         current += ctx.step;
         if (current <= 0 || !Number.isFinite(current)) {
           return { value: undefined, done: true } as IteratorResult<string>;
+        }
+        if (format === 'word') {
+          const word = formatEnglishOrdinalWord(current);
+          if (!word) {
+            return { value: undefined, done: true } as IteratorResult<string>;
+          }
+          return { value: word, done: false };
         }
         return { value: `${current}${ordinalSuffix(current)}`, done: false };
       }
