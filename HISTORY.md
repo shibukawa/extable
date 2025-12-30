@@ -2,12 +2,17 @@
 
 ## Unreleased
 
+### Added
+- Japanese VitePress docs under `/ja/` with localized navigation and content.
+
 ### Changed
 - Formula columns no longer use readonly-muted styling but remain readonly for editing.
 - Canvas selection overlay is clipped to keep headers on top.
 - Buttons now show hover feedback.
 - Tags render as pill chips with remove controls.
 - Ordinal sequences preserve prefixes/suffixes and support English word ordinals.
+- Japanese docs now localize comments inside sample code blocks.
+- Japanese demo pages now localize explanation text while keeping code samples unchanged.
 
 ### Fixed
 - IME composition end now suppresses immediate Enter commits.
