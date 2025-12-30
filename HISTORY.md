@@ -2,7 +2,8 @@
 
 ## Unreleased
 
-### Added
+### 0.3.1
+
 - Japanese VitePress docs under `/ja/` with localized navigation and content.
 
 ### Changed
