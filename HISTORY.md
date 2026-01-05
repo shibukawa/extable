@@ -17,6 +17,7 @@
 
 ### Fixed
 - IME composition end now suppresses immediate Enter commits.
+- Selection-mode IME composition start no longer opens an editor for readonly cells.
 
 ## 0.3.0
 

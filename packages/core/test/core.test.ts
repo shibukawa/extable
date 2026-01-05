@@ -92,6 +92,83 @@ describe("core placeholder", () => {
     // Readonly should not visually mute.
     expect(target.classList.contains("extable-readonly-all")).toBe(true);
   });
+
+  test("compositionstart in selection mode does not open editor on readonly cell", () => {
+    const placeholder = createTablePlaceholder(
+      {
+        data: [{ name: "Alice" }],
+        schema: { columns: [{ key: "name", header: "Name", type: "string", readonly: true }] },
+        view: {},
+      },
+      { renderMode: "html", editMode: "direct", lockMode: "none" },
+    );
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    // JSDOM's elementFromPoint is not layout-aware and can cause hit-testing to fail.
+    Object.defineProperty(document, "elementFromPoint", { value: undefined, configurable: true });
+    mountTable(target, placeholder);
+
+    const cell = target.querySelector('td[data-col-key="name"]') as HTMLTableCellElement | null;
+    expect(cell).toBeTruthy();
+
+    // Single click enters selection mode and focuses the hidden selection input.
+    cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+
+    const inputs = Array.from(target.querySelectorAll("input")) as HTMLInputElement[];
+    const selectionInput = inputs.find((i) => i.style.pointerEvents === "none") ?? null;
+    expect(selectionInput).toBeTruthy();
+    expect(document.activeElement).toBe(selectionInput);
+
+    selectionInput!.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+
+    // Should stay in selection mode: no editor input is inserted into the cell.
+    const editor = cell!.querySelector("input") as HTMLInputElement | null;
+    expect(editor).toBeFalsy();
+    // The selection input may be recreated to cancel IME composition.
+    const inputsAfter = Array.from(target.querySelectorAll("input")) as HTMLInputElement[];
+    const selectionInputAfter = inputsAfter.find((i) => i.style.pointerEvents === "none") ?? null;
+    expect(selectionInputAfter).toBeTruthy();
+    expect(document.activeElement).toBe(selectionInputAfter);
+    expect(selectionInput!.isConnected).toBe(false);
+
+    placeholder.destroy();
+    target.remove();
+  });
+
+  test("compositionstart in selection mode opens editor on editable cell", () => {
+    const placeholder = createTablePlaceholder(
+      {
+        data: [{ name: "Alice" }],
+        schema: { columns: [{ key: "name", header: "Name", type: "string" }] },
+        view: {},
+      },
+      { renderMode: "html", editMode: "direct", lockMode: "none" },
+    );
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    // JSDOM's elementFromPoint is not layout-aware and can cause hit-testing to fail.
+    Object.defineProperty(document, "elementFromPoint", { value: undefined, configurable: true });
+    mountTable(target, placeholder);
+
+    const cell = target.querySelector('td[data-col-key="name"]') as HTMLTableCellElement | null;
+    expect(cell).toBeTruthy();
+
+    cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+
+    const inputs = Array.from(target.querySelectorAll("input")) as HTMLInputElement[];
+    const selectionInput = inputs.find((i) => i.style.pointerEvents === "none") ?? null;
+    expect(selectionInput).toBeTruthy();
+    expect(document.activeElement).toBe(selectionInput);
+
+    selectionInput!.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+
+    const editor = cell!.querySelector("input") as HTMLInputElement | null;
+    expect(editor).toBeTruthy();
+    expect(document.activeElement).toBe(editor);
+
+    placeholder.destroy();
+    target.remove();
+  });
 });
 
 describe("table state callbacks", () => {
