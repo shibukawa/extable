@@ -455,6 +455,11 @@ export class SelectionManager {
     if (this.selectionInput) return this.selectionInput;
     const input = document.createElement("input");
     input.type = "text";
+    // This input exists only to receive keyboard/clipboard/IME events in selection mode.
+    // It is not a text editor.
+    input.readOnly = true;
+    // Helps suppress virtual keyboards; also reduces IME oddities on some platforms.
+    input.inputMode = "none";
     input.autocomplete = "off";
     input.spellcheck = false;
     input.style.position = "absolute";
@@ -467,6 +472,7 @@ export class SelectionManager {
     input.style.opacity = "0";
     input.style.pointerEvents = "none";
     input.addEventListener("keydown", this.handleSelectionKeydown);
+    input.addEventListener("beforeinput", this.handleSelectionBeforeInput);
     input.addEventListener("compositionstart", this.handleSelectionCompositionStart);
     input.addEventListener("copy", this.handleSelectionCopy);
     input.addEventListener("cut", this.handleSelectionCut);
@@ -1143,9 +1149,12 @@ export class SelectionManager {
   private teardownSelectionInput() {
     const input = this.selectionInput;
     if (!input) return;
+
     // Avoid re-entrancy via blur fired during DOM removal.
     this.selectionInput = null;
+
     input.removeEventListener("keydown", this.handleSelectionKeydown);
+    input.removeEventListener("beforeinput", this.handleSelectionBeforeInput);
     input.removeEventListener("compositionstart", this.handleSelectionCompositionStart);
     input.removeEventListener("copy", this.handleSelectionCopy);
     input.removeEventListener("cut", this.handleSelectionCut);
@@ -1187,11 +1196,46 @@ export class SelectionManager {
     this.applyClipboardGrid(grid);
   };
 
-  private handleSelectionCompositionStart = () => {
+  private handleSelectionCompositionStart = (ev?: CompositionEvent) => {
     if (!this.selectionMode) return;
+    const ac = this.activeCell;
+    if (!ac || ac.colKey === null) return;
+
+    if (this.isCellReadonly(ac.rowId, ac.colKey)) {
+      // Keep selection mode for readonly cells.
+      // IMPORTANT: cancel any ongoing IME composition by tearing down the focused hidden input.
+      // Otherwise, some IMEs show a floating preedit UI (e.g. an "a") even though we ignore edits.
+      ev?.preventDefault?.();
+      ev?.stopPropagation?.();
+      const current = this.dataModel.getCell(ac.rowId, ac.colKey);
+      const currentText = this.cellToClipboardString(current);
+      this.teardownSelectionInput();
+      this.focusSelectionInput(currentText);
+      return;
+    }
+
     this.selectionMode = false;
     this.teardownSelectionInput();
     this.openEditorAtActiveCell();
+  };
+
+  private handleSelectionBeforeInput = (ev: InputEvent) => {
+    if (!this.selectionMode) return;
+    const ac = this.activeCell;
+    if (!ac || ac.colKey === null) return;
+    if (!this.isCellReadonly(ac.rowId, ac.colKey)) return;
+
+    // Block text insertion into the hidden selection input while readonly.
+    ev.preventDefault();
+    try {
+      const current = this.dataModel.getCell(ac.rowId, ac.colKey);
+      const currentText = this.cellToClipboardString(current);
+      const input = this.ensureSelectionInput();
+      input.value = currentText;
+      input.select();
+    } catch {
+      // ignore
+    }
   };
 
   public async copySelection() {
