@@ -113,7 +113,11 @@ describe("renderer style application", () => {
       );
       mountTable(root, core);
 
-      expect(fonts.some((f) => f.includes("italic") && f.includes("600") && f.includes("14px"))).toBe(true);
+      expect(
+        fonts.some(
+          (f) => f.includes("italic") && f.includes("600") && f.includes("13.5px") && f.includes("Inter"),
+        ),
+      ).toBe(true);
 
       core.destroy();
       root.remove();

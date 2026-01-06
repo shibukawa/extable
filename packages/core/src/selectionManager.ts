@@ -20,6 +20,9 @@ import {
   DEFAULT_ROW_HEIGHT_PX,
   HEADER_HEIGHT_PX,
   ROW_HEADER_WIDTH_PX,
+  CELL_PADDING_X_PX,
+  CELL_PADDING_TOP_PX,
+  CELL_PADDING_BOTTOM_PX,
   getColumnWidths,
 } from "./geometry";
 import { resolveButtonAction, resolveLinkAction } from "./actionValue";
@@ -1800,11 +1803,13 @@ export class SelectionManager {
     box: { left: number; top: number; width: number; height: number },
     wrapper: HTMLDivElement,
   ) {
-    const inset = 2;
-    wrapper.style.left = `${box.left + inset}px`;
-    wrapper.style.top = `${box.top + inset}px`;
-    wrapper.style.width = `${Math.max(8, box.width - inset * 2)}px`;
-    wrapper.style.height = `${Math.max(8, box.height - inset * 2)}px`;
+    const insetX = CELL_PADDING_X_PX;
+    const insetTop = CELL_PADDING_TOP_PX;
+    const insetBottom = CELL_PADDING_BOTTOM_PX;
+    wrapper.style.left = `${box.left + insetX}px`;
+    wrapper.style.top = `${box.top + insetTop}px`;
+    wrapper.style.width = `${Math.max(8, box.width - insetX * 2)}px`;
+    wrapper.style.height = `${Math.max(8, box.height - (insetTop + insetBottom))}px`;
   }
 
   private handleClick = (ev: MouseEvent) => {
@@ -2201,10 +2206,11 @@ export class SelectionManager {
     const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
-    input.style.width = "calc(100% - 4px)";
+    const isCheckbox = input instanceof HTMLInputElement && input.type === "checkbox";
+    input.style.width = "100%";
     input.style.boxSizing = "border-box";
-    input.style.margin = "2px";
-    input.style.padding = "4px 6px";
+    input.style.margin = "0";
+    input.style.padding = "0";
     input.style.border = "none";
     input.style.borderRadius = "0";
     input.style.boxShadow = "none";
@@ -2212,8 +2218,12 @@ export class SelectionManager {
     input.style.outline = "none";
     input.style.fontSize = "14px";
     input.style.fontFamily = "inherit";
-    input.style.lineHeight = "1.2";
+    input.style.lineHeight = "16px";
     input.style.fontWeight = "inherit";
+    if (isCheckbox) {
+      input.style.width = "auto";
+      input.style.lineHeight = "normal";
+    }
     const col = this.findColumn(colKey);
     input.style.textAlign =
       col?.style?.align ??
@@ -2267,11 +2277,12 @@ export class SelectionManager {
     const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
-    input.style.width = "calc(100% - 4px)";
-    input.style.height = "calc(100% - 4px)";
+    const isCheckbox = input instanceof HTMLInputElement && input.type === "checkbox";
+    input.style.width = "100%";
+    input.style.height = "100%";
     input.style.boxSizing = "border-box";
-    input.style.margin = "2px";
-    input.style.padding = "4px 6px";
+    input.style.margin = "0";
+    input.style.padding = "0";
     input.style.border = "none";
     input.style.borderRadius = "0";
     input.style.boxShadow = "none";
@@ -2279,8 +2290,13 @@ export class SelectionManager {
     input.style.outline = "none";
     input.style.fontSize = "14px";
     input.style.fontFamily = "inherit";
-    input.style.lineHeight = "1.2";
+    input.style.lineHeight = "16px";
     input.style.fontWeight = "inherit";
+    if (isCheckbox) {
+      input.style.width = "auto";
+      input.style.height = "auto";
+      input.style.lineHeight = "normal";
+    }
     const col = this.findColumn(colKey);
     input.style.textAlign =
       col?.style?.align ??

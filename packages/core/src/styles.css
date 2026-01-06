@@ -28,7 +28,7 @@
     overflow: auto;
     position: relative;
     overscroll-behavior: contain;
-    background: #f8fafc;
+    background: transparent;
     border: none;
     box-sizing: border-box;
   }
@@ -85,6 +85,12 @@
       z-index: 5;
     }
 
+    /* Ensure the top-left corner stays visible on both axes scroll. */
+    & thead th.extable-corner {
+      left: 0;
+      z-index: 7;
+    }
+
     & th {
       position: relative;
       background: var(--extable-header-bg);
@@ -107,7 +113,7 @@
 
     & td {
       border: 1px solid #d0d7de;
-      padding: 6px 8px;
+      padding: 4px 8px;
       min-width: 80px;
       cursor: cell;
       font-weight: 400;
@@ -133,6 +139,14 @@
       &:focus {
         outline: none;
       }
+    }
+
+    /* Ensure row headers stay fixed on horizontal scroll and match Canvas alignment. */
+    & th.extable-row-header {
+      position: sticky;
+      left: 0;
+      text-align: center;
+      z-index: 6;
     }
   }
 
@@ -172,7 +186,7 @@
     background: var(--extable-header-bg);
     text-align: center;
     vertical-align: middle;
-    line-height: 24px;
+    line-height: 16px;
     padding: 0;
     border: var(--extable-border);
     font-weight: 600;
@@ -408,10 +422,8 @@
 
   /* Column header inner layout */
   & .extable-col-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    position: relative;
+    display: block;
     min-width: 0;
     cursor: default;
   }
@@ -424,7 +436,10 @@
   }
 
   & .extable-filter-sort-trigger {
-    flex: 0 0 auto;
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
     width: 22px;
     height: 22px;
     padding: 0;
@@ -433,9 +448,10 @@
     background: rgba(255, 255, 255, 0.7);
     cursor: pointer;
     opacity: 0;
-    display: inline-flex;
+    display: none;
     align-items: center;
     justify-content: center;
+    z-index: 1;
     line-height: 1;
     color: rgba(15, 23, 42, 0.75);
 
@@ -450,17 +466,27 @@
   }
 
   & th:hover .extable-filter-sort-trigger {
+    display: inline-flex;
     opacity: 0.55;
   }
 
   & th[data-extable-fs-active="1"] .extable-filter-sort-trigger,
   & th[data-extable-sort-dir] .extable-filter-sort-trigger {
+    display: inline-flex;
     opacity: 0.75;
   }
 
   & th:hover[data-extable-fs-active="1"] .extable-filter-sort-trigger,
   & th:hover[data-extable-sort-dir] .extable-filter-sort-trigger {
+    display: inline-flex;
     opacity: 1;
+  }
+
+  /* When the button is visible, reserve space so it doesn't cover the text. */
+  & th:hover .extable-col-header,
+  & th[data-extable-fs-active="1"] .extable-col-header,
+  & th[data-extable-sort-dir] .extable-col-header {
+    padding-right: 28px;
   }
 
   /* Text helpers */
