@@ -4,8 +4,28 @@
 
 ### 0.3.3
 
-- Bump workspace package versions to 0.3.3.
+### Changed
+- Numeric editing uses a text input and parses/validates on commit (supports scientific notation and prefixed base literals).
+- Reduce visual differences between HTML and Canvas renderers (cell padding, editor geometry, row height, and text alignment).
+
+### Added
+- New integer column types: `int` (safe integer) and `uint` (non-negative safe integer).
+- Integer display formats: `binary`/`octal`/`hex` (prefixed: `0b`/`0o`/`0x`) and number display format: `scientific`.
+- Demo dataset `numbers` showcasing numeric formats.
 - Docs: add numeric formats demo page and reference links.
+
+### Fixed
+- HTML renderer no longer sets per-cell `width/height`; row height is controlled by `tr` height and column width by header cells.
+- Row header `line-height` no longer forces row height in HTML renderer.
+- Canvas font rendering was tuned to visually match HTML.
+- HTML column header filter/sort button no longer reserves space; it appears on hover/active without truncating the label excessively.
+- HTML top-left corner cell now stays visible on both vertical and horizontal scroll.
+
+### 0.3.2
+
+### Fixed
+- Readonly cells can no longer be edited.
+- Pressing Escape after a failed/invalid edit no longer commits the draft value; it restores the pre-edit value.
 
 ### 0.3.1
 
@@ -19,25 +39,10 @@
 - Ordinal sequences preserve prefixes/suffixes and support English word ordinals.
 - Japanese docs now localize comments inside sample code blocks.
 - Japanese demo pages now localize explanation text while keeping code samples unchanged.
-- Numeric editing uses a text input and parses/validates on commit (supports scientific notation and prefixed base literals).
-
-### Added
-- New integer column types: `int` (safe integer) and `uint` (non-negative safe integer).
-- Integer display formats: `binary`/`octal`/`hex` (prefixed: `0b`/`0o`/`0x`) and number display format: `scientific`.
-- Demo dataset `numbers` showcasing numeric formats.
 
 ### Fixed
 - IME composition end now suppresses immediate Enter commits.
 - Selection-mode IME composition start no longer opens an editor for readonly cells.
-- Pressing Escape after a failed/invalid edit no longer commits the draft value; it restores the pre-edit value.
-- Align HTML/Canvas cell padding and editor geometry to avoid edit-start layout shifts.
-- Align HTML/Canvas row height and vertical text alignment; keep row headers sticky on horizontal scroll and remove HTML-only viewport tint.
-- Align HTML/Canvas row height and vertical text alignment; keep row headers sticky on horizontal scroll and remove HTML-only viewport tint.
-- HTML renderer no longer sets per-cell `width/height`; row height is controlled by `tr` height and column width by header cells.
-- Row header `line-height` no longer forces row height in HTML renderer.
-- Canvas font rendering was tuned to visually match HTML.
-- HTML column header filter/sort button no longer reserves space; it appears on hover/active without truncating the label excessively.
-- HTML top-left corner cell now stays visible on both vertical and horizontal scroll.
 
 ## 0.3.0
 
