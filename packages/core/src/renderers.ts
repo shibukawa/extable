@@ -16,6 +16,9 @@ import {
   DEFAULT_ROW_HEIGHT_PX,
   HEADER_HEIGHT_PX,
   ROW_HEADER_WIDTH_PX,
+  CELL_PADDING_X_PX,
+  CELL_PADDING_TOP_PX,
+  CELL_PADDING_BOTTOM_PX,
   getColumnWidths,
 } from "./geometry";
 import {
@@ -29,6 +32,11 @@ import { removeFromParent } from "./utils";
 import { columnFormatToStyle, mergeStyle, styleToCssText } from "./styleResolver";
 import { getButtonLabel, getLinkLabel, resolveButtonAction, resolveLinkAction } from "./actionValue";
 import { formatIntegerWithPrefix, formatNumberForEdit } from "./numberIO";
+
+const CANVAS_FONT_FAMILY = '"Inter","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif';
+// Canvas text tends to render slightly larger than HTML with the same nominal size.
+// Use a slightly smaller size to visually match HTML's 14px.
+const CANVAS_FONT_SIZE_PX = 13.5;
 
 function getColumnSortDir(view: View, colKey: string): "asc" | "desc" | null {
   const s = view.sorts?.[0];
@@ -324,16 +332,6 @@ export class HTMLRenderer implements Renderer {
     const colBaseStyles = schema.columns.map((c) => columnFormatToStyle(c));
     const colBaseCss = colBaseStyles.map((s) => styleToCssText(s));
     const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
-    const colgroup = document.createElement("colgroup");
-    const rowCol = document.createElement("col");
-    rowCol.style.width = `${this.rowHeaderWidth}px`;
-    colgroup.appendChild(rowCol);
-    for (const w of colWidths) {
-      const colEl = document.createElement("col");
-      if (w) colEl.style.width = `${w}px`;
-      colgroup.appendChild(colEl);
-    }
-    this.tableEl.appendChild(colgroup);
     this.tableEl.style.width = `${totalWidth}px`;
     this.tableEl.appendChild(this.renderHeader(schema, colWidths));
     const body = document.createElement("tbody");
@@ -436,6 +434,7 @@ export class HTMLRenderer implements Renderer {
   private renderHeader(schema: Schema, colWidths: number[]) {
     const thead = document.createElement("thead");
     const tr = document.createElement("tr");
+    tr.style.height = `${this.defaultRowHeight}px`;
     const rowTh = document.createElement("th");
     rowTh.classList.add("extable-row-header", "extable-corner");
     rowTh.textContent = "";
@@ -492,13 +491,13 @@ export class HTMLRenderer implements Renderer {
   ) {
     const tr = document.createElement("tr");
     tr.dataset.rowId = row.id;
+    tr.style.height = `${this.defaultRowHeight}px`;
     const view = this.dataModel.getView();
     const rowHeader = document.createElement("th");
     rowHeader.scope = "row";
     rowHeader.classList.add("extable-row-header");
     const index = this.dataModel.getDisplayIndex(row.id) ?? "";
     rowHeader.textContent = String(index);
-    rowHeader.style.width = `${this.rowHeaderWidth}px`;
     if (this.activeRowId === row.id) rowHeader.classList.add("extable-active-row-header");
     tr.appendChild(rowHeader);
     for (let idx = 0; idx < schema.columns.length; idx += 1) {
@@ -525,8 +524,6 @@ export class HTMLRenderer implements Renderer {
         const css = styleToCssText(forCss);
         if (css) td.style.cssText = css;
       }
-      const width = colWidths[idx] ?? view.columnWidths?.[col.key] ?? col.width;
-      if (width) td.style.width = `${width}px`;
       const wrap = view.wrapText?.[col.key] ?? col.wrapText;
       td.classList.add(wrap ? "cell-wrap" : "cell-nowrap");
       const raw = this.dataModel.getRawCell(row.id, col.key);
@@ -660,7 +657,11 @@ export class HTMLRenderer implements Renderer {
         const measureHost = this.tableEl?.parentElement;
         if (!measureHost) continue;
         measureHost.appendChild(measure);
-        const h = measure.clientHeight + 10; // padding allowance
+        const h =
+          measure.clientHeight +
+          CELL_PADDING_TOP_PX +
+          CELL_PADDING_BOTTOM_PX +
+          2; // border allowance (top+bottom)
         measure.remove();
         this.measureCache.set(key, { height: h, frame: this.frame });
         maxHeight = Math.max(maxHeight, h);
@@ -930,7 +931,7 @@ export class CanvasRenderer implements Renderer {
       if (!this.canvas || !this.root) return;
       const ctx = this.canvas.getContext("2d");
       if (!ctx) return;
-      ctx.font = "14px sans-serif";
+      ctx.font = `${CANVAS_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`;
       let baseFont = ctx.font;
       const selectAll = this.activeRowId === "__all__" && this.activeColKey === "__all__";
       const schema = this.dataModel.getSchema();
@@ -964,7 +965,7 @@ export class CanvasRenderer implements Renderer {
       this.canvas.style.width = `${nextWidth}px`;
       this.canvas.style.height = `${nextHeight}px`;
       // Resizing resets 2D state, so reapply after size update.
-      ctx.font = "14px sans-serif";
+      ctx.font = `${CANVAS_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`;
       baseFont = ctx.font;
       this.refreshTooltipPosition();
 
@@ -1041,7 +1042,7 @@ export class CanvasRenderer implements Renderer {
           ctx.fillRect(0, yCursor, this.rowHeaderWidth, rowH);
         }
         ctx.fillStyle = "#0f172a";
-        ctx.font = "bold 14px sans-serif";
+        ctx.font = `bold ${CANVAS_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(String(idxText), this.rowHeaderWidth / 2, yCursor + rowH / 2);
@@ -1146,7 +1147,7 @@ export class CanvasRenderer implements Renderer {
               else {
                 const weight = mergedStyle.bold ? "600 " : "";
                 const ital = mergedStyle.italic ? "italic " : "";
-                const f = `${ital}${weight}14px sans-serif`.trim();
+                const f = `${ital}${weight}${CANVAS_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`.trim();
                 fontCache.set(fontKey, f);
                 ctx.font = f;
               }
@@ -1156,10 +1157,10 @@ export class CanvasRenderer implements Renderer {
             ctx.font = baseFont;
             lastFontKey = "";
           }
-          const textAreaX = x + 8;
-          const textAreaY = yCursor + 2;
-          const textAreaW = Math.max(0, w - 12);
-          const textAreaH = Math.max(0, rowH - 8);
+          const textAreaX = x + CELL_PADDING_X_PX;
+          const textAreaY = yCursor + CELL_PADDING_TOP_PX;
+          const textAreaW = Math.max(0, w - CELL_PADDING_X_PX * 2);
+          const textAreaH = Math.max(0, rowH - (CELL_PADDING_TOP_PX + CELL_PADDING_BOTTOM_PX));
           const decorations = {
             underline: Boolean(mergedStyle.underline) || (renderAction && c.type === "link"),
             strike: Boolean(mergedStyle.strike),
@@ -1274,7 +1275,7 @@ export class CanvasRenderer implements Renderer {
         ctx.strokeStyle = "#d0d7de";
         ctx.strokeRect(xHeader, 0, w, this.headerHeight);
         ctx.fillStyle = "#0f172a";
-        ctx.font = "bold 14px sans-serif";
+        ctx.font = `bold ${CANVAS_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`;
         ctx.fillText(c.header ?? c.key, xHeader + 8, this.headerHeight - 8);
         ctx.font = baseFont;
 
@@ -1445,7 +1446,7 @@ export class CanvasRenderer implements Renderer {
     if (!this.canvas) return;
     const ctx = this.canvas.getContext("2d");
     if (!ctx) return;
-    ctx.font = "14px sans-serif";
+    ctx.font = `${CANVAS_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`;
     const schema = this.dataModel.getSchema();
     const view = this.dataModel.getView();
     const colWidths = getColumnWidths(schema, view);
@@ -1651,15 +1652,18 @@ export class CanvasRenderer implements Renderer {
     const weight = mergedStyle.bold ? "600 " : "";
     const ital = mergedStyle.italic ? "italic " : "";
     ctx.save();
-    ctx.font = `${ital}${weight}14px sans-serif`.trim() || "14px sans-serif";
+    ctx.font = `${ital}${weight}${CANVAS_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`.trim();
     ctx.textBaseline = "alphabetic";
     const view = this.dataModel.getView();
     const wrap = view.wrapText?.[col.key] ?? col.wrapText ?? false;
     const align = col.style?.align ?? "left";
-    const textAreaX = hit.rect.left + 8;
-    const textAreaY = hit.rect.top + 2;
-    const textAreaW = Math.max(0, hit.rect.width - 12);
-    const textAreaH = Math.max(0, hit.rect.height - 8);
+    const textAreaX = hit.rect.left + CELL_PADDING_X_PX;
+    const textAreaY = hit.rect.top + CELL_PADDING_TOP_PX;
+    const textAreaW = Math.max(0, hit.rect.width - CELL_PADDING_X_PX * 2);
+    const textAreaH = Math.max(
+      0,
+      hit.rect.height - (CELL_PADDING_TOP_PX + CELL_PADDING_BOTTOM_PX),
+    );
     const bounds = this.measureTextBounds(
       ctx,
       actionValue.label,
@@ -2118,10 +2122,13 @@ export class CanvasRenderer implements Renderer {
     if (isBoolean) {
       ctx.font = "28px sans-serif";
     } else if (isCustomBoolean) {
-      ctx.font = "14px sans-serif";
+      ctx.font = `${CANVAS_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`;
     }
+    const lines = this.getTextLinesForBounds(ctx, text, width, wrap, height);
+    const totalTextHeight = lines.length * this.lineHeight;
+    const baseY = y + Math.max(0, Math.floor((height - totalTextHeight) / 2));
     const renderLine = (ln: string, lineIdx: number) => {
-      const baseline = y + this.lineHeight * lineIdx;
+      const baseline = baseY + this.lineHeight * lineIdx;
       let startX = x;
       let endX = x;
       if (align === "right") {
@@ -2163,13 +2170,8 @@ export class CanvasRenderer implements Renderer {
         ctx.lineWidth = lineWidthBackup;
       }
     };
-    if (wrap) {
-      const lines = this.wrapLines(ctx, text, width);
-      for (let idx = 0; idx < lines.length; idx += 1) {
-        renderLine(lines[idx], idx + 1);
-      }
-    } else {
-      renderLine(this.fitTextLine(ctx, text, width), 1);
+    for (let idx = 0; idx < lines.length; idx += 1) {
+      renderLine(lines[idx] ?? "", idx + 1);
     }
     ctx.textAlign = "left";
     ctx.font = fontBackup;

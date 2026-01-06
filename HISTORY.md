@@ -25,6 +25,14 @@
 - IME composition end now suppresses immediate Enter commits.
 - Selection-mode IME composition start no longer opens an editor for readonly cells.
 - Pressing Escape after a failed/invalid edit no longer commits the draft value; it restores the pre-edit value.
+- Align HTML/Canvas cell padding and editor geometry to avoid edit-start layout shifts.
+- Align HTML/Canvas row height and vertical text alignment; keep row headers sticky on horizontal scroll and remove HTML-only viewport tint.
+- Align HTML/Canvas row height and vertical text alignment; keep row headers sticky on horizontal scroll and remove HTML-only viewport tint.
+- HTML renderer no longer sets per-cell `width/height`; row height is controlled by `tr` height and column width by header cells.
+- Row header `line-height` no longer forces row height in HTML renderer.
+- Canvas font rendering was tuned to visually match HTML.
+- HTML column header filter/sort button no longer reserves space; it appears on hover/active without truncating the label excessively.
+- HTML top-left corner cell now stays visible on both vertical and horizontal scroll.
 
 ## 0.3.0
 
