@@ -55,6 +55,16 @@ export function validateCellValue(value: unknown, col: ColumnSchema): string | n
       if (fmt?.signed === false && value < 0) return "Expected a non-negative number";
       return null;
     }
+    case "int": {
+      if (typeof value !== "number" || !Number.isSafeInteger(value)) return "Expected an integer";
+      return null;
+    }
+    case "uint": {
+      if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+        return "Expected a non-negative integer";
+      }
+      return null;
+    }
     case "boolean": {
       if (typeof value !== "boolean") return "Expected a boolean";
       return null;

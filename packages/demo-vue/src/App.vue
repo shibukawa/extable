@@ -179,6 +179,9 @@ import {
   dataFormatRows,
   dataFormatSchema,
   dataFormatView,
+  numbersRows,
+  numbersSchema,
+  numbersView,
   demoRows,
   demoSchema,
   demoView,
@@ -200,6 +203,7 @@ type LockMode = "none" | "row";
 type DataMode =
   | "standard"
   | "data-format"
+  | "numbers"
   | "formula"
   | "conditional-style"
   | "unique-check"
@@ -216,6 +220,7 @@ const dataMode = ref<DataMode>("standard");
 const dataModes = [
   { key: "standard", label: "Standard" },
   { key: "data-format", label: "Data Format" },
+  { key: "numbers", label: "Numbers" },
   { key: "formula", label: "Formula" },
   { key: "conditional-style", label: "Conditional Style" },
   { key: "unique-check", label: "Unique Check" },
@@ -280,6 +285,13 @@ const cloneConfig = (mode: DataMode) => {
       data: dataFormatRows.map((r) => ({ ...r })),
       schema: dataFormatSchema as Schema,
       view: { ...dataFormatView },
+    };
+  }
+  if (mode === "numbers") {
+    return {
+      data: numbersRows.map((r) => ({ ...r })),
+      schema: numbersSchema as Schema,
+      view: { ...numbersView },
     };
   }
   if (mode === "formula") {

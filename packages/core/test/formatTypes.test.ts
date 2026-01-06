@@ -9,6 +9,18 @@ describe("format typing", () => {
       format: { precision: 10, scale: 2 },
     };
 
+    const intCol: ColumnSchema<any, any, "int"> = {
+      key: "count",
+      type: "int",
+      format: { format: "hex" },
+    };
+
+    const uintCol: ColumnSchema<any, any, "uint"> = {
+      key: "count-unsigned",
+      type: "uint",
+      format: { format: "binary" },
+    };
+
     const booleanCol: ColumnSchema<any, any, "boolean"> = {
       key: "active",
       type: "boolean",
@@ -28,6 +40,20 @@ describe("format typing", () => {
       format: "checkbox",
     };
 
+    // @ts-expect-error number format is not valid for int columns
+    const invalidInt: ColumnSchema<any, any, "int"> = {
+      key: "invalid-int",
+      type: "int",
+      format: { precision: 2 },
+    };
+
+    // @ts-expect-error number format is not valid for uint columns
+    const invalidUint: ColumnSchema<any, any, "uint"> = {
+      key: "invalid-uint",
+      type: "uint",
+      format: { scale: 0 },
+    };
+
     // @ts-expect-error number format is not valid for boolean columns
     const invalidBoolean: ColumnSchema<any, any, "boolean"> = {
       key: "invalid-boolean",
@@ -44,9 +70,13 @@ describe("format typing", () => {
     };
 
     void numberCol;
+    void intCol;
+    void uintCol;
     void booleanCol;
     void dateCol;
     void invalidNumber;
+    void invalidInt;
+    void invalidUint;
     void invalidBoolean;
     void invalidEnum;
   });

@@ -14,6 +14,8 @@ export type CellValue =
 export type ColumnType =
   | "string"
   | "number"
+  | "int"
+  | "uint"
   | "boolean"
   | "datetime"
   | "date"
@@ -34,7 +36,25 @@ export type NumberFormat = {
   signed?: boolean;
   thousandSeparator?: boolean;
   negativeRed?: boolean;
-  format?: string; // optional custom formatter token
+  /**
+   * Format token for number display.
+   * - "decimal": normal decimal formatting (default)
+   * - "scientific": scientific notation
+   * - other strings are reserved for future/custom formatters
+   */
+  format?: string;
+};
+
+export type IntegerFormat = {
+  thousandSeparator?: boolean;
+  negativeRed?: boolean;
+  /**
+   * Format token for integer display.
+   * - "decimal": normal decimal formatting (default)
+   * - "binary" | "octal" | "hex": prefixed base literals
+   * - other strings are reserved for future/custom formatters
+   */
+  format?: string;
 };
 
 export type BooleanFormat = "checkbox" | string | [string, string];
@@ -46,6 +66,8 @@ export type ColumnFormat<TType extends ColumnType> = TType extends "string"
   ? StringFormat
   : TType extends "number"
     ? NumberFormat
+    : TType extends "int" | "uint"
+      ? IntegerFormat
     : TType extends "boolean"
       ? BooleanFormat
       : TType extends "date"

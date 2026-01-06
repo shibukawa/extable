@@ -4,6 +4,7 @@ import type {
   Schema,
   ColumnSchema,
   NumberFormat,
+  IntegerFormat,
   SelectionRange,
   View,
   ViewFilterValues,
@@ -27,6 +28,7 @@ import {
 import { removeFromParent } from "./utils";
 import { columnFormatToStyle, mergeStyle, styleToCssText } from "./styleResolver";
 import { getButtonLabel, getLinkLabel, resolveButtonAction, resolveLinkAction } from "./actionValue";
+import { formatIntegerWithPrefix, formatNumberForEdit } from "./numberIO";
 
 function getColumnSortDir(view: View, colKey: string): "asc" | "desc" | null {
   const s = view.sorts?.[0];
@@ -594,7 +596,9 @@ export class HTMLRenderer implements Renderer {
         td.classList.remove("extable-diag-warning", "extable-diag-error");
         td.removeAttribute("data-extable-diag-message");
       }
-      const align = col.style?.align ?? (col.type === "number" ? "right" : "left");
+      const align =
+        col.style?.align ??
+        (col.type === "number" || col.type === "int" || col.type === "uint" ? "right" : "left");
       td.classList.add(align === "right" ? "align-right" : "align-left");
       const rawNumbered = toRawValue(raw, valueRes.value, col);
       if (rawNumbered !== null) {
@@ -763,12 +767,39 @@ export class HTMLRenderer implements Renderer {
     if (col.type === "number" && typeof value === "number") {
       const num = value;
       const fmt = col.format as NumberFormat | undefined;
+      const token = fmt?.format ?? "decimal";
+      if (token === "scientific") {
+        const text = formatNumberForEdit(num, { format: "scientific", precision: fmt?.precision });
+        const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
+        return { text, color };
+      }
+
       const opts: Intl.NumberFormatOptions = {};
       if (fmt?.scale !== undefined) {
         opts.minimumFractionDigits = fmt.scale;
         opts.maximumFractionDigits = fmt.scale;
       }
       opts.useGrouping = Boolean(fmt?.thousandSeparator);
+      const text = this.valueFormatCache.getNumberFormatter(opts).format(num);
+      const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
+      return { text, color };
+    }
+
+    if ((col.type === "int" || col.type === "uint") && typeof value === "number") {
+      const num = value;
+      const fmt = col.format as IntegerFormat | undefined;
+      const token = fmt?.format ?? "decimal";
+      if (token === "binary" || token === "octal" || token === "hex") {
+        const text = formatIntegerWithPrefix(num, token);
+        const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
+        return { text, color };
+      }
+
+      const opts: Intl.NumberFormatOptions = {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+        useGrouping: Boolean(fmt?.thousandSeparator),
+      };
       const text = this.valueFormatCache.getNumberFormatter(opts).format(num);
       const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
       return { text, color };
@@ -2171,12 +2202,39 @@ export class CanvasRenderer implements Renderer {
     if (col.type === "number" && typeof value === "number") {
       const num = value;
       const fmt = col.format as NumberFormat | undefined;
+      const token = fmt?.format ?? "decimal";
+      if (token === "scientific") {
+        const text = formatNumberForEdit(num, { format: "scientific", precision: fmt?.precision });
+        const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
+        return { text, color };
+      }
+
       const opts: Intl.NumberFormatOptions = {};
       if (fmt?.scale !== undefined) {
         opts.minimumFractionDigits = fmt.scale;
         opts.maximumFractionDigits = fmt.scale;
       }
       opts.useGrouping = Boolean(fmt?.thousandSeparator);
+      const text = this.valueFormatCache.getNumberFormatter(opts).format(num);
+      const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
+      return { text, color };
+    }
+
+    if ((col.type === "int" || col.type === "uint") && typeof value === "number") {
+      const num = value;
+      const fmt = col.format as IntegerFormat | undefined;
+      const token = fmt?.format ?? "decimal";
+      if (token === "binary" || token === "octal" || token === "hex") {
+        const text = formatIntegerWithPrefix(num, token);
+        const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
+        return { text, color };
+      }
+
+      const opts: Intl.NumberFormatOptions = {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+        useGrouping: Boolean(fmt?.thousandSeparator),
+      };
       const text = this.valueFormatCache.getNumberFormatter(opts).format(num);
       const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
       return { text, color };

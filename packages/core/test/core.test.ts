@@ -169,6 +169,48 @@ describe("core placeholder", () => {
     placeholder.destroy();
     target.remove();
   });
+
+  test("Escape cancels numeric edit without committing invalid text", () => {
+    const placeholder = createTablePlaceholder(
+      {
+        data: [{ n: 42 }],
+        schema: { columns: [{ key: "n", header: "N", type: "number" }] },
+        view: {},
+      },
+      { renderMode: "html", editMode: "direct", lockMode: "none" },
+    );
+
+    const target = document.createElement("div");
+    document.body.appendChild(target);
+    mountTable(target, placeholder);
+
+    const rowId = placeholder.getAllRows()[0]!.id;
+
+    const cell = target.querySelector('td[data-col-key="n"]') as HTMLTableCellElement | null;
+    expect(cell).toBeTruthy();
+
+    // Start editing (double click)
+    cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+    cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+
+    const input = cell!.querySelector("input") as HTMLInputElement | null;
+    expect(input).toBeTruthy();
+
+    // Type an invalid numeric string and try to commit (should be blocked).
+    input!.value = "abc";
+    input!.dispatchEvent(new Event("input", { bubbles: true }));
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    // Now cancel.
+    input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(placeholder.getCell(rowId, "n")).toBe(42);
+    const state = placeholder.getTableState();
+    expect(state.activeErrors.some((e) => e.scope === "validation")).toBe(false);
+
+    placeholder.destroy();
+    target.remove();
+  });
 });
 
 describe("table state callbacks", () => {

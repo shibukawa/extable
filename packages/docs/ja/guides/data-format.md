@@ -10,7 +10,7 @@ Extableは多様なデータ型をサポートし、それぞれ検証ルール�
 {
   key: 'columnName',           // 列の一意キー
   header: 'Display Label',     // 表示ラベル
-  type: 'string' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum' | 'tags' | 'button' | 'link',
+  type: 'string' | 'number' | 'int' | 'uint' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum' | 'tags' | 'button' | 'link',
   width?: number,              // 任意: 列幅（px）
   readonly?: boolean,          // 任意: 編集禁止
   nullable?: boolean,          // 任意: 空/Null可
@@ -90,7 +90,7 @@ const schema = defineSchema<Row>({
 
 ### Number
 
-数値。精度、スケール、符号制約を設定可能です。
+浮動小数点数。精度/スケールや表示オプションを設定できます。
 
 ```typescript
 {
@@ -98,12 +98,12 @@ const schema = defineSchema<Row>({
   header: 'Annual Salary',
   type: 'number',
   format: {
-    precision?: 10,           // 総桁数
-    scale?: 2,                // 小数桁
-    min?: 0,                  // 最小値
-    max?: 999999999,          // 最大値
+    precision?: 10,           // 有効桁数（scientific表示で使用）
+    scale?: 2,                // 小数桁（decimal表示）
+    signed?: true,            // falseの場合、負数は無効
     thousandSeparator?: true, // カンマ区切りを表示（1,234.56）
-    negativeRed?: true        // 負数は赤
+    negativeRed?: true,       // 負数は赤
+    format?: 'decimal' | 'scientific'
   },
   style: { align: 'right' }  // 数値は右寄せ
 }
@@ -113,6 +113,27 @@ const schema = defineSchema<Row>({
 - `1234` + `thousandSeparator: true` → `1,234`
 - `-50` + `negativeRed: true` → 赤字
 - `123.456` + `scale: 2` → `123.46`（丸め）
+- `1234` + `format: 'scientific', precision: 4` → `1.234e+3`
+
+### Integer（`int` / `uint`）
+
+安全な整数（JavaScriptの`Number.MAX_SAFE_INTEGER`の範囲内）。
+
+- `int`: 符号付きの安全整数
+- `uint`: 非負の安全整数
+
+```typescript
+{
+  key: 'flags',
+  header: 'Flags',
+  type: 'uint',
+  format: {
+    format: 'hex',            // 'decimal' | 'binary' | 'octal' | 'hex'
+    negativeRed: false
+  },
+  style: { align: 'right' }
+}
+```
 
 ### Boolean
 

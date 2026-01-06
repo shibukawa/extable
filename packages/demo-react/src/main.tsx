@@ -21,6 +21,9 @@ import {
   dataFormatRows,
   dataFormatSchema,
   dataFormatView,
+  numbersRows,
+  numbersSchema,
+  numbersView,
   demoRows,
   demoSchema,
   demoView,
@@ -43,6 +46,7 @@ type LockMode = "none" | "row";
 type DataMode =
   | "standard"
   | "data-format"
+  | "numbers"
   | "formula"
   | "conditional-style"
   | "unique-check"
@@ -119,6 +123,13 @@ export function App() {
         data: dataFormatRows.map((r) => ({ ...r })),
         schema: dataFormatSchema as Schema,
         view: { ...dataFormatView },
+      };
+    }
+    if (mode === "numbers") {
+      return {
+        data: numbersRows.map((r) => ({ ...r })),
+        schema: numbersSchema as Schema,
+        view: { ...numbersView },
       };
     }
     if (mode === "formula") {
@@ -461,6 +472,7 @@ export function App() {
                 [
                   ["standard", "Standard"],
                   ["data-format", "Data Format"],
+                  ["numbers", "Numbers"],
                   ["formula", "Formula"],
                   ["conditional-style", "Conditional Style"],
                   ["unique-check", "Unique Check"],
