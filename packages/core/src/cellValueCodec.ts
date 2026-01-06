@@ -19,7 +19,9 @@ export function toRawValue(raw: unknown, value: unknown, col: ColumnSchema): str
   if (value === null || value === undefined) return null;
   if (col.type === "string") return null;
   if (col.type === "boolean") return String(Boolean(value));
-  if (col.type === "number" && typeof value === "number") return String(value);
+  if ((col.type === "number" || col.type === "int" || col.type === "uint") && typeof value === "number") {
+    return String(value);
+  }
   if (col.type === "datetime") {
     const d = value instanceof Date ? value : safeParseDate(String(value));
     return d ? String(d.getTime()) : null;

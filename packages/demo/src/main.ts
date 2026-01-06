@@ -17,6 +17,9 @@ import {
   dataFormatRows,
   dataFormatSchema,
   dataFormatView,
+  numbersRows,
+  numbersSchema,
+  numbersView,
   formulaRows,
   formulaSchema,
   formulaView,
@@ -38,6 +41,7 @@ type LockMode = "none" | "row";
 type DataMode =
   | "standard"
   | "data-format"
+  | "numbers"
   | "formula"
   | "conditional-style"
   | "unique-check"
@@ -100,6 +104,7 @@ function renderShell() {
       <h2>Data Set</h2>
       <label><input type="radio" name="data-mode" value="standard" checked /> Standard</label>
       <label><input type="radio" name="data-mode" value="data-format" /> Data Format</label>
+      <label><input type="radio" name="data-mode" value="numbers" /> Numbers</label>
       <label><input type="radio" name="data-mode" value="formula" /> Formula</label>
       <label><input type="radio" name="data-mode" value="conditional-style" /> Conditional Style</label>
       <label><input type="radio" name="data-mode" value="unique-check" /> Unique Check</label>
@@ -159,6 +164,13 @@ function cloneConfig(dataMode: DataMode) {
       data: dataFormatRows.map((r) => ({ ...r })),
       schema: dataFormatSchema,
       view: { ...dataFormatView },
+    };
+  }
+  if (dataMode === "numbers") {
+    return {
+      data: numbersRows.map((r) => ({ ...r })),
+      schema: numbersSchema,
+      view: { ...numbersView },
     };
   }
   if (dataMode === "formula") {

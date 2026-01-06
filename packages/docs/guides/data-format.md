@@ -10,7 +10,7 @@ Every column in your schema requires:
 {
   key: 'columnName',           // Unique identifier for this column
   header: 'Display Label',     // User-visible header text
-  type: 'string' | 'number' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum' | 'tags' | 'button' | 'link',
+  type: 'string' | 'number' | 'int' | 'uint' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum' | 'tags' | 'button' | 'link',
   width?: number,              // Optional: column width in pixels
   readonly?: boolean,          // Optional: prevent user edits
   nullable?: boolean,          // Optional: allow empty/null values
@@ -90,7 +90,7 @@ Plain text values with optional length and pattern validation.
 
 ### Number
 
-Numeric values with optional precision, scale, and sign constraints.
+Floating-point numbers with optional precision/scale and display options.
 
 ```typescript
 {
@@ -98,12 +98,12 @@ Numeric values with optional precision, scale, and sign constraints.
   header: 'Annual Salary',
   type: 'number',
   format: {
-    precision?: 10,           // Total significant digits
-    scale?: 2,                // Decimal places
-    min?: 0,                  // Minimum value
-    max?: 999999999,          // Maximum value
+    precision?: 10,           // Significant digits (used for scientific display)
+    scale?: 2,                // Fixed decimal places (decimal display)
+    signed?: true,            // When false, negative values are invalid
     thousandSeparator?: true, // Show comma separators (1,234.56)
-    negativeRed?: true        // Red color for negative values
+    negativeRed?: true,       // Red color for negative values
+    format?: 'decimal' | 'scientific'
   },
   style: { align: 'right' }  // Right-align numbers
 }
@@ -113,6 +113,27 @@ Numeric values with optional precision, scale, and sign constraints.
 - `1234` with `thousandSeparator: true` → `1,234`
 - `-50` with `negativeRed: true` → red text color
 - `123.456` with `scale: 2` → `123.46` (rounded)
+- `1234` with `format: 'scientific', precision: 4` → `1.234e+3`
+
+### Integer (`int` / `uint`)
+
+Safe integers (within JavaScript `Number.MAX_SAFE_INTEGER`).
+
+- `int`: signed safe integer
+- `uint`: non-negative safe integer
+
+```typescript
+{
+  key: 'flags',
+  header: 'Flags',
+  type: 'uint',
+  format: {
+    format: 'hex',            // 'decimal' | 'binary' | 'octal' | 'hex'
+    negativeRed: false
+  },
+  style: { align: 'right' }
+}
+```
 
 ### Boolean
 

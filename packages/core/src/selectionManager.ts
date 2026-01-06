@@ -1,6 +1,13 @@
 import type { CellAction, Command, EditMode, SelectionRange } from "./types";
 import type { DataModel } from "./dataModel";
 import {
+  coerceNumericForColumn,
+  formatIntegerWithPrefix,
+  formatNumberForEdit,
+  normalizeNumericInput,
+  parseNumericText,
+} from "./numberIO";
+import {
   FILL_HANDLE_HIT_SIZE_PX,
   getFillHandleRect,
   getFillHandleSource,
@@ -75,6 +82,7 @@ export class SelectionManager {
   private activeCell: { rowId: string; colKey: string | null } | null = null;
   private activeHost: HTMLElement | null = null;
   private activeHostOriginalText: string | null = null;
+  private activeOriginalValue: { rowId: string; colKey: string; value: unknown } | null = null;
   private composing = false;
   private lastCompositionEnd = 0;
   private readonly handleInputCompositionStart = () => {
@@ -719,11 +727,7 @@ export class SelectionManager {
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) return;
     // Commit current editor before starting a drag/select operation.
     if (this.inputEl && this.activeCell && this.activeCell.colKey !== null) {
-      const { rowId, colKey } = this.activeCell;
-      const value = this.readActiveValue();
-      this.commitEdit(rowId, colKey, value);
-      this.onMove(rowId);
-      this.teardownInput(false);
+      if (!this.tryCommitActiveEditor()) return;
     }
     if (this.fillDragging) return;
     const hit = this.hitTest(ev as unknown as MouseEvent);
@@ -1601,9 +1605,11 @@ export class SelectionManager {
     const col = this.findColumn(colKey);
     if (!col) return raw;
     if (raw === "") return "";
-    if (col.type === "number") {
-      const n = Number(raw);
-      return Number.isFinite(n) ? n : raw;
+    if (col.type === "number" || col.type === "int" || col.type === "uint") {
+      const parsed = parseNumericText(raw);
+      if (!parsed.ok) return raw;
+      const coerced = coerceNumericForColumn(parsed.value, col.type);
+      return coerced.ok ? coerced.value : raw;
     }
     if (col.type === "boolean") {
       const v = raw.trim().toLowerCase();
@@ -1661,9 +1667,9 @@ export class SelectionManager {
       input.checked = initial === "true" || initial === "1" || initial === "on";
       return { control: input, value: initial };
     }
-    if (col?.type === "number") {
+    if (col?.type === "number" || col?.type === "int" || col?.type === "uint") {
       const input = document.createElement("input");
-      input.type = "number";
+      input.type = "text";
       input.value = initial;
       return { control: input, value: initial };
     }
@@ -1716,6 +1722,70 @@ export class SelectionManager {
     return { control: input, value: initial };
   }
 
+  private getInitialEditValue(colKey: string, current: unknown): string {
+    if (current === null || current === undefined) return "";
+    const col = this.findColumn(colKey);
+    if (!col) return String(current);
+
+    if ((col.type === "number" || col.type === "int" || col.type === "uint") && typeof current === "number") {
+      if (col.type === "number") {
+        const fmt = col.format as { format?: string; precision?: number; scale?: number } | undefined;
+        const token = fmt?.format ?? "decimal";
+        if (token === "scientific") {
+          return formatNumberForEdit(current, { format: "scientific", precision: fmt?.precision });
+        }
+        return formatNumberForEdit(current, { format: "decimal", scale: fmt?.scale });
+      }
+
+      const fmt = col.format as { format?: string } | undefined;
+      const token = fmt?.format ?? "decimal";
+      if (token === "binary" || token === "octal" || token === "hex") {
+        return formatIntegerWithPrefix(current, token);
+      }
+      return String(current);
+    }
+
+    return String(current);
+  }
+
+  private readActiveValueForCommit(): { ok: true; value: unknown } | { ok: false } {
+    if (!this.inputEl || !this.activeCell || this.activeCell.colKey === null) {
+      return { ok: true, value: this.inputEl?.value ?? "" };
+    }
+
+    const col = this.findColumn(this.activeCell.colKey);
+    if (
+      col &&
+      (col.type === "number" || col.type === "int" || col.type === "uint") &&
+      this.inputEl instanceof HTMLInputElement
+    ) {
+      const normalized = normalizeNumericInput(this.inputEl.value);
+      if (normalized === "") return { ok: true, value: "" };
+
+      const parsed = parseNumericText(normalized);
+      if (!parsed.ok) return { ok: false };
+      const coerced = coerceNumericForColumn(parsed.value, col.type);
+      if (!coerced.ok) return { ok: false };
+      return { ok: true, value: coerced.value };
+    }
+
+    return { ok: true, value: this.readActiveValue() };
+  }
+
+  private tryCommitActiveEditor(): boolean {
+    if (!this.inputEl || !this.activeCell || this.activeCell.colKey === null) return true;
+    const { rowId, colKey } = this.activeCell;
+    const next = this.readActiveValueForCommit();
+    if (!next.ok) {
+      this.inputEl.focus({ preventScroll: true });
+      return false;
+    }
+    this.commitEdit(rowId, colKey, next.value);
+    this.onMove(rowId);
+    this.teardownInput(false);
+    return true;
+  }
+
   private autosize(ta: HTMLTextAreaElement) {
     const style = window.getComputedStyle(ta);
     let lineHeight = Number.parseFloat(style.lineHeight);
@@ -1753,11 +1823,7 @@ export class SelectionManager {
       return;
     }
     if (this.inputEl && this.activeCell && this.activeCell.colKey !== null) {
-      const { rowId, colKey } = this.activeCell;
-      const value = this.readActiveValue();
-      this.commitEdit(rowId, colKey, value);
-      this.onMove(rowId);
-      this.teardownInput(false);
+      if (!this.tryCommitActiveEditor()) return;
     }
     const hit =
       typeof document.elementFromPoint === "function"
@@ -2129,9 +2195,9 @@ export class SelectionManager {
     this.activeHost = cell;
     this.activeHostOriginalText = cell.textContent ?? "";
     const current = this.dataModel.getCell(rowId, colKey);
+    this.activeOriginalValue = { rowId, colKey, value: current };
     const initialValue =
-      options?.initialValueOverride ??
-      (current === null || current === undefined ? "" : String(current));
+      options?.initialValueOverride ?? this.getInitialEditValue(colKey, current);
     const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
@@ -2149,7 +2215,9 @@ export class SelectionManager {
     input.style.lineHeight = "1.2";
     input.style.fontWeight = "inherit";
     const col = this.findColumn(colKey);
-    input.style.textAlign = col?.style?.align ?? (col?.type === "number" ? "right" : "left");
+    input.style.textAlign =
+      col?.style?.align ??
+      (col?.type === "number" || col?.type === "int" || col?.type === "uint" ? "right" : "left");
     input.addEventListener("keydown", (e) => this.handleKey(e as KeyboardEvent, cell));
     input.addEventListener("focus", () => {
       if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) input.select();
@@ -2193,9 +2261,9 @@ export class SelectionManager {
     wrapper.style.padding = "0";
     wrapper.style.zIndex = "10";
     const current = this.dataModel.getCell(rowId, colKey);
+    this.activeOriginalValue = { rowId, colKey, value: current };
     const initialValue =
-      options?.initialValueOverride ??
-      (current === null || current === undefined ? "" : String(current));
+      options?.initialValueOverride ?? this.getInitialEditValue(colKey, current);
     const { control, value } = this.createEditor(colKey, initialValue);
     const input = control;
     input.value = value;
@@ -2214,7 +2282,9 @@ export class SelectionManager {
     input.style.lineHeight = "1.2";
     input.style.fontWeight = "inherit";
     const col = this.findColumn(colKey);
-    input.style.textAlign = col?.style?.align ?? (col?.type === "number" ? "right" : "left");
+    input.style.textAlign =
+      col?.style?.align ??
+      (col?.type === "number" || col?.type === "int" || col?.type === "uint" ? "right" : "left");
     input.style.pointerEvents = "auto";
     input.addEventListener("keydown", (e) => this.handleKey(e as KeyboardEvent, wrapper));
     input.addEventListener("compositionstart", this.handleInputCompositionStart);
@@ -2256,8 +2326,9 @@ export class SelectionManager {
     const isTextarea = this.inputEl.tagName.toLowerCase() === "textarea";
     const isAltEnter = e.key === "Enter" && e.altKey;
     const commitAndMove = (deltaRow: number, deltaCol: number) => {
-      const value = this.readActiveValue();
-      this.commitEdit(rowId, colKey, value);
+      const next = this.readActiveValueForCommit();
+      if (!next.ok) return;
+      this.commitEdit(rowId, colKey, next.value);
       this.onMove(rowId);
       this.teardownInput(false);
       this.moveActiveCell(deltaRow, deltaCol);
@@ -2331,7 +2402,6 @@ export class SelectionManager {
     const isInstant =
       control instanceof HTMLInputElement
         ? control.type === "checkbox" ||
-          control.type === "number" ||
           control.type === "date" ||
           control.type === "time" ||
           control.type === "datetime-local"
@@ -2342,37 +2412,49 @@ export class SelectionManager {
       if (!ac) return;
       const { rowId, colKey } = ac;
       if (colKey === null) return;
-      const value = this.readActiveValue();
-      this.commitEdit(rowId, colKey, value);
+      const next = this.readActiveValueForCommit();
+      if (!next.ok) return;
+      this.commitEdit(rowId, colKey, next.value);
       this.onMove(rowId);
       this.teardownInput(false);
     });
   }
 
   private cancelEdit(cell: HTMLElement) {
-    if (this.activeCell) {
-      const { rowId, colKey } = this.activeCell;
-      if (colKey === null) return;
-      const prev =
-        cell.dataset?.original ??
-        cell.dataset?.value ??
-        (() => {
-          const v = this.dataModel.getCell(rowId, colKey);
-          return v === null || v === undefined ? "" : String(v);
-        })();
+    const ac = this.activeCell;
+    if (!ac || ac.colKey === null) {
+      this.teardownInput(false);
+      cell.blur();
+      return;
+    }
+
+    const { rowId, colKey } = ac;
+    const orig =
+      this.activeOriginalValue &&
+      this.activeOriginalValue.rowId === rowId &&
+      this.activeOriginalValue.colKey === colKey
+        ? this.activeOriginalValue.value
+        : this.dataModel.getCell(rowId, colKey);
+
+    const current = this.dataModel.getCell(rowId, colKey);
+    const norm = (v: unknown) => (v === null || v === undefined ? "" : v);
+    const normalizedOrig = norm(orig);
+    const normalizedCurrent = norm(current);
+
+    // If something committed/changed during this edit session (e.g. due to a validation path),
+    // revert it back to the original value. Otherwise, do not emit any command.
+    if (!Object.is(normalizedCurrent, normalizedOrig)) {
       const cmd: Command = {
         kind: "edit",
         rowId,
         colKey,
-        next: prev,
-        prev,
+        next: normalizedOrig,
+        prev: normalizedCurrent,
       };
       this.onEdit(cmd, true);
     }
+
     this.teardownInput(false);
-    if (cell.dataset?.original !== undefined || cell.dataset?.value !== undefined) {
-      cell.textContent = cell.dataset.original ?? cell.dataset.value ?? "";
-    }
     cell.blur();
   }
 
@@ -2386,6 +2468,7 @@ export class SelectionManager {
     this.floatingInputWrapper = null;
     this.activeHost = null;
     this.activeHostOriginalText = null;
+    this.activeOriginalValue = null;
     this.composing = false;
     if (clearActive) {
       this.activeCell = null;

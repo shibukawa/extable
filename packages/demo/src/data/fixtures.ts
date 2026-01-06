@@ -94,9 +94,6 @@ export const demoView = {
 
 export interface DataFormatRow {
   id: number;
-  intPlain: number;
-  intGrouped: number;
-  intGroupedRed: number;
   boolCheck: boolean;
   boolTrueFalse: boolean;
   boolTrueFalseJp: boolean;
@@ -111,7 +108,6 @@ export interface DataFormatRow {
 export const dataFormatRows: DataFormatRow[] = [];
 
 for (let i = 1; i <= 40; i += 1) {
-  const negative = i % 4 === 0;
   const month = (i % 12) + 1;
   const day = (i % 28) + 1;
   const hour = i % 24;
@@ -121,9 +117,6 @@ for (let i = 1; i <= 40; i += 1) {
   const dt = new Date(2025, 11, day, hour, minute, 0);
   dataFormatRows.push({
     id: i,
-    intPlain: negative ? -i * 10 : i * 10,
-    intGrouped: negative ? -i * 1234 : i * 1234,
-    intGroupedRed: negative ? -i * 9876 : i * 9876,
     boolCheck: i % 2 === 0,
     boolTrueFalse: i % 3 === 0,
     boolTrueFalseJp: i % 5 === 0,
@@ -139,9 +132,6 @@ for (let i = 1; i <= 40; i += 1) {
 export const dataFormatSchema = {
   columns: [
     { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
-    { key: 'intPlain', header: 'Int Plain', type: 'number', width: 100 },
-    { key: 'intGrouped', header: 'Int Grouped', type: 'number', format: { thousandSeparator: true }, width: 120 },
-    { key: 'intGroupedRed', header: 'Int Grouped Red', type: 'number', format: { thousandSeparator: true, negativeRed: true }, width: 140 },
     { key: 'boolCheck', header: 'Bool Checkbox', type: 'boolean', format: 'checkbox', width: 120 },
     { key: 'boolTrueFalse', header: 'Bool TRUE/FALSE', type: 'boolean', format: ['TRUE', 'FALSE'], width: 130 },
     { key: 'boolTrueFalseJp', header: 'Bool 真/偽', type: 'boolean', format: ['真', '偽'], width: 110 },
@@ -155,6 +145,84 @@ export const dataFormatSchema = {
 };
 
 export const dataFormatView = {
+  hiddenColumns: [],
+  filters: [],
+  sorts: []
+};
+
+export interface NumbersRow {
+  id: number;
+  dec2: number;
+  decGrouped0: number;
+  sci6: number;
+  intDec: number;
+  intHex: number;
+  intOct: number;
+  intBin: number;
+  uintHex: number;
+  note: string;
+}
+
+export const numbersRows: NumbersRow[] = [];
+
+for (let i = 1; i <= 40; i += 1) {
+  const negative = i % 5 === 0;
+  const sign = negative ? -1 : 1;
+  const base = i * 123;
+  const intVal = sign * (base + (i % 7));
+  const sciVal = sign * (i * 12_345.678);
+  const uintVal = i * 16 + (i % 16);
+  numbersRows.push({
+    id: i,
+    dec2: sign * (i * 10.25 + (i % 3) * 0.1),
+    decGrouped0: sign * (i * 12345),
+    sci6: sciVal,
+    intDec: intVal,
+    intHex: intVal,
+    intOct: intVal,
+    intBin: intVal,
+    uintHex: uintVal,
+    note: negative ? "negative" : "",
+  });
+}
+
+export const numbersSchema = {
+  columns: [
+    { key: 'id', header: '#', type: 'uint', readonly: true, width: 50 },
+    {
+      key: 'dec2',
+      header: 'Decimal (2dp)',
+      type: 'number',
+      format: { format: 'decimal', scale: 2, thousandSeparator: true, negativeRed: true },
+      width: 140,
+      style: { align: 'right' }
+    },
+    {
+      key: 'decGrouped0',
+      header: 'Decimal (grouped)',
+      type: 'number',
+      format: { format: 'decimal', scale: 0, thousandSeparator: true, negativeRed: true },
+      width: 160,
+      style: { align: 'right' }
+    },
+    {
+      key: 'sci6',
+      header: 'Scientific (p=6)',
+      type: 'number',
+      format: { format: 'scientific', precision: 6, negativeRed: true },
+      width: 160,
+      style: { align: 'right' }
+    },
+    { key: 'intDec', header: 'Int (decimal)', type: 'int', format: { thousandSeparator: true }, width: 140, style: { align: 'right' } },
+    { key: 'intHex', header: 'Int (hex)', type: 'int', format: { format: 'hex' }, width: 120, style: { align: 'right' } },
+    { key: 'intOct', header: 'Int (octal)', type: 'int', format: { format: 'octal' }, width: 130, style: { align: 'right' } },
+    { key: 'intBin', header: 'Int (binary)', type: 'int', format: { format: 'binary' }, width: 160, style: { align: 'right' } },
+    { key: 'uintHex', header: 'UInt (hex)', type: 'uint', format: { format: 'hex' }, width: 130, style: { align: 'right' } },
+    { key: 'note', header: 'Note', type: 'string', width: 120 }
+  ]
+};
+
+export const numbersView = {
   hiddenColumns: [],
   filters: [],
   sorts: []
