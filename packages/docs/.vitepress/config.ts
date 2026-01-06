@@ -78,6 +78,7 @@ export default defineConfig({
             {
               text: "Format/Style", items: [
               { text: "Formatting", link: "/demos/formatting" },
+              { text: "Numeric Formats", link: "/demos/number-formats" },
               { text: "Button/Link", link: "/demos/button-link" },
               { text: "Formula", link: "/demos/formulas" },
               { text: "Conditional Style", link: "/demos/conditional-style" },
@@ -158,6 +159,7 @@ export default defineConfig({
             {
               text: "書式/スタイル", items: [
               { text: "書式", link: "/ja/demos/formatting" },
+              { text: "数値フォーマット", link: "/ja/demos/number-formats" },
               { text: "ボタン/リンク", link: "/ja/demos/button-link" },
               { text: "数式", link: "/ja/demos/formulas" },
               { text: "条件付きスタイル", link: "/ja/demos/conditional-style" },

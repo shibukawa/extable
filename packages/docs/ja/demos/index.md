@@ -27,6 +27,7 @@ Extableを最小構成で試せるデモです。**10,000行**を読み込み、
 ### 表示・フォーマット・検証
 
 - **[Formatting →](/ja/demos/formatting)** - 通貨、日付、数値、配置、スタイル
+- **[数値フォーマット →](/ja/demos/number-formats)** - 科学表記と接頭辞付きの基数表記（0b/0o/0x）
 - **[Formulas →](/ja/demos/formulas)** - 数式による計算列
 - **[Conditional Style →](/ja/demos/conditional-style)** - 値に応じた色やスタイル
 - **[Button & Link Cells →](/ja/demos/button-link)** - ボタン/リンクセル

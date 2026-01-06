@@ -83,6 +83,18 @@ Delete a row by ID or index. Returns `true` if successful.
 
 ## Schema & View Configuration
 
+### Numeric formats (number / int / uint)
+
+Formatting and parsing rules are configured on schema columns:
+
+- `type: "number"` supports decimal or scientific display via `format: { format: "decimal" | "scientific", precision?, scale?, thousandSeparator? }`.
+- `type: "int" | "uint"` supports base display via `format: { format: "decimal" | "binary" | "octal" | "hex" }`.
+
+For examples (including `0b`/`0o`/`0x` input and scientific notation like `1e3`), see:
+
+- [Data Format Guide](/guides/data-format#number)
+- [Numeric Formats demo](/demos/number-formats)
+
 #### `setSchema(schema: Schema<T, R>)`
 Update the table schema dynamically. Triggers re-validation and re-render.
 

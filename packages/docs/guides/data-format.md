@@ -92,6 +92,8 @@ Plain text values with optional length and pattern validation.
 
 Floating-point numbers with optional precision/scale and display options.
 
+See also: **[Numeric Formats demo →](/demos/number-formats)**
+
 ```typescript
 {
   key: 'salary',
@@ -118,6 +120,8 @@ Floating-point numbers with optional precision/scale and display options.
 ### Integer (`int` / `uint`)
 
 Safe integers (within JavaScript `Number.MAX_SAFE_INTEGER`).
+
+See also: **[Numeric Formats demo →](/demos/number-formats)**
 
 - `int`: signed safe integer
 - `uint`: non-negative safe integer

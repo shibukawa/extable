@@ -83,6 +83,18 @@ IDまたはインデックスで行を取得します。
 
 ## スキーマとビュー
 
+### 数値フォーマット（number / int / uint）
+
+表示書式と入力パースは、スキーマの列定義で設定します。
+
+- `type: "number"` は `format: { format: "decimal" | "scientific", precision?, scale?, thousandSeparator? }` で 10進表示 / 科学表記を制御できます。
+- `type: "int" | "uint"` は `format: { format: "decimal" | "binary" | "octal" | "hex" }` で 2/8/10/16進の表示を指定できます。
+
+入力例（`0b`/`0o`/`0x` や `1e3`）も含めて、以下を参照してください。
+
+- [データフォーマットガイド](/ja/guides/data-format#number)
+- [数値フォーマットデモ](/ja/demos/number-formats)
+
 #### `setSchema(schema: Schema<T, R>)`
 スキーマを更新し、再検証/再描画を行います。
 
