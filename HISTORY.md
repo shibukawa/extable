@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-### 0.3.3
+## 0.3.3
 
 ### Changed
 - Numeric editing uses a text input and parses/validates on commit (supports scientific notation and prefixed base literals).
@@ -21,14 +21,15 @@
 - HTML column header filter/sort button no longer reserves space; it appears on hover/active without truncating the label excessively.
 - HTML top-left corner cell now stays visible on both vertical and horizontal scroll.
 
-### 0.3.2
+## 0.3.2
 
 ### Fixed
 - Readonly cells can no longer be edited.
 - Pressing Escape after a failed/invalid edit no longer commits the draft value; it restores the pre-edit value.
 
-### 0.3.1
+## 0.3.1
 
+### Added
 - Japanese VitePress docs under `/ja/` with localized navigation and content.
 
 ### Changed
