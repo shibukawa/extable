@@ -12,6 +12,7 @@ import FormulasDemo from "../../components/FormulasDemo.vue";
 import ConditionalStyleDemo from "../../components/ConditionalStyleDemo.vue";
 import UniqueConstraintDemo from "../../components/UniqueConstraintDemo.vue";
 import FilterSupportDemo from "../../components/FilterSupportDemo.vue";
+import NumberFormatsDemo from "../../components/NumberFormatsDemo.vue";
 import { enhanceAppWithTabs } from "vitepress-plugin-tabs/client";
 import HomeLayout from "./layouts/home.vue";
 
@@ -34,6 +35,7 @@ export default {
     app.component("ConditionalStyleDemo", ConditionalStyleDemo);
     app.component("UniqueConstraintDemo", UniqueConstraintDemo);
     app.component("FilterSupportDemo", FilterSupportDemo);
+    app.component("NumberFormatsDemo", NumberFormatsDemo);
 
     // Inject hero screenshot background style
     const id = "extable-hero-screenshot";

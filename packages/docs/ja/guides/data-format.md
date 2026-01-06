@@ -92,6 +92,8 @@ const schema = defineSchema<Row>({
 
 浮動小数点数。精度/スケールや表示オプションを設定できます。
 
+あわせて参照: **[数値フォーマットデモ →](/ja/demos/number-formats)**
+
 ```typescript
 {
   key: 'salary',
@@ -118,6 +120,8 @@ const schema = defineSchema<Row>({
 ### Integer（`int` / `uint`）
 
 安全な整数（JavaScriptの`Number.MAX_SAFE_INTEGER`の範囲内）。
+
+あわせて参照: **[数値フォーマットデモ →](/ja/demos/number-formats)**
 
 - `int`: 符号付きの安全整数
 - `uint`: 非負の安全整数

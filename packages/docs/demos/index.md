@@ -27,6 +27,7 @@ Explore individual features with focused demos:
 ### Display & Formatting & Validation
 
 - **[Formatting →](/demos/formatting)** - Currency, dates, numbers, alignment, and styling
+- **[Numeric Formats →](/demos/number-formats)** - Scientific notation and base-prefixed integers (0b/0o/0x)
 - **[Formulas →](/demos/formulas)** - Computed columns with formulas
 - **[Conditional Style →](/demos/conditional-style)** - Apply colors and styles based on cell values
 - **[Button & Link Cells →](/demos/button-link)** - Action buttons and link navigation

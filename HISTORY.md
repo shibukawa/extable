@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### 0.3.3
+
+- Bump workspace package versions to 0.3.3.
+- Docs: add numeric formats demo page and reference links.
+
 ### 0.3.1
 
 - Japanese VitePress docs under `/ja/` with localized navigation and content.
