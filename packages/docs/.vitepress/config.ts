@@ -1,5 +1,9 @@
 import { defineConfig } from "vitepress";
 import { tabsMarkdownPlugin } from "vitepress-plugin-tabs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const configDir = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   lang: "en-US",
@@ -10,6 +14,13 @@ export default defineConfig({
   markdown: {
     config(md) {
       md.use(tabsMarkdownPlugin);
+    },
+  },
+  vite: {
+    resolve: {
+      alias: {
+        "@extable/core/style.css": path.resolve(configDir, "../../core/src/styles.css"),
+      },
     },
   },
   locales: {
