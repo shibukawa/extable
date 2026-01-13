@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- Formula-readonly cells use a subtle blue text color (#99aaff) to improve editability cues.
+
 ## 0.3.3
 
 ### Changed

@@ -605,8 +605,12 @@ export class HTMLRenderer implements Renderer {
         td.dataset.raw = rawStr;
       }
       if (isPending) td.classList.add("pending");
-      if (interaction.readonly) td.classList.add("extable-readonly");
-      else td.classList.add("extable-editable");
+      if (interaction.readonly) {
+        td.classList.add("extable-readonly");
+        if (col.formula) td.classList.add("extable-readonly-formula");
+      } else {
+        td.classList.add("extable-editable");
+      }
       if (interaction.muted) td.classList.add("extable-readonly-muted");
       if (interaction.disabled) td.classList.add("extable-disabled");
       if (
@@ -1129,13 +1133,19 @@ export class CanvasRenderer implements Renderer {
             renderAction && c.type === "link" && !muted && !mergedStyle.textColor
               ? "#2563eb"
               : undefined;
+          const isGlobalReadonly = this.getEditMode() === "readonly";
+          const hasExplicitTextColor = Boolean(formatted.color || mergedStyle.textColor || actionColor);
+          const formulaReadonlyColor =
+            !isGlobalReadonly && Boolean(c.formula) && interaction.readonly && !muted && !hasExplicitTextColor
+              ? "#99aaff"
+              : undefined;
           ctx.fillStyle = this.dataModel.hasPending(row.id, c.key)
             ? "#b91c1c"
             : formatted.color
               ? formatted.color
               : muted
                 ? "#94a3b8"
-                : (actionColor ?? mergedStyle.textColor ?? "#0f172a");
+                : (actionColor ?? mergedStyle.textColor ?? formulaReadonlyColor ?? "#0f172a");
           const wrap = view.wrapText?.[c.key] ?? c.wrapText ?? false;
           const isBoolean = c.type === "boolean" && (!c.format || c.format === "checkbox");
           const isCustomBoolean = c.type === "boolean" && Boolean(c.format && c.format !== "checkbox");
