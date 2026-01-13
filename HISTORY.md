@@ -3,6 +3,11 @@
 ## Unreleased
 
 ### Changed
+
+### Added
+- Server-side rendering entrypoint `@extable/core/ssr` with HTML builder, CSS serializer, and SSR renderer utilities.
+
+### Changed
 - Formula-readonly cells use a subtle blue text color (#99aaff) to improve editability cues.
 
 ## 0.3.3

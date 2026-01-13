@@ -74,6 +74,7 @@ export default defineConfig({
             { text: "Modes", items: [
               { text: "Readonly Mode", link: "/demos/readonly-mode" },
               { text: "Commit Mode", link: "/demos/commit-mode" },
+              { text: "SSR vs Client Rendering", link: "/demos/ssr-compare" },
             ]},
             {
               text: "Format/Style", items: [
@@ -88,6 +89,7 @@ export default defineConfig({
           ],
           "/reference/": [
             { text: "Core API", link: "/reference/core" },
+            { text: "SSR", link: "/reference/ssr" },
             { text: "Events", link: "/reference/events" },
             { text: "constructor options", link: "/reference/init-options" },
           ],
@@ -155,6 +157,7 @@ export default defineConfig({
             { text: "モード", items: [
               { text: "読み取り専用モード", link: "/ja/demos/readonly-mode" },
               { text: "コミットモード", link: "/ja/demos/commit-mode" },
+              { text: "SSRとクライアント描画の比較", link: "/ja/demos/ssr-compare" },
             ]},
             {
               text: "書式/スタイル", items: [
@@ -170,6 +173,7 @@ export default defineConfig({
           "/ja/reference/": [
             { text: "Core API", link: "/ja/reference/core" },
             { text: "イベント", link: "/ja/reference/events" },
+            { text: "SSR", link: "/ja/reference/ssr" },
             { text: "コンストラクタオプション", link: "/ja/reference/init-options" },
           ],
         },

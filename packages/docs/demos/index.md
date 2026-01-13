@@ -18,6 +18,7 @@ Explore individual features with focused demos:
 ### Data & Performance
 
 - **[Async Data Loading →](/demos/async-data-loading)** - Load data dynamically with loading indicators
+- **[SSR vs Client Rendering →](/demos/ssr-compare)** - Compare static HTML with HTML/Canvas client render
 
 ### Extra Editing Modes
 
