@@ -500,6 +500,7 @@ function normalizeStyle(style: Partial<CSSStyleDeclaration>): CSSStyleMap {
   const out: CSSStyleMap = {};
   for (const [key, value] of Object.entries(style)) {
     if (value === undefined || value === null || value === "") continue;
+    if (typeof value !== "string" && typeof value !== "number") continue;
     out[key] = value;
   }
   return out;
