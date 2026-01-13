@@ -34,7 +34,7 @@ export default defineConfig({
         ],
         footer: {
           message: "Released under the Apache 2.0 License",
-          copyright: "Copyright 2025 Yoshiki Shibukawa",
+          copyright: "Copyright 2026 Yoshiki Shibukawa",
         },
         sidebar: {
           "/concepts/": [
@@ -115,7 +115,7 @@ export default defineConfig({
         ],
         footer: {
           message: "Apache 2.0 Licenseで公開",
-          copyright: "Copyright 2025 Yoshiki Shibukawa",
+          copyright: "Copyright 2026 Yoshiki Shibukawa",
         },
         sidebar: {
           "/ja/concepts/": [

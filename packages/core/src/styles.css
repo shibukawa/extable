@@ -4,6 +4,7 @@
   --extable-accent: #3b82f6;
   --extable-invalid: #ef4444;
   --extable-header-bg: #e5e7eb;
+  --extable-formula-readonly-fg: #99aaff;
 
   border: 1px solid #d0d7de;
   box-sizing: border-box;
@@ -276,6 +277,11 @@
     color: #94a3b8 !important;
   }
 
+  /* Formula-driven readonly cells are shown with a subtle blue text color. */
+  & .extable-readonly-formula {
+    color: var(--extable-formula-readonly-fg);
+  }
+
   & td.extable-disabled {
     cursor: default;
   }
@@ -403,6 +409,10 @@
   /* In global readonly mode, keep normal look (viewer style). */
   &.extable-readonly-all .extable-readonly-muted {
     background: inherit !important;
+    color: inherit !important;
+  }
+
+  &.extable-readonly-all .extable-readonly-formula {
     color: inherit !important;
   }
 
