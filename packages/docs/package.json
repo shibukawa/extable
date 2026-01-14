@@ -1,7 +1,7 @@
 {
   "name": "@extable/docs",
   "private": true,
-  "version": "0.3.3",
+  "version": "0.3.4",
   "type": "module",
   "scripts": {
     "dev": "vitepress dev .",
@@ -17,8 +17,8 @@
     "vue": "^3.4.0"
   },
   "dependencies": {
-    "@extable/core": "0.3.3",
-    "@extable/vue": "0.3.3",
+    "@extable/core": "0.3.4",
+    "@extable/vue": "0.3.4",
     "vue": "^3.5.13"
   }
 }
