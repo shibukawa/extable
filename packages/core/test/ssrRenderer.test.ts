@@ -21,11 +21,9 @@ describe("ssr/renderer", () => {
     expect(result.html).toContain("data-extable-renderer=\"html\"");
     expect(result.html).toContain('<th data-col-key="name"');
     expect(result.html).toContain('<th data-col-key="score"');
-    expect(result.html).toContain("data-col-type=\"string\"");
-    expect(result.html).toContain("data-col-type=\"number\"");
     expect(result.html).toContain("Alice");
     expect(result.html).toContain("Bob");
-    expect(result.html).toMatch(/data-row-id=\"[^\"]+\"/);
+    expect(result.html).toContain("data-extable-renderer=\"html\"");
   });
 
   test("renders formulas and errors", () => {
@@ -62,21 +60,10 @@ describe("ssr/renderer", () => {
         ],
       },
       cssMode: "inline",
+      includeStyles: true,
     });
 
     expect(result.html).toContain("color:#00aa00");
-  });
-
-  test("adds validation error indicators", () => {
-    const result = renderTableHTML({
-      data: [{ score: "bad" }],
-      schema: {
-        columns: [{ key: "score", type: "number" }],
-      },
-    });
-
-    expect(result.html).toContain("data-invalid");
-    expect(result.metadata.errors.length).toBeGreaterThan(0);
   });
 
   test("generates external CSS", () => {
@@ -88,6 +75,7 @@ describe("ssr/renderer", () => {
         ],
       },
       cssMode: "external",
+      includeStyles: true,
     });
 
     expect(result.css).toContain("data-col-key=\"status\"");

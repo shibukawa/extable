@@ -12,7 +12,7 @@ import { renderTableHTML } from "@extable/core/ssr";
 renderTableHTML<T>(options: SSROptions<T>): SSRResult
 ```
 
-Generate a static HTML table string from data, schema, and view configuration.
+Generate a static HTML table string from data and schema.
 
 ### Parameters
 
@@ -24,6 +24,8 @@ export interface SSROptions<T extends Record<string, unknown> = Record<string, u
   wrapWithRoot?: boolean;
   defaultClass?: string | string[];
   defaultStyle?: Partial<CSSStyleDeclaration>;
+  includeStyles?: boolean;
+  includeRawAttributes?: boolean;
 }
 ```
 
@@ -34,6 +36,9 @@ export interface SSROptions<T extends Record<string, unknown> = Record<string, u
   - `both`: inline critical styles and return base CSS.
 - `wrapWithRoot` outputs the same root structure as client rendering (`extable-root`/`extable-shell`/`extable-viewport`).
 - `defaultClass` and `defaultStyle` are applied to the outermost element (root wrapper when wrapped, table when not).
+- `includeStyles` enables inline/external cell styles, diagnostics, and formatted display values (default: false).
+- `includeRawAttributes` controls `data-raw` output (default: false).
+- Validation messages are not emitted in SSR output; use client rendering for interactive validation feedback.
 
 ### Return value
 
@@ -73,6 +78,7 @@ const result = renderTableHTML({
   cssMode: "both",
   wrapWithRoot: true,
   defaultClass: "extable",
+  includeStyles: true,
 });
 
 console.log(result.html);
@@ -96,7 +102,7 @@ To match the client renderer styling, wrap the SSR output with the same root str
 <div class="extable-root">
   <div class="extable-shell">
     <div class="extable-viewport">
-      <table data-extable-renderer="html" data-extable-ssr="true">
+      <table data-extable-renderer="html">
         <thead>...</thead>
         <tbody>...</tbody>
       </table>
@@ -114,7 +120,7 @@ Notes:
 If you explicitly want the bare table output, keep `wrapWithRoot` disabled:
 
 ```html
-<table data-extable-renderer="html" data-extable-ssr="true">
+<table data-extable-renderer="html">
   <thead>...</thead>
   <tbody>...</tbody>
 </table>

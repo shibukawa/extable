@@ -19,6 +19,24 @@ export class HTMLBuilder {
     return this;
   }
 
+  tag(tag: string, attrs: Record<string, HTMLAttributeValue> | undefined, content: string): this {
+    let html = `<${tag}`;
+    if (attrs) {
+      for (const [key, value] of Object.entries(attrs)) {
+        if (value === true) {
+          html += ` ${key}`;
+        } else if (value !== false && value !== null && value !== undefined) {
+          html += ` ${key}="${escapeHtml(String(value))}"`;
+        }
+      }
+    }
+    html += ">";
+    html += escapeHtml(content);
+    html += `</${tag}>`;
+    this.parts.push(html);
+    return this;
+  }
+
   closeTag(tag: string): this {
     this.parts.push(`</${tag}>`);
     return this;

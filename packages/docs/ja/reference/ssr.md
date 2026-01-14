@@ -12,7 +12,7 @@ import { renderTableHTML } from "@extable/core/ssr";
 renderTableHTML<T>(options: SSROptions<T>): SSRResult
 ```
 
-データ・スキーマ・ビュー設定から静的HTMLテーブルを生成します。
+データとスキーマから静的HTMLテーブルを生成します。
 
 ### Parameters
 
@@ -24,6 +24,8 @@ export interface SSROptions<T extends Record<string, unknown> = Record<string, u
   wrapWithRoot?: boolean;
   defaultClass?: string | string[];
   defaultStyle?: Partial<CSSStyleDeclaration>;
+  includeStyles?: boolean;
+  includeRawAttributes?: boolean;
 }
 ```
 
@@ -34,6 +36,9 @@ export interface SSROptions<T extends Record<string, unknown> = Record<string, u
   - `both`: 重要なスタイルをインライン化し、ベースCSSを返します。
 - `wrapWithRoot` はクライアント描画と同じルート構造（`extable-root`/`extable-shell`/`extable-viewport`）を出力します。
 - `defaultClass` と `defaultStyle` は最外層の要素に付与されます（wrap時はルート、未wrap時はtable）。
+- `includeStyles` はセルのスタイル/診断表示/フォーマット済み表示を出力します（デフォルト: false）。
+- `includeRawAttributes` は `data-raw` の出力を制御します（デフォルト: false）。
+- バリデーションメッセージはSSRには出力しません。インタラクティブな検証はクライアント側で処理してください。
 
 ### Return value
 
@@ -73,6 +78,7 @@ const result = renderTableHTML({
   cssMode: "both",
   wrapWithRoot: true,
   defaultClass: "extable",
+  includeStyles: true,
 });
 
 console.log(result.html);
@@ -96,7 +102,7 @@ Extableには「SSRで生成されるテーブルHTML」と「クライアント
 <div class="extable-root">
   <div class="extable-shell">
     <div class="extable-viewport">
-      <table data-extable-renderer="html" data-extable-ssr="true">
+      <table data-extable-renderer="html">
         <thead>...</thead>
         <tbody>...</tbody>
       </table>
@@ -114,7 +120,7 @@ Notes:
 テーブルだけを返したい場合は `wrapWithRoot` を無効にします。
 
 ```html
-<table data-extable-renderer="html" data-extable-ssr="true">
+<table data-extable-renderer="html">
   <thead>...</thead>
   <tbody>...</tbody>
 </table>

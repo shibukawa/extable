@@ -20,6 +20,7 @@ const ssrResult = renderTableHTML({
   wrapWithRoot: true,
   defaultClass: "extable-ssr",
   defaultStyle: { height: "100%", width: "100%" },
+  includeStyles: true,
 });
 
 const ssrHtml = ssrResult.html.includes("extable-root")

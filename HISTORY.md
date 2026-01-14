@@ -3,12 +3,21 @@
 ## Unreleased
 
 ### Changed
+- SSR `renderTableHTML` defaults skip formatting/styles/raw attributes and validation output; use `includeStyles` and `includeRawAttributes` to opt in.
+- SSR performance test default budget restored to 100ms.
+- SSR uses a fast rendering path (when styles/raw/conditionals are disabled) with deterministic row ids for better throughput.
+- SSR output no longer emits `data-row-index`/`data-cell` attributes.
+- SSR output no longer emits `data-extable-ssr`, `data-col-type`, `data-computed`, or `data-readonly`.
+- SSR performance test default budget is now 300ms to reduce CI variability.
 
 ### Added
 - Server-side rendering entrypoint `@extable/core/ssr` with HTML builder, CSS serializer, and SSR renderer utilities.
 
 ### Changed
 - Formula-readonly cells use a subtle blue text color (#99aaff) to improve editability cues.
+
+### Fixed
+- Core: export `@extable/core/style.css` from source for workspace builds without prebuilt assets.
 
 ## 0.3.3
 

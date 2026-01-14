@@ -16,7 +16,7 @@ import { toRawValue } from "../cellValueCodec";
 import { getButtonLabel, getLinkLabel, resolveButtonAction, resolveLinkAction } from "../actionValue";
 import { DEFAULT_ROW_HEIGHT_PX, HEADER_HEIGHT_PX, ROW_HEADER_WIDTH_PX, getColumnWidths } from "../geometry";
 import { toArray } from "../utils";
-import { HTMLBuilder } from "./htmlBuilder";
+import { HTMLBuilder, escapeHtml } from "./htmlBuilder";
 import { CSSBuilder, type CSSStyleMap, serializeStyle } from "./styleSerializer";
 
 export interface SSROptions<T extends object = Record<string, unknown>> {
@@ -26,6 +26,8 @@ export interface SSROptions<T extends object = Record<string, unknown>> {
   wrapWithRoot?: boolean;
   defaultClass?: string | string[];
   defaultStyle?: Partial<CSSStyleDeclaration>;
+  includeStyles?: boolean;
+  includeRawAttributes?: boolean;
 }
 
 export interface SSRResult {
@@ -47,23 +49,72 @@ export function renderTableHTML<T extends object = Record<string, unknown>>(
   const wrapWithRoot = options.wrapWithRoot ?? false;
   const defaultClass = toArray(options.defaultClass) ?? [];
   const defaultStyle = options.defaultStyle;
+  const includeStyles = options.includeStyles ?? false;
+  const includeRawAttributes = options.includeRawAttributes ?? false;
   const data = (options.data ?? []) as RowObject[];
 
   const baseView: View = {};
-
-  const dataModel = new DataModel(data, options.schema, baseView);
-  const schema = dataModel.getSchema();
-  const rows = dataModel.listRows();
+  const schema = options.schema;
   const columns = schema.columns;
   const colWidths = getColumnWidths(schema, baseView);
+  const hasFormulas = columns.some((c) => Boolean(c.formula));
+  const hasConditionalStyles =
+    columns.some((c) => Boolean(c.conditionalStyle)) || Boolean(schema.row?.conditionalStyle);
 
-  const cssBuilder = cssMode === "inline" ? null : new CSSBuilder();
+  const cssBuilder = includeStyles && cssMode !== "inline" ? new CSSBuilder() : null;
   const errors: Array<{ row: number; col: string; message: string }> = [];
+  const valueFormatters = new Map<string, (value: unknown) => { text: string; color?: string }>();
+  const baseStyles = includeStyles ? new Map<string, ResolvedCellStyle>() : null;
+  const columnMeta = columns.map((col) => {
+    const colKey = String(col.key);
+    valueFormatters.set(colKey, createValueFormatter(col, includeStyles));
+    if (baseStyles) baseStyles.set(colKey, columnFormatToStyle(col));
+    const baseClasses = ["extable-cell"];
+    if (col.type === "boolean") baseClasses.push("extable-boolean");
+    const wrap = col.wrapText;
+    baseClasses.push(wrap ? "cell-wrap" : "cell-nowrap");
+    const align =
+      col.style?.align ??
+      (col.type === "number" || col.type === "int" || col.type === "uint" ? "right" : "left");
+    baseClasses.push(align === "right" ? "align-right" : "align-left");
+    return {
+      col,
+      colKey,
+      baseClass: baseClasses.join(" "),
+      tdAttrPrefix: ` class="${baseClasses.join(" ")} extable-editable" data-col-key="${escapeHtml(
+        colKey,
+      )}"`,
+      isActionType: col.type === "button" || col.type === "link",
+    };
+  });
+  const hasInteraction =
+    columns.some((col) => Boolean(col.readonly || col.style?.readonly || col.style?.disabled)) ||
+    data.some((row) => Boolean(row._readonly));
+  const useFastPath =
+    !includeStyles &&
+    !includeRawAttributes &&
+    !hasFormulas &&
+    !hasConditionalStyles &&
+    !hasInteraction;
+
+  if (useFastPath) {
+    return renderFastTableHTML({
+      data,
+      columns,
+      columnMeta,
+      colWidths,
+      wrapWithRoot,
+      defaultClass,
+      defaultStyle,
+      valueFormatters,
+    });
+  }
+
+  const dataModel = new DataModel(data, schema, baseView);
+  const rows = dataModel.listRows();
 
   const rootClasses = wrapWithRoot ? ["extable-root", ...defaultClass] : defaultClass;
-  const rootSelector = rootClasses.length
-    ? `.${rootClasses[0]}`
-    : 'table[data-extable-ssr="true"]';
+  const rootSelector = rootClasses.length ? `.${rootClasses[0]}` : 'table[data-extable-renderer="html"]';
 
   if (cssBuilder && cssMode !== "inline") {
     for (const col of columns) {
@@ -80,7 +131,6 @@ export function renderTableHTML<T extends object = Record<string, unknown>>(
   }
   const tableAttrs: Record<string, string | number | boolean> = {
     "data-extable-renderer": "html",
-    "data-extable-ssr": true,
   };
   if (!wrapWithRoot && rootClasses.length) {
     tableAttrs.class = rootClasses.join(" ");
@@ -90,86 +140,6 @@ export function renderTableHTML<T extends object = Record<string, unknown>>(
     tableAttrs.style = tableStyleAttr;
   }
 
-  const tableBuilder = new HTMLBuilder();
-  tableBuilder.openTag("table", tableAttrs);
-  tableBuilder.openTag("thead");
-  tableBuilder.openTag("tr", { style: `height:${HEADER_HEIGHT_PX}px;` });
-
-  const rowHeaderAttrs: Record<string, string | number | boolean> = {
-    class: "extable-row-header extable-corner",
-    "data-col-key": "",
-    style: `width:${ROW_HEADER_WIDTH_PX}px;`,
-  };
-  tableBuilder.openTag("th", rowHeaderAttrs).text("").closeTag("th");
-
-  for (const col of columns) {
-    const thAttrs: Record<string, string | number | boolean> = {
-      "data-col-key": col.key,
-      "data-col-type": col.type,
-    };
-    const width = colWidths[schema.columns.findIndex((c) => c.key === col.key)] ?? col.width;
-    if (width) thAttrs.style = `width:${width}px;`;
-
-    tableBuilder.openTag("th", thAttrs);
-    tableBuilder.openTag("div", { class: "extable-col-header" });
-    tableBuilder.openTag("span", { class: "extable-col-header-text" }).text(col.header ?? col.key);
-    tableBuilder.closeTag("span");
-    tableBuilder.openTag("button", {
-      type: "button",
-      class: "extable-filter-sort-trigger",
-      "data-extable-fs-open": "1",
-      "data-extable-col-key": col.key,
-      title: "Filter / Sort",
-    });
-    tableBuilder.html(svgFunnel());
-    tableBuilder.closeTag("button");
-    tableBuilder.closeTag("div");
-    tableBuilder.closeTag("th");
-  }
-
-  tableBuilder.closeTag("tr");
-  tableBuilder.closeTag("thead");
-  tableBuilder.openTag("tbody");
-
-  const hasFormulas = schema.columns.some((c) => Boolean(c.formula));
-  const hasConditionalStyles = schema.columns.some((c) => Boolean(c.conditionalStyle)) ||
-    Boolean(schema.row?.conditionalStyle);
-
-  rows.forEach((row, rowIndex) => {
-    const trAttrs: Record<string, string | number | boolean> = {
-      "data-row-id": row.id,
-      "data-row-index": rowIndex,
-      style: `height:${DEFAULT_ROW_HEIGHT_PX}px;`,
-    };
-    tableBuilder.openTag("tr", trAttrs);
-
-    const rowHeader: Record<string, string | number | boolean> = {
-      class: "extable-row-header",
-    };
-    const displayIndex = dataModel.getDisplayIndex(row.id) ?? "";
-    tableBuilder.openTag("th", rowHeader).text(String(displayIndex)).closeTag("th");
-
-    for (const col of columns) {
-      renderCell({
-        html: tableBuilder,
-        row,
-        rowIndex,
-        col,
-        dataModel,
-        cssMode,
-        cssBuilder,
-        rootSelector,
-        errors,
-      });
-    }
-
-    tableBuilder.closeTag("tr");
-  });
-
-  tableBuilder.closeTag("tbody");
-  tableBuilder.closeTag("table");
-
-  const tableHtml = tableBuilder.build();
   const html = new HTMLBuilder();
   if (wrapWithRoot) {
     const rootAttrs: Record<string, string | number | boolean> = {
@@ -182,13 +152,88 @@ export function renderTableHTML<T extends object = Record<string, unknown>>(
     html.openTag("div", rootAttrs);
     html.openTag("div", { class: "extable-shell" });
     html.openTag("div", { class: "extable-viewport" });
-    html.html(tableHtml);
+  }
+
+  html.openTag("table", tableAttrs);
+  html.openTag("thead");
+  html.openTag("tr", { style: `height:${HEADER_HEIGHT_PX}px;` });
+
+  const rowHeaderAttrs: Record<string, string | number | boolean> = {
+    class: "extable-row-header extable-corner",
+    "data-col-key": "",
+    style: `width:${ROW_HEADER_WIDTH_PX}px;`,
+  };
+  html.tag("th", rowHeaderAttrs, "");
+
+  columns.forEach((col, colIndex) => {
+    const thAttrs: Record<string, string | number | boolean> = {
+      "data-col-key": col.key,
+    };
+    const width = colWidths[colIndex] ?? col.width;
+    if (width) thAttrs.style = `width:${width}px;`;
+
+    html.openTag("th", thAttrs);
+    html.openTag("div", { class: "extable-col-header" });
+    html.tag("span", { class: "extable-col-header-text" }, col.header ?? String(col.key));
+    html.openTag("button", {
+      type: "button",
+      class: "extable-filter-sort-trigger",
+      "data-extable-fs-open": "1",
+      "data-extable-col-key": col.key,
+      title: "Filter / Sort",
+    });
+    html.html(svgFunnel());
+    html.closeTag("button");
+    html.closeTag("div");
+    html.closeTag("th");
+  });
+
+  html.closeTag("tr");
+  html.closeTag("thead");
+  html.openTag("tbody");
+
+  rows.forEach((row, rowIndex) => {
+    const trAttrs: Record<string, string | number | boolean> = {
+      style: `height:${DEFAULT_ROW_HEIGHT_PX}px;`,
+    };
+    html.openTag("tr", trAttrs);
+
+    const rowHeader: Record<string, string | number | boolean> = {
+      class: "extable-row-header",
+    };
+    const displayIndex = dataModel.getDisplayIndex(row.id) ?? "";
+    html.openTag("th", rowHeader).text(String(displayIndex)).closeTag("th");
+
+    for (const meta of columnMeta) {
+      renderCell({
+        html,
+        row,
+        rowIndex,
+        meta,
+        dataModel,
+        cssMode,
+        cssBuilder,
+        rootSelector,
+        errors,
+        valueFormatters,
+        baseStyles,
+        includeStyles,
+        includeRawAttributes,
+        hasInteraction,
+      });
+    }
+
+    html.closeTag("tr");
+  });
+
+  html.closeTag("tbody");
+  html.closeTag("table");
+
+  if (wrapWithRoot) {
     html.closeTag("div");
     html.openTag("div", { class: "extable-overlay-layer" }).closeTag("div");
     html.closeTag("div");
     html.closeTag("div");
-  } else {
-    html.html(tableHtml);
   }
 
   return {
@@ -204,55 +249,256 @@ export function renderTableHTML<T extends object = Record<string, unknown>>(
   };
 }
 
+function renderFastTableHTML(options: {
+  data: RowObject[];
+  columns: ColumnSchema[];
+  columnMeta: Array<{
+    col: ColumnSchema;
+    colKey: string;
+    baseClass: string;
+    tdAttrPrefix: string;
+    isActionType: boolean;
+  }>;
+  colWidths: number[];
+  wrapWithRoot: boolean;
+  defaultClass: string[];
+  defaultStyle: Partial<CSSStyleDeclaration> | undefined;
+  valueFormatters: Map<string, (value: unknown) => { text: string; color?: string }>;
+}): SSRResult {
+  const {
+    data,
+    columns,
+    columnMeta,
+    colWidths,
+    wrapWithRoot,
+    defaultClass,
+    defaultStyle,
+    valueFormatters,
+  } = options;
+  const rootClasses = wrapWithRoot ? ["extable-root", ...defaultClass] : defaultClass;
+
+  let totalWidth = ROW_HEADER_WIDTH_PX;
+  for (const width of colWidths) totalWidth += width;
+  const tableStyle: CSSStyleMap = { width: `${totalWidth}px` };
+  if (!wrapWithRoot && defaultStyle) {
+    Object.assign(tableStyle, normalizeStyle(defaultStyle));
+  }
+  const tableAttrs: Record<string, string | number | boolean> = {
+    "data-extable-renderer": "html",
+  };
+  if (!wrapWithRoot && rootClasses.length) {
+    tableAttrs.class = rootClasses.join(" ");
+  }
+  const tableStyleAttr = serializeStyle(tableStyle);
+  if (tableStyleAttr) {
+    tableAttrs.style = tableStyleAttr;
+  }
+
+  const html = new HTMLBuilder();
+  if (wrapWithRoot) {
+    const rootAttrs: Record<string, string | number | boolean> = {
+      class: rootClasses.join(" ").trim(),
+    };
+    if (defaultStyle) {
+      const rootStyle = serializeStyle(normalizeStyle(defaultStyle));
+      if (rootStyle) rootAttrs.style = rootStyle;
+    }
+    html.openTag("div", rootAttrs);
+    html.openTag("div", { class: "extable-shell" });
+    html.openTag("div", { class: "extable-viewport" });
+  }
+
+  html.openTag("table", tableAttrs);
+  html.openTag("thead");
+  html.openTag("tr", { style: `height:${HEADER_HEIGHT_PX}px;` });
+  html.tag(
+    "th",
+    {
+      class: "extable-row-header extable-corner",
+      "data-col-key": "",
+      style: `width:${ROW_HEADER_WIDTH_PX}px;`,
+    },
+    "",
+  );
+  columns.forEach((col, colIndex) => {
+      const thAttrs: Record<string, string | number | boolean> = {
+        "data-col-key": col.key,
+      };
+    const width = colWidths[colIndex] ?? col.width;
+    if (width) thAttrs.style = `width:${width}px;`;
+    html.openTag("th", thAttrs);
+    html.openTag("div", { class: "extable-col-header" });
+    html.tag("span", { class: "extable-col-header-text" }, col.header ?? String(col.key));
+    html.openTag("button", {
+      type: "button",
+      class: "extable-filter-sort-trigger",
+      "data-extable-fs-open": "1",
+      "data-extable-col-key": col.key,
+      title: "Filter / Sort",
+    });
+    html.html(svgFunnel());
+    html.closeTag("button");
+    html.closeTag("div");
+    html.closeTag("th");
+  });
+  html.closeTag("tr");
+  html.closeTag("thead");
+  html.openTag("tbody");
+
+  for (let rowIndex = 0; rowIndex < data.length; rowIndex += 1) {
+    const row = data[rowIndex] as RowObject;
+    html.openTag("tr", {
+      style: `height:${DEFAULT_ROW_HEIGHT_PX}px;`,
+    });
+    html.tag("th", { class: "extable-row-header" }, String(rowIndex + 1));
+    for (const meta of columnMeta) {
+      const { col, colKey, tdAttrPrefix, isActionType } = meta;
+      const formatter = valueFormatters.get(colKey);
+      const value = (row as Record<string, unknown>)[colKey];
+      const formatted = formatter ? formatter(value) : { text: String(value ?? "") };
+      const tagValues = col.type === "tags" ? resolveTagValues(value) : null;
+      const actionValue = isActionType
+        ? col.type === "button"
+          ? resolveButtonAction(value)
+          : resolveLinkAction(value)
+        : null;
+      const actionLabel = isActionType
+        ? col.type === "button"
+          ? getButtonLabel(value)
+          : getLinkLabel(value)
+        : "";
+      const hasActionContent = isActionType && actionValue && actionLabel;
+      if (tagValues && tagValues.length) {
+        html.openTag("td", {
+          class: `${meta.baseClass} extable-editable`,
+          "data-col-key": col.key,
+        });
+        html.openTag("div", { class: "extable-tag-list" });
+        tagValues.forEach((tag, index) => {
+          html.openTag("span", { class: "extable-tag" });
+          html.tag("span", { class: "extable-tag-label" }, tag);
+          html.openTag("button", {
+            type: "button",
+            class: "extable-tag-remove",
+            "data-extable-tag-remove": "1",
+            "data-extable-tag-index": String(index),
+            disabled: false,
+          });
+          html.text("×");
+          html.closeTag("button");
+          html.closeTag("span");
+        });
+        html.closeTag("div");
+        html.closeTag("td");
+      } else if (hasActionContent) {
+        html.openTag("td", {
+          class: `${meta.baseClass} extable-editable`,
+          "data-col-key": col.key,
+        });
+        if (col.type === "button") {
+          html.tag(
+            "button",
+            { class: "extable-action-button", "data-extable-action": "button", type: "button" },
+            actionLabel,
+          );
+        } else {
+          html.tag(
+            "span",
+            { class: "extable-action-link", "data-extable-action": "link" },
+            actionLabel,
+          );
+        }
+        html.closeTag("td");
+      } else {
+        const text = escapeHtml(actionLabel || formatted.text);
+        html.html(`<td${tdAttrPrefix}>${text}</td>`);
+      }
+    }
+    html.closeTag("tr");
+  }
+
+  html.closeTag("tbody");
+  html.closeTag("table");
+
+  if (wrapWithRoot) {
+    html.closeTag("div");
+    html.openTag("div", { class: "extable-overlay-layer" }).closeTag("div");
+    html.closeTag("div");
+    html.closeTag("div");
+  }
+
+  return {
+    html: html.build(),
+    metadata: {
+      rowCount: data.length,
+      columnCount: columns.length,
+      hasFormulas: false,
+      hasConditionalStyles: false,
+      errors: [],
+    },
+  };
+}
+
 function renderCell(options: {
   html: HTMLBuilder;
   row: InternalRow;
   rowIndex: number;
-  col: ColumnSchema;
+  meta: {
+    col: ColumnSchema;
+    colKey: string;
+    baseClass: string;
+    isActionType: boolean;
+  };
   dataModel: DataModel;
   cssMode: "inline" | "external" | "both";
   cssBuilder: CSSBuilder | null;
   rootSelector: string;
   errors: Array<{ row: number; col: string; message: string }>;
+  valueFormatters: Map<string, (value: unknown) => { text: string; color?: string }>;
+  baseStyles: Map<string, ResolvedCellStyle> | null;
+  includeStyles: boolean;
+  includeRawAttributes: boolean;
+  hasInteraction: boolean;
 }) {
   const {
     html,
     row,
     rowIndex,
-    col,
+    meta,
     dataModel,
     cssMode,
     cssBuilder,
     rootSelector,
     errors,
+    valueFormatters,
+    baseStyles,
+    includeStyles,
+    includeRawAttributes,
+    hasInteraction,
   } = options;
 
-  const tdClasses = ["extable-cell"];
-  if (col.type === "boolean") tdClasses.push("extable-boolean");
+  const { col, colKey, baseClass, isActionType } = meta;
 
-  const interaction = dataModel.getCellInteraction(row.id, col.key);
-  if (interaction.readonly) tdClasses.push("extable-readonly");
-  else tdClasses.push("extable-editable");
-  if (interaction.muted) tdClasses.push("extable-readonly-muted");
-  if (interaction.disabled) tdClasses.push("extable-disabled");
+  const interaction = hasInteraction
+    ? dataModel.getCellInteraction(row.id, col.key)
+    : { readonly: false, muted: false, disabled: false };
+  let className = baseClass;
+  if (interaction.readonly) className += " extable-readonly";
+  else className += " extable-editable";
+  if (interaction.muted) className += " extable-readonly-muted";
+  if (interaction.disabled) className += " extable-disabled";
 
-  const wrap = col.wrapText;
-  tdClasses.push(wrap ? "cell-wrap" : "cell-nowrap");
+  const condRes = includeStyles
+    ? dataModel.resolveConditionalStyle(row.id, col)
+    : { delta: null, forceErrorText: false };
+  const cellStyle = includeStyles ? dataModel.getCellStyle(row.id, col.key) : null;
+  const baseStyle = includeStyles ? baseStyles?.get(colKey) ?? {} : {};
+  const withCond = includeStyles && condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
+  const resolved = includeStyles && cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
 
-  const align =
-    col.style?.align ??
-    (col.type === "number" || col.type === "int" || col.type === "uint" ? "right" : "left");
-  tdClasses.push(align === "right" ? "align-right" : "align-left");
-
-  const condRes = dataModel.resolveConditionalStyle(row.id, col);
-  const cellStyle = dataModel.getCellStyle(row.id, col.key);
-  const baseStyle = columnFormatToStyle(col);
-  const withCond = condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
-  const resolved = cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
-
-  const marker = dataModel.getCellMarker(row.id, col.key);
-  if (marker) {
-    tdClasses.push(marker.level === "warning" ? "extable-diag-warning" : "extable-diag-error");
+  const diagnostic = includeStyles ? dataModel.getCellDiagnostic(row.id, col.key) : null;
+  if (diagnostic) {
+    className += diagnostic.level === "warning" ? " extable-diag-warning" : " extable-diag-error";
   }
 
   const raw = dataModel.getRawCell(row.id, col.key);
@@ -260,26 +506,20 @@ function renderCell(options: {
   let textOverride = valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
 
   if (valueRes.diagnostic?.source === "formula") {
-    const err = new Error(valueRes.diagnostic.message);
-    errors.push({ row: rowIndex, col: String(col.key), message: err.message });
+    if (!textOverride) textOverride = "#ERROR";
+    errors.push({ row: rowIndex, col: colKey, message: valueRes.diagnostic.message });
   }
 
-  const validationMsg = dataModel.getCellValidationMessage(row.id, col.key);
-  if (validationMsg) {
-    const err = new Error(validationMsg);
-    errors.push({ row: rowIndex, col: String(col.key), message: err.message });
-  }
-
+  const formatter = valueFormatters.get(colKey);
   const formatted = textOverride
     ? { text: textOverride }
-    : formatValue(valueRes.value, col);
+    : (formatter ? formatter(valueRes.value) : { text: String(valueRes.value ?? "") });
   const resolvedWithFormat =
     formatted.color && formatted.color !== resolved.textColor
       ? { ...resolved, textColor: formatted.color }
       : resolved;
 
   const tagValues = col.type === "tags" && !textOverride ? resolveTagValues(valueRes.value) : null;
-  const isActionType = col.type === "button" || col.type === "link";
   const actionValue = isActionType
     ? col.type === "button"
       ? resolveButtonAction(valueRes.value)
@@ -292,42 +532,41 @@ function renderCell(options: {
     : "";
 
   const tdAttrs: Record<string, string | number | boolean> = {
-    class: tdClasses.join(" "),
+    class: className,
     "data-col-key": col.key,
-    "data-row-id": row.id,
-    "data-col-type": col.type,
-    "data-cell": `${rowIndex}:${String(col.key)}`,
   };
 
-  if (col.formula) tdAttrs["data-computed"] = true;
-  if (interaction.readonly) tdAttrs["data-readonly"] = true;
-  if (marker?.level === "error") tdAttrs["data-invalid"] = true;
-  if (marker) tdAttrs["data-extable-diag-message"] = marker.message;
+  if (includeStyles && diagnostic) tdAttrs["data-extable-diag-message"] = diagnostic.message;
 
-  const rawNumbered = toRawValue(raw, valueRes.value, col);
-  if (rawNumbered !== null) {
-    tdAttrs["data-raw"] = rawNumbered;
-  } else {
-    const rawStr = raw === null || raw === undefined ? "" : String(raw);
-    tdAttrs["data-raw"] = rawStr;
+  if (includeRawAttributes) {
+    const rawNumbered = toRawValue(raw, valueRes.value, col);
+    if (rawNumbered !== null) {
+      tdAttrs["data-raw"] = rawNumbered;
+    } else {
+      const rawStr = raw === null || raw === undefined ? "" : String(raw);
+      tdAttrs["data-raw"] = rawStr;
+    }
   }
 
-  if (cssMode === "inline" || cssMode === "both") {
-    const needsInline = cssMode === "inline" || Boolean(condRes.delta || cellStyle || formatted.color);
-    const inlineStyle = needsInline ? serializeStyle(resolvedStyleToMap(resolvedWithFormat)) : "";
-    if (inlineStyle) tdAttrs.style = inlineStyle;
-  } else if (cssMode === "external" && cssBuilder) {
-    const selector = `${rootSelector} tbody tr[data-row-id=\"${row.id}\"] td[data-col-key=\"${String(col.key)}\"]`;
-    cssBuilder.addRule(selector, resolvedStyleToMap(resolvedWithFormat));
+  if (includeStyles) {
+    if (cssMode === "inline" || cssMode === "both") {
+      if (hasRenderableStyle(resolvedWithFormat)) {
+        const inlineStyle = serializeStyle(resolvedStyleToMap(resolvedWithFormat));
+        if (inlineStyle) tdAttrs.style = inlineStyle;
+      }
+    } else if (cssMode === "external" && cssBuilder && hasRenderableStyle(resolvedWithFormat)) {
+      const selector = `${rootSelector} tbody tr:nth-child(${rowIndex + 1}) td[data-col-key=\"${colKey}\"]`;
+      cssBuilder.addRule(selector, resolvedStyleToMap(resolvedWithFormat));
+    }
   }
 
-  html.openTag("td", tdAttrs);
-
+  const hasActionContent = isActionType && !textOverride && actionValue && actionLabel;
   if (tagValues && tagValues.length) {
+    html.openTag("td", tdAttrs);
     html.openTag("div", { class: "extable-tag-list" });
     tagValues.forEach((tag, index) => {
       html.openTag("span", { class: "extable-tag" });
-      html.openTag("span", { class: "extable-tag-label" }).text(tag).closeTag("span");
+      html.tag("span", { class: "extable-tag-label" }, tag);
       html.openTag("button", {
         type: "button",
         class: "extable-tag-remove",
@@ -340,7 +579,9 @@ function renderCell(options: {
       html.closeTag("span");
     });
     html.closeTag("div");
-  } else if (isActionType && !textOverride && actionValue && actionLabel) {
+    html.closeTag("td");
+  } else if (hasActionContent) {
+    html.openTag("td", tdAttrs);
     const actionAttrs: Record<string, string | number | boolean> = {
       class: col.type === "button" ? "extable-action-button" : "extable-action-link",
       "data-extable-action": col.type,
@@ -350,97 +591,125 @@ function renderCell(options: {
     }
     if (col.type === "button") {
       actionAttrs.type = "button";
-      html.openTag("button", actionAttrs);
-      html.text(actionLabel);
-      html.closeTag("button");
+      html.tag("button", actionAttrs, actionLabel);
     } else {
-      html.openTag("span", actionAttrs);
-      html.text(actionLabel);
-      html.closeTag("span");
+      html.tag("span", actionAttrs, actionLabel);
     }
+    html.closeTag("td");
   } else {
-    html.text(actionLabel || formatted.text);
+    html.tag("td", tdAttrs, actionLabel || formatted.text);
   }
-
-  html.closeTag("td");
 }
 
-function formatValue(value: unknown, col: ColumnSchema): { text: string; color?: string } {
-  if (value === null || value === undefined) return { text: "" };
+function createValueFormatter(
+  col: ColumnSchema,
+  includeStyles: boolean,
+): (value: unknown) => { text: string; color?: string } {
+  if (!includeStyles) {
+    return createFastValueFormatter(col);
+  }
   if (col.type === "button") {
-    const label = getButtonLabel(value);
-    return { text: label || String(value) };
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      const label = getButtonLabel(value);
+      return { text: label || String(value) };
+    };
   }
   if (col.type === "link") {
-    const label = getLinkLabel(value);
-    return { text: label || String(value) };
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      const label = getLinkLabel(value);
+      return { text: label || String(value) };
+    };
   }
   if (col.type === "tags") {
-    const tags = resolveTagValues(value);
-    if (tags) return { text: tags.join(", ") };
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      const tags = resolveTagValues(value);
+      if (tags) return { text: tags.join(", ") };
+      return { text: String(value) };
+    };
   }
   if (col.type === "enum") {
-    if (value && typeof value === "object") {
-      const obj = value as Record<string, unknown>;
-      if (obj.kind === "enum" && typeof obj.value === "string") {
-        return { text: obj.value };
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      if (value && typeof value === "object") {
+        const obj = value as Record<string, unknown>;
+        if (obj.kind === "enum" && typeof obj.value === "string") {
+          return { text: obj.value };
+        }
       }
-    }
+      return { text: String(value) };
+    };
   }
   if (col.type === "boolean") {
-    if (col.format === "checkbox" || !col.format) {
-      return { text: value ? "☑" : "☐" };
-    }
-    if (Array.isArray(col.format) && col.format.length >= 2) {
-      return { text: value ? String(col.format[0]) : String(col.format[1]) };
-    }
-    return { text: value ? String(col.format) : "" };
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      if (col.format === "checkbox" || !col.format) {
+        return { text: value ? "☑" : "☐" };
+      }
+      if (Array.isArray(col.format) && col.format.length >= 2) {
+        return { text: value ? String(col.format[0]) : String(col.format[1]) };
+      }
+      return { text: value ? String(col.format) : "" };
+    };
   }
-  if (col.type === "number" && typeof value === "number") {
-    const num = value;
+  if (col.type === "number") {
     const fmt = col.format as NumberFormat | undefined;
     const token = fmt?.format ?? "decimal";
     if (token === "scientific") {
-      const text = formatNumberForEdit(num, { format: "scientific", precision: fmt?.precision });
-      const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
-      return { text, color };
+      return (value) => {
+        if (value === null || value === undefined) return { text: "" };
+        if (typeof value !== "number") return { text: String(value) };
+        const text = formatNumberForEdit(value, {
+          format: "scientific",
+          precision: fmt?.precision,
+        });
+        const color = fmt?.negativeRed && value < 0 ? "#b91c1c" : undefined;
+        return { text, color };
+      };
     }
-
     const opts: Intl.NumberFormatOptions = {};
     if (fmt?.scale !== undefined) {
       opts.minimumFractionDigits = fmt.scale;
       opts.maximumFractionDigits = fmt.scale;
     }
     opts.useGrouping = Boolean(fmt?.thousandSeparator);
-    const text = new Intl.NumberFormat("en-US", opts).format(num);
-    const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
-    return { text, color };
+    const formatter = new Intl.NumberFormat("en-US", opts);
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      if (typeof value !== "number") return { text: String(value) };
+      const text = formatter.format(value);
+      const color = fmt?.negativeRed && value < 0 ? "#b91c1c" : undefined;
+      return { text, color };
+    };
   }
-
-  if ((col.type === "int" || col.type === "uint") && typeof value === "number") {
-    const num = value;
+  if (col.type === "int" || col.type === "uint") {
     const fmt = col.format as IntegerFormat | undefined;
     const token = fmt?.format ?? "decimal";
     if (token === "binary" || token === "octal" || token === "hex") {
-      const text = formatIntegerWithPrefix(num, token);
-      const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
-      return { text, color };
+      return (value) => {
+        if (value === null || value === undefined) return { text: "" };
+        if (typeof value !== "number") return { text: String(value) };
+        const text = formatIntegerWithPrefix(value, token);
+        const color = fmt?.negativeRed && value < 0 ? "#b91c1c" : undefined;
+        return { text, color };
+      };
     }
-
-    const opts: Intl.NumberFormatOptions = {
+    const formatter = new Intl.NumberFormat("en-US", {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
       useGrouping: Boolean(fmt?.thousandSeparator),
+    });
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      if (typeof value !== "number") return { text: String(value) };
+      const text = formatter.format(value);
+      const color = fmt?.negativeRed && value < 0 ? "#b91c1c" : undefined;
+      return { text, color };
     };
-    const text = new Intl.NumberFormat("en-US", opts).format(num);
-    const color = fmt?.negativeRed && num < 0 ? "#b91c1c" : undefined;
-    return { text, color };
   }
-
-  if (
-    (col.type === "date" || col.type === "time" || col.type === "datetime") &&
-    (value instanceof Date || typeof value === "string")
-  ) {
+  if (col.type === "date" || col.type === "time" || col.type === "datetime") {
     const fmtValue = col.format as string | undefined;
     const fmt =
       col.type === "date"
@@ -448,15 +717,60 @@ function formatValue(value: unknown, col: ColumnSchema): { text: string; color?:
         : col.type === "time"
           ? coerceDatePattern(fmtValue, "time")
           : coerceDatePattern(fmtValue, "datetime");
-    let d: Date | null = null;
-    if (value instanceof Date) d = value;
-    else {
-      d = parseIsoDate(value);
-    }
-    if (!d) return { text: String(value) };
-    return { text: formatDateLite(d, fmt) };
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      let d: Date | null = null;
+      if (value instanceof Date) d = value;
+      else if (typeof value === "string") d = parseIsoDate(value);
+      if (!d) return { text: String(value) };
+      return { text: formatDateLite(d, fmt) };
+    };
   }
-  return { text: String(value) };
+  return (value) => {
+    if (value === null || value === undefined) return { text: "" };
+    return { text: String(value) };
+  };
+}
+
+function createFastValueFormatter(col: ColumnSchema): (value: unknown) => { text: string; color?: string } {
+  if (col.type === "button") {
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      const label = getButtonLabel(value);
+      return { text: label || String(value) };
+    };
+  }
+  if (col.type === "link") {
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      const label = getLinkLabel(value);
+      return { text: label || String(value) };
+    };
+  }
+  if (col.type === "tags") {
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      const tags = resolveTagValues(value);
+      if (tags) return { text: tags.join(", ") };
+      return { text: String(value) };
+    };
+  }
+  if (col.type === "enum") {
+    return (value) => {
+      if (value === null || value === undefined) return { text: "" };
+      if (value && typeof value === "object") {
+        const obj = value as Record<string, unknown>;
+        if (obj.kind === "enum" && typeof obj.value === "string") {
+          return { text: obj.value };
+        }
+      }
+      return { text: String(value) };
+    };
+  }
+  return (value) => {
+    if (value === null || value === undefined) return { text: "" };
+    return { text: String(value) };
+  };
 }
 
 function resolveTagValues(value: unknown): string[] | null {
@@ -473,6 +787,17 @@ function resolveTagValues(value: unknown): string[] | null {
     }
   }
   return null;
+}
+
+function hasRenderableStyle(style: ResolvedCellStyle): boolean {
+  return Boolean(
+    style.backgroundColor ||
+      style.textColor ||
+      style.bold ||
+      style.italic ||
+      style.underline ||
+      style.strike,
+  );
 }
 
 function resolvedStyleToMap(style: ResolvedCellStyle): CSSStyleMap {

@@ -25,6 +25,7 @@ describe("ssr integration", () => {
           { key: "link", type: "link" },
         ],
       },
+      includeStyles: true,
     });
 
     expect(result.html).toContain("Yes");
@@ -32,7 +33,7 @@ describe("ssr integration", () => {
     expect(result.html).toContain("extable-tag-list");
     expect(result.html).toContain("extable-action-button");
     expect(result.html).toContain("extable-action-link");
-    expect(result.html).toContain("data-readonly");
+    expect(result.html).toContain("extable-readonly");
   });
 
   test("supports both CSS mode with conditional inline styles", () => {
@@ -49,6 +50,7 @@ describe("ssr integration", () => {
         ],
       },
       cssMode: "both",
+      includeStyles: true,
     });
 
     expect(result.css).toContain("color:#555");

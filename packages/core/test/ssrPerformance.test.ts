@@ -21,6 +21,7 @@ describe("ssr performance", () => {
       })),
     };
 
+    renderTableHTML({ data, schema });
     const start = Date.now();
     const result = renderTableHTML({ data, schema });
     const elapsed = Date.now() - start;

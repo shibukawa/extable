@@ -29,6 +29,7 @@ export async function getServerSideProps() {
     cssMode: "both",
     wrapWithRoot: true,
     defaultClass: "extable",
+    includeStyles: true,
   });
 
   return {
@@ -43,7 +44,7 @@ export default function Page({ ssrHtml, ssrCss }) {
   return (
     <>
       {ssrCss && <style dangerouslySetInnerHTML={{ __html: ssrCss }} />}
-      <div data-extable-ssr dangerouslySetInnerHTML={{ __html: ssrHtml }} />
+      <div dangerouslySetInnerHTML={{ __html: ssrHtml }} />
       {/* Client render: use Extable (React wrapper) or ExtableCore in a separate container */}
     </>
   );
