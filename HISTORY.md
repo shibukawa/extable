@@ -1,14 +1,6 @@
 # History
 
-## Unreleased
-
-### Changed
-- SSR `renderTableHTML` defaults skip formatting/styles/raw attributes and validation output; use `includeStyles` and `includeRawAttributes` to opt in.
-- SSR performance test default budget restored to 100ms.
-- SSR uses a fast rendering path (when styles/raw/conditionals are disabled) with deterministic row ids for better throughput.
-- SSR output no longer emits `data-row-index`/`data-cell` attributes.
-- SSR output no longer emits `data-extable-ssr`, `data-col-type`, `data-computed`, or `data-readonly`.
-- SSR performance test default budget is now 300ms to reduce CI variability.
+## 0.3.4
 
 ### Added
 - Server-side rendering entrypoint `@extable/core/ssr` with HTML builder, CSS serializer, and SSR renderer utilities.
