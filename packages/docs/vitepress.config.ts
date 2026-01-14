@@ -51,6 +51,7 @@ export default defineConfig({
       "/demos/": [
         { text: "Overview", link: "/demos/" },
         { text: "Basic Usage", link: "/demos/basic-usage" },
+        { text: "SSR vs Client Rendering", link: "/demos/ssr-compare" },
         { text: "Auto-fill Sequences", link: "/demos/auto-fill-sequence" },
         { text: "Button & Link Cells", link: "/demos/button-link" },
         { text: "Conditional Readonly/Disabled", link: "/demos/conditional-access" },
@@ -62,6 +63,7 @@ export default defineConfig({
       "/reference/": [
         { text: "Init Options", link: "/reference/init-options" },
         { text: "Core API", link: "/reference/core" },
+        { text: "SSR", link: "/reference/ssr" },
         { text: "Events", link: "/reference/events" },
         { text: "React API", link: "/reference/react" },
         { text: "Vue API", link: "/reference/vue" },

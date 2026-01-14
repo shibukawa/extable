@@ -10,11 +10,17 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./style.css": "./dist/index.css",
+    "./ssr": {
+      "import": "./dist/ssr/index.js",
+      "types": "./dist/ssr/index.d.ts"
+    },
+    "./style.css": "./style.css",
     "./index.css": "./dist/index.css"
   },
   "files": [
-    "dist"
+    "dist",
+    "style.css",
+    "src/styles.css"
   ],
   "publishConfig": {
     "access": "public"

@@ -3,9 +3,13 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   build: {
     lib: {
-      entry: 'src/index.ts',
+      entry: {
+        index: 'src/index.ts',
+        ssr: 'src/ssr/index.ts'
+      },
       name: 'ExtableCore',
-      fileName: 'index',
+      fileName: (_format, entryName) =>
+        entryName === 'ssr' ? 'ssr/index.js' : 'index.js',
       formats: ['es']
     },
     sourcemap: true,

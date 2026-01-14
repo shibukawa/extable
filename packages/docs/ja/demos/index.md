@@ -18,6 +18,7 @@ Extableを最小構成で試せるデモです。**10,000行**を読み込み、
 ### データとパフォーマンス
 
 - **[Async Data Loading →](/ja/demos/async-data-loading)** - ローディング表示付きで動的に読み込み
+- **[SSRとクライアント描画の比較 →](/ja/demos/ssr-compare)** - 静的HTMLとHTML/Canvas描画を比較
 
 ### 追加の編集モード
 

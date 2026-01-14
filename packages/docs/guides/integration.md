@@ -13,6 +13,53 @@ See also:
 - [Data Access from API](./data-access.md) - Async data fetching patterns
 - [Init Options Reference](../reference/init-options.md) - Table initialization options
 
+### Server-side Rendering (SSR)
+
+`@extable/core/ssr` generates static HTML for initial render. The HTML is **not hydrated** by the React wrapper; client-side rendering will re-create the table. Treat SSR as a fast, SEO-friendly snapshot, and let the client mount replace it.
+
+#### Next.js (pages router) example
+
+```tsx
+import { renderTableHTML } from "@extable/core/ssr";
+
+export async function getServerSideProps() {
+  const result = renderTableHTML({
+    data,
+    schema,
+    cssMode: "both",
+    wrapWithRoot: true,
+    defaultClass: "extable",
+    includeStyles: true,
+  });
+
+  return {
+    props: {
+      ssrHtml: result.html,
+      ssrCss: result.css ?? "",
+    },
+  };
+}
+
+export default function Page({ ssrHtml, ssrCss }) {
+  return (
+    <>
+      {ssrCss && <style dangerouslySetInnerHTML={{ __html: ssrCss }} />}
+      <div dangerouslySetInnerHTML={{ __html: ssrHtml }} />
+      {/* Client render: use Extable (React wrapper) or ExtableCore in a separate container */}
+    </>
+  );
+}
+```
+
+#### Client re-render note
+
+When you mount the client table, it will build its own DOM. To avoid showing two tables, either:
+
+- Replace the SSR container on mount (clear its innerHTML and mount the client table there), or
+- Keep SSR HTML in a separate container and hide/remove it after the client table mounts.
+
+If you need true DOM hydration, a dedicated hydration API would be required (out of scope for the current SSR MVP).
+
 ### Shortcut Key Registration
 
 Register keyboard shortcuts for Undo/Redo operations.
