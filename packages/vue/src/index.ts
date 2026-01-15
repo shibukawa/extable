@@ -12,7 +12,7 @@ import type {
 } from "@extable/core";
 import { ExtableCore } from "@extable/core";
 import type { PropType } from "vue";
-import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { defineComponent, getCurrentInstance, h, onBeforeUnmount, onMounted, watch } from "vue";
 
 type CoreApi<T extends object, R extends object = T> = Pick<
   ExtableCore<T, R>,
@@ -90,7 +90,7 @@ export const Extable = defineComponent({
     ) => true,
   },
   setup(props, { attrs, emit, expose }) {
-    const root = ref<HTMLElement | null>(null);
+    const instance = getCurrentInstance();
     let core: ExtableCore<Record<string, unknown>> | null = null;
     let unsubTable: (() => void) | null = null;
     let unsubSel: (() => void) | null = null;
@@ -113,9 +113,10 @@ export const Extable = defineComponent({
     };
 
     onMounted(() => {
-      if (!root.value) return;
+      const root = instance?.proxy?.$el as HTMLElement | null;
+      if (!root) return;
       core = new ExtableCore({
-        root: root.value,
+        root,
         schema: props.schema,
         defaultData: props.defaultData,
         defaultView: props.defaultView,
@@ -196,7 +197,6 @@ export const Extable = defineComponent({
 
     return () =>
       h("div", {
-        ref: root,
         "data-extable-wrapper": "",
         ...attrs,
         class: ["extable-root", (attrs as unknown as Record<string, unknown>).class],

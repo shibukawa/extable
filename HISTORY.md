@@ -4,9 +4,11 @@
 
 ### Added
 - Server-side rendering entrypoint `@extable/core/ssr` with HTML builder, CSS serializer, and SSR renderer utilities.
+- Go SSR module under `ssr/extable-go` with a typed `RenderTableHTML` API (no styling, minimal attributes).
 
 ### Changed
 - Formula-readonly cells use a subtle blue text color (#99aaff) to improve editability cues.
+- Removed legacy runtime fallbacks for ResizeObserver, requestAnimationFrame, elementFromPoint, and CSS.escape.
 
 ### Fixed
 - Core: export `@extable/core/style.css` from source for workspace builds without prebuilt assets.

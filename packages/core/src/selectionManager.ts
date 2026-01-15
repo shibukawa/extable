@@ -522,11 +522,7 @@ export class SelectionManager {
   }
 
   private escapeCssAttrValue(value: string) {
-    const css = (globalThis as unknown as { CSS?: { escape?: (s: string) => string } }).CSS;
-    const escapeFn = css?.escape;
-    if (typeof escapeFn === "function") return escapeFn(value);
-    // Minimal escaping for attribute selector values inside double quotes.
-    return value.replace(/["\\]/g, "\\$&");
+    return CSS.escape(value);
   }
 
   private findHtmlCellElement(rowId: string, colKey: string | null) {
@@ -852,10 +848,16 @@ export class SelectionManager {
     this.startAutoScroll();
   };
 
-  private getHitAtClientPoint(clientX: number, clientY: number) {
+  private getHitAtClientPoint(
+    clientX: number,
+    clientY: number,
+    fallbackTarget?: EventTarget | null,
+  ) {
     // Prefer coordinate-based hit-test for auto-scroll ticks (no real event.target).
-    if (typeof document.elementFromPoint !== "function") return null;
-    const el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    let el = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    if (!el && fallbackTarget instanceof HTMLElement) {
+      el = fallbackTarget;
+    }
     if (el && this.root.contains(el)) {
       const corner = el.closest<HTMLElement>("th.extable-corner");
       if (corner) {
@@ -899,7 +901,8 @@ export class SelectionManager {
       }
     }
     // Canvas renderer hitTest does not rely on target; a minimal shape is enough.
-    return this.hitTest({ clientX, clientY } as unknown as MouseEvent);
+    const target = fallbackTarget instanceof HTMLElement ? fallbackTarget : null;
+    return this.hitTest({ clientX, clientY, target } as unknown as MouseEvent);
   }
 
   private updateDragFromClientPoint(clientX: number, clientY: number) {
@@ -1022,22 +1025,15 @@ export class SelectionManager {
         if (this.fillDragging) this.updateFillDragFromClientPoint(p.x, p.y);
         else this.updateDragFromClientPoint(p.x, p.y);
       }
-      const raf =
-        window.requestAnimationFrame ??
-        ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16));
-      this.autoScrollRaf = raf(tick);
+      this.autoScrollRaf = window.requestAnimationFrame(tick);
     };
-    const raf2 =
-      window.requestAnimationFrame ??
-      ((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16));
-    this.autoScrollRaf = raf2(tick);
+    this.autoScrollRaf = window.requestAnimationFrame(tick);
   }
 
   private stopAutoScroll() {
     this.autoScrollActive = false;
     if (this.autoScrollRaf !== null) {
-      const caf = window.cancelAnimationFrame ?? ((id: number) => window.clearTimeout(id));
-      caf(this.autoScrollRaf);
+      window.cancelAnimationFrame(this.autoScrollRaf);
       this.autoScrollRaf = null;
     }
   }
@@ -1830,10 +1826,7 @@ export class SelectionManager {
     if (this.inputEl && this.activeCell && this.activeCell.colKey !== null) {
       if (!this.tryCommitActiveEditor()) return;
     }
-    const hit =
-      typeof document.elementFromPoint === "function"
-        ? this.getHitAtClientPoint(ev.clientX, ev.clientY)
-        : this.hitTest(ev);
+    const hit = this.getHitAtClientPoint(ev.clientX, ev.clientY, ev.target);
     if (!hit) return;
     const actionHit = this.hitAction ? this.hitAction(ev) : null;
     if (actionHit) {
