@@ -104,8 +104,6 @@ describe("core placeholder", () => {
     );
     const target = document.createElement("div");
     document.body.appendChild(target);
-    // JSDOM's elementFromPoint is not layout-aware and can cause hit-testing to fail.
-    Object.defineProperty(document, "elementFromPoint", { value: undefined, configurable: true });
     mountTable(target, placeholder);
 
     const cell = target.querySelector('td[data-col-key="name"]') as HTMLTableCellElement | null;
@@ -146,8 +144,6 @@ describe("core placeholder", () => {
     );
     const target = document.createElement("div");
     document.body.appendChild(target);
-    // JSDOM's elementFromPoint is not layout-aware and can cause hit-testing to fail.
-    Object.defineProperty(document, "elementFromPoint", { value: undefined, configurable: true });
     mountTable(target, placeholder);
 
     const cell = target.querySelector('td[data-col-key="name"]') as HTMLTableCellElement | null;

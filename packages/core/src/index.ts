@@ -238,15 +238,10 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
     this.viewportEl = viewport;
 
     this.viewportResizeObserver?.disconnect();
-    const anyRO = globalThis.ResizeObserver as typeof ResizeObserver | undefined;
-    if (typeof anyRO === "function") {
-      this.viewportResizeObserver = new anyRO(() => {
-        this.updateViewportFromRoot();
-      });
-      this.viewportResizeObserver.observe(viewport);
-    } else {
-      this.viewportResizeObserver = null;
-    }
+    this.viewportResizeObserver = new ResizeObserver(() => {
+      this.updateViewportFromRoot();
+    });
+    this.viewportResizeObserver.observe(viewport);
   }
 
   private getScrollHost() {

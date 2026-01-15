@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@extable/core": "0.3.4",
-    "vue": "^3.5.13"
+    "vue": "^3.5.26"
   },
   "peerDependencies": {
     "vue": ">=3"
