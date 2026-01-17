@@ -1141,8 +1141,11 @@ export class SelectionManager {
       return;
     }
 
-    // Use the existing selectionInput to preserve IME state
-    if (this.selectionInput) {
+    // Check if we can use selectionInput (only for simple text/textarea inputs)
+    const col = this.findColumn(colKey);
+    const canUseSelectionInput = col && this.canReuseSelectionInput(col);
+
+    if (this.selectionInput && canUseSelectionInput) {
       // Make selectionInput visible and editable
       const input = this.selectionInput;
       input.readOnly = false;
@@ -1173,19 +1176,32 @@ export class SelectionManager {
         (input.style as any).WebkitUserModify = "read-write";
       }
 
+      // Set initial value if provided
+      if (options?.initialValueOverride !== undefined) {
+        input.value = options.initialValueOverride;
+      } else {
+        const current = this.dataModel.getCell(rowId, colKey);
+        input.value = this.getInitialEditValue(colKey, current);
+      }
+
       // Store input as inputEl for edit mode operations
       this.inputEl = input;
       this.activeOriginalValue = { rowId, colKey, value: this.dataModel.getCell(rowId, colKey) };
 
       // Setup lookup editor if column has lookup
-      const col = this.findColumn(colKey);
       if (col?.edit?.lookup) {
         this.setupLookupEditor(rowId, colKey, input);
+      }
+      
+      input.focus({ preventScroll: true });
+      if (options?.placeCursorAtEnd) {
+        const end = input.value.length;
+        input.setSelectionRange(end, end);
       }
       return;
     }
 
-    // Fallback to original behavior if no selectionInput exists
+    // Use traditional cell-based editor for special input types
     const cell = this.findHtmlCellElement(rowId, colKey);
     if (cell) {
       this.activateCellElement(cell, rowId, colKey, options);
@@ -1195,6 +1211,21 @@ export class SelectionManager {
     if (rect) {
       this.activateFloating(rect, rowId, colKey, options);
     }
+  }
+
+  private canReuseSelectionInput(col: import("./types").ColumnSchema): boolean {
+    // Only reuse selectionInput for simple text inputs
+    // Special input types (date, datetime, time, select, etc.) need dedicated elements
+    if (col.type === "string" || col.type === "labeled") {
+      // Check if lookup is present - lookup with text input can reuse selectionInput
+      return true;
+    }
+    if (col.type === "number" || col.type === "int" || col.type === "uint") {
+      // Number inputs can reuse selectionInput
+      return true;
+    }
+    // Other types need specialized inputs
+    return false;
   }
 
   private escapeCssAttrValue(value: string) {

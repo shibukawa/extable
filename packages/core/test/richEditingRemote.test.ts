@@ -219,13 +219,15 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
       cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
       cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
 
-      const input = cell!.querySelector("input") as HTMLInputElement | null;
+      // selectionInput is reused and made visible during edit mode
+      const inputs = Array.from(root.querySelectorAll("input")) as HTMLInputElement[];
+      const input = inputs.find((i) => i.style.opacity !== "0") ?? null;
       expect(input).toBeTruthy();
 
       input!.value = "al";
       input!.dispatchEvent(new Event("input", { bubbles: true }));
 
-      await vi.advanceTimersByTimeAsync(220);
+      await vi.advanceTimersByTimeAsync(300);
       await Promise.resolve();
 
       const dropdown = root.querySelector(".extable-lookup-dropdown") as HTMLDivElement | null;
@@ -285,13 +287,15 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
       cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
       cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
 
-      const input = cell!.querySelector("input") as HTMLInputElement | null;
+      // selectionInput is reused and made visible during edit mode
+      const inputs = Array.from(root.querySelectorAll("input")) as HTMLInputElement[];
+      const input = inputs.find((i) => i.style.opacity !== "0") ?? null;
       expect(input).toBeTruthy();
 
       input!.value = "al";
       input!.dispatchEvent(new Event("input", { bubbles: true }));
 
-      await vi.advanceTimersByTimeAsync(220);
+      await vi.advanceTimersByTimeAsync(300);
       await Promise.resolve();
 
       input!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
@@ -356,12 +360,14 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
       cellA!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
       cellA!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
 
-      const input = cellA!.querySelector("input") as HTMLInputElement | null;
+      // selectionInput is reused and made visible during edit mode
+      const inputs = Array.from(root.querySelectorAll("input")) as HTMLInputElement[];
+      const input = inputs.find((i) => i.style.opacity !== "0") ?? null;
       expect(input).toBeTruthy();
 
       input!.value = "x";
       input!.dispatchEvent(new Event("input", { bubbles: true }));
-      await vi.advanceTimersByTimeAsync(220);
+      await vi.advanceTimersByTimeAsync(300);
 
       // Change active cell before the promise resolves.
       cellB!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
@@ -575,7 +581,9 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
       cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
       await Promise.resolve();
 
-      const input = cell!.querySelector("input") as HTMLInputElement | null;
+      // selectionInput is reused and made visible during edit mode
+      const inputs = Array.from(root.querySelectorAll("input")) as HTMLInputElement[];
+      const input = inputs.find((i) => i.style.opacity !== "0") ?? null;
       expect(input).toBeTruthy();
 
       // Trigger fetch with empty query to get recent candidate
@@ -647,7 +655,9 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
       cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
       await Promise.resolve();
 
-      const input = cell!.querySelector("input") as HTMLInputElement | null;
+      // selectionInput is reused and made visible during edit mode
+      const inputs = Array.from(root.querySelectorAll("input")) as HTMLInputElement[];
+      const input = inputs.find((i) => i.style.opacity !== "0") ?? null;
       expect(input).toBeTruthy();
 
       input!.value = "";
