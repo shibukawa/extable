@@ -597,7 +597,7 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
 
       let options = dropdown?.querySelectorAll("button.extable-lookup-option") || [];
       expect(options.length).toBe(2);
-      
+
       // When recentLookup is true, Alice (which was already selected) should appear first with [recent] badge
       expect(options[0]?.textContent).toMatch(/Alice.*\[recent\]/);
       expect(options[1]?.textContent).toBe("Bob");

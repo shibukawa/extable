@@ -851,7 +851,8 @@ export class SelectionManager {
     let lastFetchedCandidateCount = -1;
     const debounceMs = hook.debounceMs ?? 250;
 
-    const schedule = (immediate = false) => {
+    const schedule = (immediateOrEvent?: boolean | Event) => {
+      const immediate = typeof immediateOrEvent === "boolean" ? immediateOrEvent : false;
       const query = input.value;
       if (this.lookupDebounceTimer) {
         window.clearTimeout(this.lookupDebounceTimer);
