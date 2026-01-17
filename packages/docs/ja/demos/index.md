@@ -24,6 +24,7 @@ Extableを最小構成で試せるデモです。**10,000行**を読み込み、
 
 - **[Readonly Mode →](/ja/demos/readonly-mode)** - 編集不可の表示専用
 - **[Commit Mode →](/ja/demos/commit-mode)** - 編集を保留して一括確定
+- **[リッチ編集 →](/ja/demos/rich-editing-remote)** - リモートLookup、外部エディタ委譲、非同期ツールチップ
 
 ### 表示・フォーマット・検証
 

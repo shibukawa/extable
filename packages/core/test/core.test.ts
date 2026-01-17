@@ -35,6 +35,7 @@ describe("core placeholder", () => {
     cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
     cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
 
+    // datetime-local requires a specialized input element, not selectionInput
     const input = cell!.querySelector("input") as HTMLInputElement | null;
     expect(input).toBeTruthy();
     expect(input!.type).toBe("datetime-local");
@@ -158,8 +159,12 @@ describe("core placeholder", () => {
 
     selectionInput!.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
 
-    const editor = cell!.querySelector("input") as HTMLInputElement | null;
-    expect(editor).toBeTruthy();
+    // selectionInput is reused and made visible during edit mode
+    const visibleInputs = Array.from(target.querySelectorAll("input")).filter(
+      (i: HTMLInputElement) => i.style.opacity !== "0"
+    );
+    expect(visibleInputs.length).toBeGreaterThan(0);
+    const editor = visibleInputs[0] as HTMLInputElement;
     expect(document.activeElement).toBe(editor);
 
     placeholder.destroy();
@@ -189,7 +194,9 @@ describe("core placeholder", () => {
     cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
     cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
 
-    const input = cell!.querySelector("input") as HTMLInputElement | null;
+    // Number input can use selectionInput
+    const inputs = Array.from(target.querySelectorAll("input")) as HTMLInputElement[];
+    const input = inputs.find((i) => i.style.opacity !== "0") ?? null;
     expect(input).toBeTruthy();
 
     // Type an invalid numeric string and try to commit (should be blocked).

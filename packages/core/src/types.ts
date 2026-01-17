@@ -3,16 +3,81 @@ export type CellPrimitive = string | number | boolean | null;
 export type ButtonValue = string | { label: string; command: string; commandfor: string };
 export type LinkValue = string | { label: string; href: string; target?: string };
 
+export type LookupCellValue = {
+  kind: "lookup";
+  label: string;
+  value: string;
+  meta?: unknown;
+};
+
+export type LookupCandidate = {
+  label: string;
+  value: string;
+  meta?: unknown;
+  isRecent?: boolean;  // Internal flag: candidate is from recentLookup history
+};
+
+export type LabeledValue = {
+  label: string;
+  value: unknown;
+};
+
+export type TooltipText = string | null;
+export type TooltipTextResult = TooltipText | Promise<TooltipText>;
+
+export type ExternalEditResult = { kind: "commit"; value: unknown } | { kind: "cancel" };
+
+export type LookupQueryContext = {
+  query: string;
+  rowId: string;
+  colKey: string;
+  signal: AbortSignal;
+};
+
+export type ExternalEditorContext = {
+  rowId: string;
+  colKey: string;
+  currentValue: unknown;
+};
+
+export type TooltipContext = {
+  rowId: string;
+  colKey: string;
+  value: unknown;
+  signal: AbortSignal;
+};
+
+export type ColumnEditHooks = {
+  lookup?: {
+    fetchCandidates(ctx: LookupQueryContext): Promise<readonly LookupCandidate[]>;
+    toStoredValue?(candidate: LookupCandidate): unknown;
+    debounceMs?: number;
+    recentLookup?: boolean;  // Default: true. Show recently selected items first.
+    allowFreeInput?: boolean;  // Default: false. Allow freetext input even without matching candidate.
+  };
+
+  externalEditor?: {
+    open(ctx: ExternalEditorContext): Promise<ExternalEditResult>;
+  };
+};
+
+export type ColumnTooltipHook = {
+  getText(ctx: TooltipContext): TooltipTextResult;
+};
+
 export type CellValue =
   | CellPrimitive
   | Date
   | { kind: "enum"; value: string }
   | { kind: "tags"; values: string[] }
+  | LookupCellValue
+  | LabeledValue
   | ButtonValue
   | LinkValue;
 
 export type ColumnType =
   | "string"
+  | "labeled"
   | "number"
   | "int"
   | "uint"
@@ -64,6 +129,8 @@ export type DateTimeFormat = string;
 
 export type ColumnFormat<TType extends ColumnType> = TType extends "string"
   ? StringFormat
+  : TType extends "labeled"
+    ? StringFormat
   : TType extends "number"
     ? NumberFormat
     : TType extends "int" | "uint"
@@ -130,6 +197,8 @@ export interface ColumnSchema<
   type: TType;
   header?: string;
   readonly?: boolean;
+  edit?: ColumnEditHooks;
+  tooltip?: ColumnTooltipHook;
   /**
    * When true, enforce uniqueness within this column (per table).
    * Duplicate (non-empty) values mark all duplicated cells as invalid.

@@ -99,6 +99,16 @@ Double-click (or press F2) to enter edit mode without replacing content:
 | **Ctrl+C** | Copy selected text |
 | **Ctrl+V** | Paste into edit cell |
 
+## Rich Editing Integrations
+
+Extable supports "rich editing" behaviors via schema hooks:
+
+- **Remote lookup (typeahead):** show a dropdown while typing and store a structured value with a stable ID.
+- **External editor delegation:** open your own modal/editor UI and commit/cancel via a Promise result.
+- **Hover tooltips (async):** compute tooltip text on hover, synchronously or asynchronously.
+
+See the interactive demo: [Rich Editing (Lookup / External Editor / Tooltip)](/demos/rich-editing-remote)
+
 ## Navigation Between Cells
 
 ### Arrow Keys

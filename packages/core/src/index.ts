@@ -1883,7 +1883,10 @@ export function createTablePlaceholder<T extends object = Record<string, unknown
   return core;
 }
 
-export function mountTable(target: HTMLElement, core: ExtableCore) {
+export function mountTable<T extends object = Record<string, unknown>, R extends object = T>(
+  target: HTMLElement,
+  core: ExtableCore<T, R>,
+) {
   core.remount(target);
   return core;
 }

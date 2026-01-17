@@ -10,7 +10,7 @@ Extableは多様なデータ型をサポートし、それぞれ検証ルール�
 {
   key: 'columnName',           // 列の一意キー
   header: 'Display Label',     // 表示ラベル
-  type: 'string' | 'number' | 'int' | 'uint' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum' | 'tags' | 'button' | 'link',
+  type: 'string' | 'number' | 'int' | 'uint' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum' | 'tags' | 'labeled' | 'button' | 'link',
   width?: number,              // 任意: 列幅（px）
   readonly?: boolean,          // 任意: 編集禁止
   nullable?: boolean,          // 任意: 空/Null可
@@ -285,6 +285,36 @@ const schema = defineSchema<Row>({
 **検証:**
 - `options`外の値はエラー
 - 大文字小文字は区別
+### Labeled
+
+`label`（表示テキスト）と`value`（保存値）のペア。ユーザーフレンドリーな名前を表示しながら、技術識別子を内部に保存する必要がある場合に便利です。
+
+```typescript
+{
+  key: 'assignee',
+  header: '担当者',
+  type: 'labeled',
+  edit: {
+    lookup: {
+      fetchCandidates: async ({ query, rowId, colKey, signal }) => [
+        { label: 'Alice Smith', value: 'user_123' },
+        { label: 'Bob Jones', value: 'user_456' },
+        { label: 'Carol White', value: 'user_789' }
+      ]
+    }
+  }
+}
+```
+
+**保存形式:**
+- 内部では `{ label: string; value: unknown }` として保存
+- 例: `{ label: 'Alice Smith', value: 'user_123' }`
+- 表示: `label`のみユーザーに表示されます
+
+**操作:**
+- セルをクリックして候補を表示・選択
+- ドロップダウンではラベルと値を表示（ラベルで表示）
+- ユーザーはラベルを見て、値は内部保存
 
 ### Tags（タグリスト）
 
@@ -444,6 +474,115 @@ JavaScript関数で計算列を定義します。詳細は[数式ガイド](/ja/
   formula: (row) => row.price * row.quantity  // 計算結果
 }
 ```
+
+## 編集フック
+
+編集フックでセルの編集方法を設定します。任意の列型に適用でき、動的な候補選択（Lookup）またはカスタムインターフェースへの編集委譲（外部エディタ）を有効にします。
+
+### Lookup
+
+非同期に取得した候補から動的に単一選択。オートコンプリート、リモートAPI参照、マルチユーザーシナリオに対応します。Lookupは**任意**の列型に適用可能です。
+
+```typescript
+{
+  key: 'assignee',
+  header: '担当者',
+  type: 'string',  // Lookupは任意の型で使用可能
+  edit: {
+    lookup: {
+      fetchCandidates: async ({ query, rowId, colKey, signal }) => {
+        // リモートAPI、データベース、またはメモリ内リストから取得
+        const res = await fetch(
+          `/api/users?search=${encodeURIComponent(query)}`,
+          { signal }
+        );
+        return res.json();
+        // 想定: { label: string; value: unknown; meta?: any }[]
+      },
+      debounceMs: 250,                    // オプション: 取得までの遅延（デフォルト: 250ms）
+      recentLookup: true,                 // オプション: 最近選択した値を先頭に表示（デフォルト: true）
+      allowFreeInput: false,              // オプション: 候補以外の自由入力を許可（デフォルト: false）
+      toStoredValue: (candidate) => candidate.value  // オプション: 候補を保存値に変換
+    }
+  }
+}
+```
+
+**オプション:**
+
+- **fetchCandidates** （必須）
+  - `query`（ユーザー入力）、`rowId`、`colKey`、`signal`（AbortSignal）で呼び出し
+  - `{ label: string; value: unknown; meta?: any }[]` 配列を返す
+  - **重要**: `query`が空のとき、すべての候補を返す（初期ドロップダウン表示用）
+  - ユーザーが入力したら、クエリに基づいてフィルタ/取得
+
+- **debounceMs** （オプション、デフォルト: 250）
+  - ユーザー入力後、`fetchCandidates`を呼び出すまでの遅延（ミリ秒）
+  - 過度なAPI呼び出しを避けるのに有用
+
+- **recentLookup** （オプション、デフォルト: true）
+  - `true`の場合、セル行で最後に選択した候補を候補リストの先頭に表示し、ドロップダウンで `[recent]` ラベルが付く
+  - 列ごとに履歴が管理され、同じ値を繰り返し選択する場合に効率的
+  - `[recent]` ラベルは表示のみで、保存される値には影響しない
+
+- **allowFreeInput** （オプション、デフォルト: false）
+  - `true`の場合、候補に完全一致しない値も入力・コミット可能
+  - `false`（デフォルト）の場合、候補リストから必ず選択
+  - 自動コミット: `allowFreeInput`が`false`で候補が1つに絞られると自動確定。`allowFreeInput`が`true`の場合は自動確定は無効化
+
+- **toStoredValue** （オプション）
+  - `fetchCandidates`が返す候補オブジェクトを実際に保存する値に変換
+  - 例: `candidate => candidate.id` で `id` フィールドを保存
+
+**ユーザー操作:**
+- セルをクリックして候補ドロップダウン表示（選択モードまたはインライン編集）
+- 入力してフィルタ（デバウンス遅延付き）
+- 矢印キーで移動、Enterで選択、Escapeで閉じる
+- **自動コミット** （`allowFreeInput === false`のみ）: 候補が複数から1つに絞られると自動的に確定
+- **自由入力** （`allowFreeInput === true`のみ）: 候補を選択せずにEnterキーを押すと、入力されたテキストをそのままコミット
+
+### 外部エディタ
+
+セル編集をカスタムモーダル、フォーム、または外部インターフェイスに委譲。複雑な編集（リッチテキスト、多フィールドフォーム、コードエディタなど）に便利です。任意の列型に適用可能。
+
+```typescript
+{
+  key: 'description',
+  header: '説明',
+  type: 'string',
+  edit: {
+    externalEditor: {
+      open: async ({ rowId, colKey, currentValue, signal }) => {
+        // カスタムUI（モーダル、ダイアログ、外部ウィンドウなど）を開く
+        const newValue = await showCustomEditor({
+          title: '説明を編集',
+          initialValue: currentValue,
+          signal
+        });
+        // 結果を返す
+        return {
+          kind: 'commit',  // または 'cancel'
+          value: newValue
+        };
+      }
+    }
+  }
+}
+```
+
+**動作:**
+- セルクリックではインラインエディタを開かず、`open()`関数をトリガー
+- 関数は現在値を受け取り、`{ kind, value }`を返す
+- `kind: 'commit'` → `value`をセルに書き込み
+- `kind: 'cancel'` → 変更を破棄、元の値を保持
+- 外部UIは選択モードのまま、その後は通常のナビゲーションに戻る
+
+**ユースケース:**
+- **リッチテキストエディタ**: WYSIWYG エディタ（Quill、TipTapなど）をHTMLコンテンツ用に開く
+- **マルチフィールドフォーム**: 複雑なオブジェクトを複数フィールドで編集
+- **コードエディタ**: JSON、SQL、またはカスタムコードを編集
+- **ファイル/画像ピッカー**: メディアをアップロードまたは選択
+- **カスタムワークフロー**: 追加オプション付きの日付ピッカー、アドレスジオコーディングなど
 
 ## 完全な例
 

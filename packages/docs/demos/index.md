@@ -24,6 +24,7 @@ Explore individual features with focused demos:
 
 - **[Readonly Mode →](/demos/readonly-mode)** - Display-only tables with no editing
 - **[Commit Mode →](/demos/commit-mode)** - Stage edits before submission
+- **[Rich Editing →](/demos/rich-editing-remote)** - Remote lookup, external editor delegation, and async tooltips
 
 ### Display & Formatting & Validation
 
@@ -79,13 +80,13 @@ Access at:
 
 Each demo includes:
 
-✅ **Multiple Data Types** - strings, numbers, dates, booleans, enums, tags  
-✅ **Formula & Validation** - computed columns, custom validation, error display  
-✅ **Conditional Formatting** - dynamic styling based on cell values  
-✅ **Unique Constraints** - prevent duplicate values  
-✅ **Multi-user Editing** - concurrent edits with row-level locking  
-✅ **Sort & Filter** - column-level filtering and sorting  
-✅ **Performance** - test with 1K to 10K rows  
+✅ **Multiple Data Types** - strings, numbers, dates, booleans, enums, tags
+✅ **Formula & Validation** - computed columns, custom validation, error display
+✅ **Conditional Formatting** - dynamic styling based on cell values
+✅ **Unique Constraints** - prevent duplicate values
+✅ **Multi-user Editing** - concurrent edits with row-level locking
+✅ **Sort & Filter** - column-level filtering and sorting
+✅ **Performance** - test with 1K to 10K rows
 
 ## Learning Path
 

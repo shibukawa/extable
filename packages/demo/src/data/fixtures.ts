@@ -77,7 +77,7 @@ export const demoSchema = {
     { key: 'date', header: 'Date', type: 'date', width: 120 },
     { key: 'time', header: 'Time', type: 'time', width: 100 },
     { key: 'datetime', header: 'DateTime', type: 'datetime', width: 180 },
-    { key: 'role', header: 'Role', type: 'enum', enum: { options: ['viewer', 'editor', 'owner'] }, width: 120 },
+    { key: 'role', header: 'Role', type: 'string', edit: { lookup: { async fetchCandidates({ query }) { const options = ['viewer', 'editor', 'owner']; const filtered = options.filter(o => o.toLowerCase().includes(query.toLowerCase())); return filtered.map(value => ({ label: value, value })); } } }, width: 120 },
     { key: 'tags', header: 'Tags', type: 'tags', tags: { options: ['alpha', 'beta', 'priority'] }, width: 140 },
     { key: 'score', header: 'Score', type: 'number', format: { precision: 6, scale: 2 }, style: { align: 'right' }, width: 100 },
     { key: 'description', header: 'Description', type: 'string', width: 260, wrapText: true },

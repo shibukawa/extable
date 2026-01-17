@@ -14,6 +14,7 @@ import UniqueConstraintDemo from "../../components/UniqueConstraintDemo.vue";
 import FilterSupportDemo from "../../components/FilterSupportDemo.vue";
 import NumberFormatsDemo from "../../components/NumberFormatsDemo.vue";
 import SsrCompareDemo from "../../components/SsrCompareDemo.vue";
+import RichEditingRemoteDemo from "../../components/RichEditingRemoteDemo.vue";
 import { enhanceAppWithTabs } from "vitepress-plugin-tabs/client";
 import HomeLayout from "./layouts/home.vue";
 
@@ -38,6 +39,7 @@ export default {
     app.component("FilterSupportDemo", FilterSupportDemo);
     app.component("NumberFormatsDemo", NumberFormatsDemo);
     app.component("SsrCompareDemo", SsrCompareDemo);
+    app.component("RichEditingRemoteDemo", RichEditingRemoteDemo);
 
     // Inject hero screenshot background style
     const id = "extable-hero-screenshot";
