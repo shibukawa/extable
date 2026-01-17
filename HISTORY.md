@@ -1,6 +1,6 @@
 # History
 
-## UnReleased
+## 0.3.5
 
 ### Added
 
