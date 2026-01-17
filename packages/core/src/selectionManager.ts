@@ -851,7 +851,7 @@ export class SelectionManager {
     let lastFetchedCandidateCount = -1;
     const debounceMs = hook.debounceMs ?? 250;
 
-    const schedule = () => {
+    const schedule = (immediate = false) => {
       const query = input.value;
       if (this.lookupDebounceTimer) {
         window.clearTimeout(this.lookupDebounceTimer);
@@ -863,7 +863,8 @@ export class SelectionManager {
 
       const requestId = this.lookupRequestId;
       const prevCandidateCount = lastFetchedCandidateCount;
-      this.lookupDebounceTimer = window.setTimeout(() => {
+      
+      const executeFetch = () => {
         this.lookupDebounceTimer = null;
         const controller = new AbortController();
         this.lookupAbort = controller;
@@ -910,13 +911,19 @@ export class SelectionManager {
             this.hideLookupDropdown();
             this.showCopyToast("Lookup failed", "error", 1800);
           });
-      }, debounceMs);
+      };
+      
+      if (immediate) {
+        executeFetch();
+      } else {
+        this.lookupDebounceTimer = window.setTimeout(executeFetch, debounceMs);
+      }
     };
 
     input.addEventListener("input", schedule);
     this.lookupInputCleanup = () => input.removeEventListener("input", schedule);
-    // Kick off the initial fetch for the existing text
-    schedule();
+    // Kick off the initial fetch immediately (no debounce)
+    schedule(true);
   }
 
   private teardownLookupEditor() {
