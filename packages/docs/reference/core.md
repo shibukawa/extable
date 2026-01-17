@@ -95,6 +95,51 @@ For examples (including `0b`/`0o`/`0x` input and scientific notation like `1e3`)
 - [Data Format Guide](/guides/data-format#number)
 - [Numeric Formats demo](/demos/number-formats)
 
+### Rich editing hooks (lookup / external editor / tooltip)
+
+Extable supports richer editing behaviors via per-column hooks:
+
+- `column.edit.lookup.fetchCandidates(...)`: async typeahead candidate fetching.
+- `column.edit.externalEditor.open(...)`: delegate editing to your own UI and return a Promise result.
+- `column.tooltip.getText(...)`: provide hover tooltip text (sync or async).
+
+#### Remote lookup
+
+When a candidate is selected, Extable commits a structured value (so re-render does not require re-fetch):
+
+```ts
+{ kind: "lookup", label: string, value: string, meta?: unknown }
+```
+
+Rendering uses `label`. For debugging and automation, the table also exposes a raw value derived from the stored `value`.
+
+See the demo: [Rich Editing](/demos/rich-editing-remote)
+
+#### External editor delegation
+
+```ts
+edit: {
+  externalEditor: {
+    open: async ({ rowId, colKey, currentValue }) => {
+      // Open your UI, then return:
+      // - { kind: "commit", value: nextValue }
+      // - { kind: "cancel" }
+      return { kind: "cancel" };
+    },
+  },
+}
+```
+
+#### Tooltip text
+
+```ts
+tooltip: {
+  getText: async ({ currentValue }) => {
+    return currentValue ? String(currentValue) : null;
+  },
+}
+```
+
 #### `setSchema(schema: Schema<T, R>)`
 Update the table schema dynamically. Triggers re-validation and re-render.
 

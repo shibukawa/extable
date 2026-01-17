@@ -95,6 +95,51 @@ IDまたはインデックスで行を取得します。
 - [データフォーマットガイド](/ja/guides/data-format#number)
 - [数値フォーマットデモ](/ja/demos/number-formats)
 
+### リッチ編集フック（lookup / 外部エディタ / ツールチップ）
+
+列ごとのフックで、より高度な編集連携が可能です。
+
+- `column.edit.lookup.fetchCandidates(...)`: 入力中に候補を非同期取得するタイプアヘッド
+- `column.edit.externalEditor.open(...)`: 外部UIへ編集を委譲し、Promiseの結果で確定/キャンセル
+- `column.tooltip.getText(...)`: ホバー時のツールチップ文字列（同期/非同期）
+
+#### リモートLookup
+
+候補選択時は、再描画時に再取得が不要なように構造化値をコミットします。
+
+```ts
+{ kind: "lookup", label: string, value: string, meta?: unknown }
+```
+
+表示は `label` を利用します。デバッグ/自動化向けに、保存した `value` から導出した raw 値も扱えます。
+
+デモ: [リッチ編集](/ja/demos/rich-editing-remote)
+
+#### 外部エディタ委譲
+
+```ts
+edit: {
+  externalEditor: {
+    open: async ({ rowId, colKey, currentValue }) => {
+      // UIを開いて、以下を返します:
+      // - { kind: "commit", value: nextValue }
+      // - { kind: "cancel" }
+      return { kind: "cancel" };
+    },
+  },
+}
+```
+
+#### ツールチップ文字列
+
+```ts
+tooltip: {
+  getText: async ({ currentValue }) => {
+    return currentValue ? String(currentValue) : null;
+  },
+}
+```
+
 #### `setSchema(schema: Schema<T, R>)`
 スキーマを更新し、再検証/再描画を行います。
 

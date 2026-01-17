@@ -1,5 +1,17 @@
 # History
 
+## UnReleased
+
+### Added
+
+- Rich editing schema hooks: remote lookup (label/value separation), async tooltip text, and external editor delegation.
+- New `lookup` cell value kind which renders its `label` while preserving a stored `value`.
+- New `labeled` column type that stores values as `{ label, value }` and renders/copies the `label`.
+
+### Changed
+
+- Cleanup codes
+
 ## 0.3.4
 
 ### Added

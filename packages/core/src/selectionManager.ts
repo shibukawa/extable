@@ -1,4 +1,4 @@
-import type { CellAction, Command, EditMode, SelectionRange } from "./types";
+import type { CellAction, Command, EditMode, LookupCandidate, SelectionRange } from "./types";
 import type { DataModel } from "./dataModel";
 import {
   coerceNumericForColumn,
@@ -66,6 +66,24 @@ export class SelectionManager {
   private selectionInput: HTMLInputElement | null = null;
   private copyToastEl: HTMLDivElement | null = null;
   private copyToastTimer: number | null = null;
+
+  private lookupDropdownEl: HTMLDivElement | null = null;
+  private lookupDropdownTarget: { rowId: string; colKey: string } | null = null;
+  private lookupCandidates: readonly LookupCandidate[] = [];
+  private lookupHighlightIndex = -1;
+  private lookupRequestId = 0;
+  private lookupAbort: AbortController | null = null;
+  private lookupDebounceTimer: number | null = null;
+  private lookupInputCleanup: (() => void) | null = null;
+
+  private hoverTooltipEl: HTMLDivElement | null = null;
+  private hoverTooltipTarget: { rowId: string; colKey: string } | null = null;
+  private hoverTooltipMessage: string | null = null;
+  private hoverTooltipRequestId = 0;
+  private hoverTooltipAbort: AbortController | null = null;
+
+  private externalEditInFlight = false;
+  private externalEditRequestId = 0;
   private selectionMode = true;
   private lastBooleanCell: { rowId: string; colKey: string } | null = null;
   private selectionAnchor: { rowIndex: number; colIndex: number } | null = null;
@@ -291,6 +309,7 @@ export class SelectionManager {
     this.root.removeEventListener("pointermove", this.handlePointerMove);
     this.root.removeEventListener("pointerup", this.handlePointerUp);
     this.root.removeEventListener("pointercancel", this.handlePointerUp);
+    this.root.removeEventListener("pointerleave", this.handlePointerLeave);
     this.root.removeEventListener("keydown", this.handleRootKeydown);
     if (this.handleDocumentContextMenu) {
       document.removeEventListener("contextmenu", this.handleDocumentContextMenu, true);
@@ -298,6 +317,10 @@ export class SelectionManager {
     this.teardownInput(true);
     this.teardownSelectionInput();
     this.teardownCopyToast();
+    removeFromParent(this.lookupDropdownEl);
+    this.lookupDropdownEl = null;
+    this.hideHoverTooltip();
+    this.teardownHoverTooltip();
     this.stopAutoScroll();
   }
 
@@ -306,6 +329,8 @@ export class SelectionManager {
     void scrollTop;
     void scrollLeft;
     this.positionCopyToast();
+    this.refreshHoverTooltipPosition();
+    this.refreshLookupDropdownPosition();
   }
 
   private bind() {
@@ -314,6 +339,7 @@ export class SelectionManager {
     this.root.addEventListener("pointermove", this.handlePointerMove);
     this.root.addEventListener("pointerup", this.handlePointerUp);
     this.root.addEventListener("pointercancel", this.handlePointerUp);
+    this.root.addEventListener("pointerleave", this.handlePointerLeave);
     this.root.addEventListener("keydown", this.handleRootKeydown);
     this.handleDocumentContextMenu = (ev: MouseEvent) => this.handleContextMenu(ev);
     document.addEventListener("contextmenu", this.handleDocumentContextMenu, { capture: true });
@@ -462,6 +488,456 @@ export class SelectionManager {
     }, durationMs);
   }
 
+  private ensureHoverTooltip() {
+    if (this.hoverTooltipEl) return this.hoverTooltipEl;
+    // Ensure a positioning context.
+    const computed = window.getComputedStyle(this.root);
+    if (computed.position === "static") {
+      this.root.style.position = "relative";
+    }
+    const tip = document.createElement("div");
+    tip.className = "extable-tooltip";
+    tip.dataset.visible = "0";
+    tip.style.position = "absolute";
+    tip.style.left = "0";
+    tip.style.top = "0";
+    tip.style.pointerEvents = "none";
+    tip.style.zIndex = "1000";
+    this.root.appendChild(tip);
+    this.hoverTooltipEl = tip;
+    return tip;
+  }
+
+  private teardownHoverTooltip() {
+    this.hoverTooltipAbort?.abort();
+    this.hoverTooltipAbort = null;
+    this.hoverTooltipRequestId += 1;
+    this.hoverTooltipTarget = null;
+    this.hoverTooltipMessage = null;
+    removeFromParent(this.hoverTooltipEl);
+    this.hoverTooltipEl = null;
+  }
+
+  private hideHoverTooltip() {
+    if (this.hoverTooltipEl) this.hoverTooltipEl.dataset.visible = "0";
+    this.hoverTooltipTarget = null;
+    this.hoverTooltipMessage = null;
+    this.hoverTooltipAbort?.abort();
+    this.hoverTooltipAbort = null;
+    this.hoverTooltipRequestId += 1;
+  }
+
+  private getCellRect(rowId: string, colKey: string): DOMRect | null {
+    const cell = this.findHtmlCellElement(rowId, colKey);
+    if (cell) return cell.getBoundingClientRect();
+    return this.computeCanvasCellRect(rowId, colKey);
+  }
+
+  private positionTooltipAtRect(rect: DOMRect) {
+    const tip = this.hoverTooltipEl;
+    if (!tip) return;
+    const pad = 8;
+    const rootRect = this.root.getBoundingClientRect();
+    const maxW = this.root.clientWidth;
+    const maxH = this.root.clientHeight;
+    let left = rect.right - rootRect.left + pad;
+    let top = rect.top - rootRect.top + pad;
+    let side: "right" | "left" = "right";
+    const tRect = tip.getBoundingClientRect();
+    if (left + tRect.width > maxW) {
+      left = Math.max(0, rect.left - rootRect.left - tRect.width - pad);
+      side = "left";
+    }
+    if (top + tRect.height > maxH) top = Math.max(0, maxH - tRect.height - pad);
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
+    tip.dataset.side = side;
+  }
+
+  private refreshHoverTooltipPosition() {
+    const tip = this.hoverTooltipEl;
+    if (!tip || tip.dataset.visible !== "1") return;
+    if (!this.hoverTooltipTarget || !this.hoverTooltipMessage) return;
+    const rect = this.getCellRect(this.hoverTooltipTarget.rowId, this.hoverTooltipTarget.colKey);
+    if (!rect) {
+      this.hideHoverTooltip();
+      return;
+    }
+    tip.textContent = this.hoverTooltipMessage;
+    this.positionTooltipAtRect(rect);
+  }
+
+  private updateHoverTooltip(ev: PointerEvent) {
+    if (this.inputEl) {
+      this.hideHoverTooltip();
+      return;
+    }
+    const hit = this.hitTest(ev as unknown as MouseEvent);
+    if (!hit || hit.colKey === null || hit.colKey === "__all__" || hit.rowId === "__header__") {
+      this.hideHoverTooltip();
+      return;
+    }
+    const colKey = String(hit.colKey);
+    const rowId = hit.rowId;
+    // Keep existing marker tooltips (HTML: CSS, Canvas: renderer).
+    const marker = this.dataModel.getCellMarker(rowId, colKey);
+    if (marker) {
+      this.hideHoverTooltip();
+      return;
+    }
+    const col = this.findColumn(colKey);
+    const getText = col?.tooltip?.getText;
+    if (!getText) {
+      this.hideHoverTooltip();
+      return;
+    }
+
+    const sameTarget =
+      this.hoverTooltipTarget?.rowId === rowId && this.hoverTooltipTarget?.colKey === colKey;
+    if (sameTarget && this.hoverTooltipMessage) {
+      const tip = this.ensureHoverTooltip();
+      tip.textContent = this.hoverTooltipMessage;
+      this.positionTooltipAtRect(hit.rect);
+      tip.dataset.visible = "1";
+      return;
+    }
+
+    this.hoverTooltipAbort?.abort();
+    const controller = new AbortController();
+    this.hoverTooltipAbort = controller;
+    const requestId = (this.hoverTooltipRequestId += 1);
+    this.hoverTooltipTarget = { rowId, colKey };
+    this.hoverTooltipMessage = null;
+    const value = this.dataModel.getCell(rowId, colKey);
+
+    const applyText = (text: string | null) => {
+      if (requestId !== this.hoverTooltipRequestId) return;
+      if (controller.signal.aborted) return;
+      if (!text) {
+        this.hideHoverTooltip();
+        return;
+      }
+      const tip = this.ensureHoverTooltip();
+      this.hoverTooltipMessage = text;
+      tip.textContent = text;
+      this.positionTooltipAtRect(hit.rect);
+      tip.dataset.visible = "1";
+    };
+
+    try {
+      const res = getText({ rowId, colKey, value, signal: controller.signal });
+      if (res && typeof (res as Promise<unknown>).then === "function") {
+        void (res as Promise<string | null>).then(applyText).catch((err) => {
+          if (requestId !== this.hoverTooltipRequestId) return;
+          if (controller.signal.aborted) return;
+          void err;
+          this.hideHoverTooltip();
+          this.showCopyToast("Tooltip failed", "error", 1800);
+        });
+      } else {
+        applyText(res as string | null);
+      }
+    } catch (err) {
+      void err;
+      this.hideHoverTooltip();
+      this.showCopyToast("Tooltip failed", "error", 1800);
+    }
+  }
+
+  private ensureLookupDropdown() {
+    if (this.lookupDropdownEl) {
+      return this.lookupDropdownEl;
+    }
+    const computed = window.getComputedStyle(this.root);
+    if (computed.position === "static") {
+      this.root.style.position = "relative";
+    }
+    const el = document.createElement("div");
+    el.className = "extable-lookup-dropdown";
+    el.dataset.visible = "0";
+    el.style.position = "absolute";
+    el.style.left = "0";
+    el.style.top = "0";
+    el.style.zIndex = "1001";
+    el.style.display = "none";
+    el.style.pointerEvents = "auto";
+    this.root.appendChild(el);
+    this.lookupDropdownEl = el;
+    return el;
+  }
+
+  private hideLookupDropdown() {
+    const el = this.lookupDropdownEl;
+    if (!el) return;
+    el.dataset.visible = "0";
+    el.style.display = "none";
+    el.replaceChildren();
+    this.lookupCandidates = [];
+    this.lookupHighlightIndex = -1;
+  }
+
+  private refreshLookupDropdownPosition() {
+    const el = this.lookupDropdownEl;
+    if (!el || el.dataset.visible !== "1") return;
+    const target = this.lookupDropdownTarget;
+    if (!target) {
+      this.hideLookupDropdown();
+      return;
+    }
+    const rect = this.getCellRect(target.rowId, target.colKey);
+    if (!rect) {
+      this.hideLookupDropdown();
+      return;
+    }
+    const rootRect = this.root.getBoundingClientRect();
+    el.style.left = `${rect.left - rootRect.left}px`;
+    el.style.top = `${rect.bottom - rootRect.top + 2}px`;
+    el.style.minWidth = `${Math.max(120, rect.width)}px`;
+  }
+
+  private renderLookupDropdown() {
+    const el = this.ensureLookupDropdown();
+    const items = this.lookupCandidates;
+    if (!items.length || !this.lookupDropdownTarget) {
+      this.hideLookupDropdown();
+      return;
+    }
+    el.replaceChildren();
+    items.forEach((c, index) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "extable-lookup-option";
+      btn.dataset.index = String(index);
+      btn.dataset.active = index === this.lookupHighlightIndex ? "1" : "0";
+      btn.textContent = c.label;
+      btn.style.pointerEvents = "auto";
+      btn.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.commitLookupCandidate(index);
+      });
+      el.appendChild(btn);
+    });
+    el.dataset.visible = "1";
+    el.style.display = "block";
+    el.style.zIndex = "1001";
+    el.style.pointerEvents = "auto";
+    this.refreshLookupDropdownPosition();
+  }
+
+  private commitLookupCandidate(index: number) {
+    const target = this.lookupDropdownTarget;
+    if (!target) {
+      return;
+    }
+    const col = this.findColumn(target.colKey);
+    const hook = col?.edit?.lookup;
+    if (!hook) {
+      return;
+    }
+    const candidate = this.lookupCandidates[index];
+    if (!candidate) {
+      return;
+    }
+    const stored = hook.toStoredValue
+      ? hook.toStoredValue(candidate)
+      : col?.type === "labeled"
+        ? { label: candidate.label, value: candidate.value }
+        : { kind: "lookup", label: candidate.label, value: candidate.value, meta: candidate.meta };
+    // Hide lookup dropdown before teardown to prevent input event interference
+    this.hideLookupDropdown();
+    // Teardown current input editor
+    this.teardownInput(false);
+    // Commit edit to data model
+    this.commitEdit(target.rowId, target.colKey, stored);
+    // Notify listeners of move
+    this.onMove(target.rowId);
+    // Delay focusSelectionInput to ensure all synchronous processing (including external render) completes first
+    requestAnimationFrame(() => {
+      // Verify we're still on the same cell
+      if (this.activeCell?.rowId === target.rowId && this.activeCell?.colKey === target.colKey) {
+        // Show the committed label, not the partial input text
+        this.focusSelectionInput(candidate.label);
+      } else {
+      }
+    });
+  }
+
+  private setupLookupEditor(
+    rowId: string,
+    colKey: string,
+    input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  ) {
+    this.teardownLookupEditor();
+    const col = this.findColumn(colKey);
+    const hook = col?.edit?.lookup;
+    if (!hook) {
+      return;
+    }
+    if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+      return;
+    }
+
+    this.lookupDropdownTarget = { rowId, colKey };
+
+    let lastFetchedCandidateCount = -1;
+    const debounceMs = hook.debounceMs ?? 250;
+
+    const schedule = () => {
+      const query = input.value;
+      if (this.lookupDebounceTimer) {
+        window.clearTimeout(this.lookupDebounceTimer);
+        this.lookupDebounceTimer = null;
+      }
+      this.lookupAbort?.abort();
+      this.lookupAbort = null;
+      this.lookupRequestId += 1;
+
+      const requestId = this.lookupRequestId;
+      const prevCandidateCount = lastFetchedCandidateCount;
+      this.lookupDebounceTimer = window.setTimeout(() => {
+        this.lookupDebounceTimer = null;
+        const controller = new AbortController();
+        this.lookupAbort = controller;
+        void hook
+          .fetchCandidates({ query, rowId, colKey, signal: controller.signal })
+          .then((candidates) => {
+            if (requestId !== this.lookupRequestId) return;
+            if (controller.signal.aborted) return;
+            if (!this.activeCell || this.activeCell.rowId !== rowId || this.activeCell.colKey !== colKey)
+              return;
+            lastFetchedCandidateCount = candidates.length;
+            // Auto-commit if narrowed down from multiple to exactly one
+            if (prevCandidateCount > 1 && candidates.length === 1) {
+              this.lookupCandidates = candidates;
+              this.lookupHighlightIndex = 0;
+              this.commitLookupCandidate(0);
+              return;
+            }
+            this.lookupCandidates = candidates;
+            this.lookupHighlightIndex = candidates.length ? 0 : -1;
+            this.renderLookupDropdown();
+          })
+          .catch((err) => {
+            if (requestId !== this.lookupRequestId) return;
+            if (controller.signal.aborted) return;
+            void err;
+            this.hideLookupDropdown();
+            this.showCopyToast("Lookup failed", "error", 1800);
+          });
+      }, debounceMs);
+    };
+
+    input.addEventListener("input", schedule);
+    this.lookupInputCleanup = () => input.removeEventListener("input", schedule);
+    // Kick off the initial fetch for the existing text.
+    schedule();
+  }
+
+  private teardownLookupEditor() {
+    if (this.lookupDebounceTimer) {
+      window.clearTimeout(this.lookupDebounceTimer);
+      this.lookupDebounceTimer = null;
+    }
+    this.lookupAbort?.abort();
+    this.lookupAbort = null;
+    this.lookupRequestId += 1;
+    this.lookupInputCleanup?.();
+    this.lookupInputCleanup = null;
+    this.lookupDropdownTarget = null;
+    this.hideLookupDropdown();
+  }
+
+  private handleLookupKeydown(e: KeyboardEvent): boolean {
+    const el = this.lookupDropdownEl;
+    if (!el || el.dataset.visible !== "1") return false;
+    if (!this.lookupCandidates.length) return false;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      this.lookupHighlightIndex = Math.min(
+        this.lookupCandidates.length - 1,
+        Math.max(0, this.lookupHighlightIndex + 1),
+      );
+      this.renderLookupDropdown();
+      return true;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      this.lookupHighlightIndex = Math.max(0, this.lookupHighlightIndex - 1);
+      this.renderLookupDropdown();
+      return true;
+    }
+    if (e.key === "Enter") {
+      if (this.lookupHighlightIndex >= 0) {
+        e.preventDefault();
+        this.commitLookupCandidate(this.lookupHighlightIndex);
+        return true;
+      }
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      this.hideLookupDropdown();
+      return true;
+    }
+    return false;
+  }
+
+  private tryStartExternalEditor(rowId: string, colKey: string): boolean {
+    const col = this.findColumn(colKey);
+    const open = col?.edit?.externalEditor?.open;
+    if (!open) return false;
+    if (this.editMode === "readonly") return true;
+    if (this.isCellReadonly(rowId, colKey)) return true;
+
+    if (this.externalEditInFlight) return true;
+
+    const requestId = (this.externalEditRequestId += 1);
+    this.externalEditInFlight = true;
+    const currentValue = this.dataModel.getCell(rowId, colKey);
+
+    // Ensure we stay in selection mode (no inline editor).
+    this.selectionMode = true;
+    try {
+      const currentText = this.cellToClipboardString(currentValue);
+      this.focusSelectionInput(currentText);
+    } catch {
+      // ignore
+    }
+
+    void open({ rowId, colKey, currentValue })
+      .then((res) => {
+        if (requestId !== this.externalEditRequestId) return;
+        this.externalEditInFlight = false;
+        if (!this.activeCell || this.activeCell.rowId !== rowId || this.activeCell.colKey !== colKey)
+          return;
+        if (res.kind === "commit") {
+          this.commitEdit(rowId, colKey, res.value);
+          const nextText = this.cellToClipboardString(res.value);
+          this.focusSelectionInput(nextText);
+        }
+        if (res.kind === "cancel") {
+          try {
+            const nextText = this.cellToClipboardString(currentValue);
+            this.focusSelectionInput(nextText);
+          } catch {
+            // ignore
+          }
+        }
+      })
+      .catch((err) => {
+        if (requestId !== this.externalEditRequestId) return;
+        this.externalEditInFlight = false;
+        void err;
+        this.showCopyToast("External editor failed", "error", 1800);
+      });
+
+    return true;
+  }
+
+  private handlePointerLeave = () => {
+    this.hideHoverTooltip();
+  };
+
   private ensureSelectionInput() {
     if (this.selectionInput) return this.selectionInput;
     const input = document.createElement("input");
@@ -482,13 +958,25 @@ export class SelectionManager {
     input.style.height = "1px";
     input.style.opacity = "0";
     input.style.pointerEvents = "none";
-    input.addEventListener("keydown", this.handleSelectionKeydown);
-    input.addEventListener("beforeinput", this.handleSelectionBeforeInput);
+    input.addEventListener("keydown", (e) => {
+      this.handleSelectionKeydown(e);
+    });
+    input.addEventListener("beforeinput", (e) => {
+      this.handleSelectionBeforeInput(e);
+    });
+    input.addEventListener("input", (e) => {
+    });
+    input.addEventListener("change", (e) => {
+    });
     input.addEventListener("compositionstart", this.handleSelectionCompositionStart);
     input.addEventListener("copy", this.handleSelectionCopy);
     input.addEventListener("cut", this.handleSelectionCut);
     input.addEventListener("paste", this.handleSelectionPaste);
-    input.addEventListener("blur", this.handleSelectionBlur);
+    input.addEventListener("blur", (e) => {
+      this.handleSelectionBlur();
+    });
+    input.addEventListener("focus", (e) => {
+    });
     // Keep the selection input inside the table container (root), but offscreen.
     this.root.appendChild(input);
     this.selectionInput = input;
@@ -510,6 +998,10 @@ export class SelectionManager {
     if (!this.activeCell) return;
     const { rowId, colKey } = this.activeCell;
     if (colKey === null) return;
+
+    if (this.tryStartExternalEditor(rowId, colKey)) {
+      return;
+    }
     const cell = this.findHtmlCellElement(rowId, colKey);
     if (cell) {
       this.activateCellElement(cell, rowId, colKey, options);
@@ -722,6 +1214,10 @@ export class SelectionManager {
     const el = ev.target as HTMLElement | null;
     if (el?.closest('button[data-extable-fs-open="1"]')) return;
     if (el?.closest(".extable-filter-sort-trigger")) return;
+    // Don't interfere with lookup dropdown button clicks
+    if (el?.closest('button.extable-lookup-option')) {
+      return;
+    }
     // Avoid starting a drag from inside an active editor.
     if (this.inputEl && ev.target && this.inputEl.contains(ev.target as Node)) return;
     // Commit current editor before starting a drag/select operation.
@@ -1044,7 +1540,10 @@ export class SelectionManager {
       this.updateFillDragFromClientPoint(ev.clientX, ev.clientY);
       return;
     }
-    if (!this.dragging || !this.dragStart) return;
+    if (!this.dragging || !this.dragStart) {
+      this.updateHoverTooltip(ev);
+      return;
+    }
     if (!this.dragMoved && this.pointerDownClient) {
       const dx = ev.clientX - this.pointerDownClient.x;
       const dy = ev.clientY - this.pointerDownClient.y;
@@ -1478,6 +1977,8 @@ export class SelectionManager {
       if (kind === "tags" && Array.isArray(obj.values)) {
         return obj.values.filter((x) => typeof x === "string").join(", ");
       }
+      if (kind === "lookup" && typeof obj.label === "string") return obj.label;
+      if (typeof obj.kind !== "string" && typeof obj.label === "string" && "value" in obj) return obj.label;
     }
     return String(value);
   }
@@ -1648,6 +2149,14 @@ export class SelectionManager {
 
   private createEditor(colKey: string, initial: string) {
     const col = this.findColumn(colKey);
+    if (col?.edit?.lookup) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = initial;
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      return { control: input, value: initial };
+    }
     const needsTextarea = col?.wrapText || initial.includes("\n");
     if (needsTextarea) {
       const ta = document.createElement("textarea");
@@ -1725,6 +2234,16 @@ export class SelectionManager {
     if (current === null || current === undefined) return "";
     const col = this.findColumn(colKey);
     if (!col) return String(current);
+
+    if (typeof current === "object") {
+      const obj = current as Record<string, unknown>;
+      if (obj.kind === "lookup" && typeof obj.label === "string") {
+        return obj.label;
+      }
+      if (typeof obj.kind !== "string" && typeof obj.label === "string" && "value" in obj) {
+        return obj.label;
+      }
+    }
 
     if ((col.type === "number" || col.type === "int" || col.type === "uint") && typeof current === "number") {
       if (col.type === "number") {
@@ -1809,10 +2328,14 @@ export class SelectionManager {
   }
 
   private handleClick = (ev: MouseEvent) => {
+    const el = ev.target as HTMLElement | null;
     if (ev.button !== 0) {
       return; // only left click starts edit/selection; right-click is handled by contextmenu
     }
-    const el = ev.target as HTMLElement | null;
+    // Allow clicks on lookup dropdown buttons to propagate
+    if (el?.closest('button.extable-lookup-option')) {
+      return;
+    }
     if (el?.closest('button[data-extable-fs-open="1"]')) {
       return;
     }
@@ -1831,7 +2354,6 @@ export class SelectionManager {
     const actionHit = this.hitAction ? this.hitAction(ev) : null;
     if (actionHit) {
       if ((globalThis as { __EXTABLE_DEBUG_ACTIONS?: boolean }).__EXTABLE_DEBUG_ACTIONS) {
-        console.log("[extable][canvas][action-click]", actionHit);
       }
       if (actionHit.kind === "tag-remove") {
         const removed = this.removeTagValue(actionHit.rowId, actionHit.colKey, actionHit.tagIndex);
@@ -1847,7 +2369,6 @@ export class SelectionManager {
         }
       }
     } else if ((globalThis as { __EXTABLE_DEBUG_ACTIONS?: boolean }).__EXTABLE_DEBUG_ACTIONS) {
-      console.log("[extable][canvas][action-click]", null);
     }
     const wasSameCell =
       this.selectionMode &&
@@ -1956,7 +2477,18 @@ export class SelectionManager {
     this.teardownInput(false);
     const current = this.dataModel.getCell(hit.rowId, hit.colKey);
     const currentText = this.cellToClipboardString(current);
-    this.focusSelectionInput(currentText);
+
+    // Setup Lookup in selection mode if column has lookup
+    const colForLookup = this.findColumn(hit.colKey);
+    if (colForLookup?.edit?.lookup) {
+      this.focusSelectionInput(currentText);
+      if (this.selectionInput) {
+        this.setupLookupEditor(hit.rowId, hit.colKey, this.selectionInput);
+      }
+    } else {
+      this.focusSelectionInput(currentText);
+    }
+
     if (wasSameCell) {
       this.selectionMode = false;
       this.teardownSelectionInput();
@@ -2203,16 +2735,28 @@ export class SelectionManager {
     input.style.width = "100%";
     input.style.boxSizing = "border-box";
     input.style.margin = "0";
-    input.style.padding = "0";
+    input.style.padding = isCheckbox ? "0" : "2px 4px";
     input.style.border = "none";
     input.style.borderRadius = "0";
     input.style.boxShadow = "none";
     input.style.background = "#fff";
+    input.style.color = "#000";
     input.style.outline = "none";
     input.style.fontSize = "14px";
     input.style.fontFamily = "inherit";
     input.style.lineHeight = "16px";
     input.style.fontWeight = "inherit";
+    // Safari-specific fixes
+    (input.style as any).WebkitAppearance = "none";
+    (input.style as any).WebkitBorderRadius = "0";
+    (input.style as any).WebkitBoxShadow = "none";
+    (input.style as any).WebkitUserSelect = "text";
+    (input.style as any).WebkitUserModify = "read-write";
+    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+      input.style.visibility = "visible";
+      input.style.opacity = "1";
+      input.style.display = "block";
+    }
     if (isCheckbox) {
       input.style.width = "auto";
       input.style.lineHeight = "normal";
@@ -2242,6 +2786,7 @@ export class SelectionManager {
       input.setSelectionRange(end, end);
     }
     this.inputEl = input;
+    this.setupLookupEditor(rowId, colKey, input);
   }
 
   private activateFloating(
@@ -2259,6 +2804,8 @@ export class SelectionManager {
     this.activeHost = wrapper;
     this.activeHostOriginalText = null;
     wrapper.style.position = "absolute";
+    wrapper.style.display = "block";
+    wrapper.style.visibility = "visible";
     wrapper.dataset.extableFloating = "fixed";
     wrapper.style.pointerEvents = "auto";
     wrapper.style.padding = "0";
@@ -2275,16 +2822,28 @@ export class SelectionManager {
     input.style.height = "100%";
     input.style.boxSizing = "border-box";
     input.style.margin = "0";
-    input.style.padding = "0";
+    input.style.padding = isCheckbox ? "0" : "2px 4px";
     input.style.border = "none";
     input.style.borderRadius = "0";
     input.style.boxShadow = "none";
     input.style.background = "#fff";
+    input.style.color = "#000";
     input.style.outline = "none";
     input.style.fontSize = "14px";
     input.style.fontFamily = "inherit";
     input.style.lineHeight = "16px";
     input.style.fontWeight = "inherit";
+    // Safari-specific fixes
+    (input.style as any).WebkitAppearance = "none";
+    (input.style as any).WebkitBorderRadius = "0";
+    (input.style as any).WebkitBoxShadow = "none";
+    (input.style as any).WebkitUserSelect = "text";
+    (input.style as any).WebkitUserModify = "read-write";
+    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+      input.style.visibility = "visible";
+      input.style.opacity = "1";
+      input.style.display = "block";
+    }
     if (isCheckbox) {
       input.style.width = "auto";
       input.style.height = "auto";
@@ -2323,6 +2882,7 @@ export class SelectionManager {
     }
     this.inputEl = input;
     this.floatingInputWrapper = wrapper;
+    this.setupLookupEditor(rowId, colKey, input);
   }
 
   private handleKey(e: KeyboardEvent, cell: HTMLElement) {
@@ -2330,6 +2890,7 @@ export class SelectionManager {
     const now = Date.now();
     if (e.isComposing || this.composing) return; // IME composing; ignore control keys
     if (now - this.lastCompositionEnd < 24) return; // absorb trailing key events right after IME commit
+    if (this.handleLookupKeydown(e)) return;
     const { rowId, colKey } = this.activeCell;
     if (colKey === null) return;
     const isTextarea = this.inputEl.tagName.toLowerCase() === "textarea";
@@ -2377,11 +2938,21 @@ export class SelectionManager {
 
   private commitEdit(rowId: string, colKey: string | null, value: unknown) {
     if (colKey === null) return;
+    const col = this.findColumn(colKey);
+    const normalized =
+      col?.type === "labeled"
+        ? value &&
+            typeof value === "object" &&
+            typeof (value as any).label === "string" &&
+            "value" in (value as any)
+          ? value
+          : { label: value === null || value === undefined ? "" : String(value), value: value ?? "" }
+        : value;
     const cmd: Command = {
       kind: "edit",
       rowId,
       colKey,
-      next: value,
+      next: normalized,
     };
     const commitNow = this.editMode === "direct";
     this.onEdit(cmd, commitNow);
@@ -2468,6 +3039,7 @@ export class SelectionManager {
   }
 
   private teardownInput(clearActive = false) {
+    this.teardownLookupEditor();
     removeFromParent(this.inputEl);
     removeFromParent(this.floatingInputWrapper);
     if (this.activeHost && this.activeHostOriginalText !== null) {
@@ -2482,6 +3054,7 @@ export class SelectionManager {
     if (clearActive) {
       this.activeCell = null;
       this.onActiveChange(null, null);
+      this.hideHoverTooltip();
     }
   }
 }

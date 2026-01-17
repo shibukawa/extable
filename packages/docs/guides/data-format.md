@@ -10,7 +10,7 @@ Every column in your schema requires:
 {
   key: 'columnName',           // Unique identifier for this column
   header: 'Display Label',     // User-visible header text
-  type: 'string' | 'number' | 'int' | 'uint' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum' | 'tags' | 'button' | 'link',
+  type: 'string' | 'number' | 'int' | 'uint' | 'boolean' | 'date' | 'time' | 'datetime' | 'enum' | 'tags' | 'labeled' | 'button' | 'link',
   width?: number,              // Optional: column width in pixels
   readonly?: boolean,          // Optional: prevent user edits
   nullable?: boolean,          // Optional: allow empty/null values
@@ -286,6 +286,37 @@ Single-select from a predefined list of options.
 - Values not in `options` are flagged as errors
 - Case-sensitive matching
 
+### Labeled
+
+A pair of `label` (display text) and `value` (stored value). Useful when you need to display user-friendly names while storing technical identifiers.
+
+```typescript
+{
+  key: 'assignee',
+  header: 'Assignee',
+  type: 'labeled',
+  edit: {
+    lookup: {
+      fetchCandidates: async ({ query, rowId, colKey, signal }) => [
+        { label: 'Alice Smith', value: 'user_123' },
+        { label: 'Bob Jones', value: 'user_456' },
+        { label: 'Carol White', value: 'user_789' }
+      ]
+    }
+  }
+}
+```
+
+**Storage:**
+- Internally stored as `{ label: string; value: unknown }`
+- Example: `{ label: 'Alice Smith', value: 'user_123' }`
+- Display: only the `label` is shown to the user
+
+**User Interaction:**
+- Click cell to view and select from candidates
+- Displays both label and value in dropdown (label as display)
+- User sees the label; value is stored internally
+
 ### Tags (Tag List)
 
 Multi-select from a predefined list of tag options.
@@ -444,6 +475,98 @@ Define computed columns using JavaScript functions. See [Formulas Guide](/guides
   formula: (row) => row.price * row.quantity  // Computed value
 }
 ```
+
+## Edit Hooks
+
+Edit hooks configure how cells are edited. They can be applied to any column type to enable dynamic candidate selection (Lookup) or delegate editing to external interfaces (External Editor).
+
+### Lookup
+
+Enable dynamic candidate selection from asynchronously fetched options. Powers autocomplete, remote API lookups, and multi-user scenarios. Lookup can be applied to **any** column type.
+
+```typescript
+{
+  key: 'assignee',
+  header: 'Assignee',
+  type: 'string',  // Lookup works with any type
+  edit: {
+    lookup: {
+      fetchCandidates: async ({ query, rowId, colKey, signal }) => {
+        // Fetch from remote API, database, or in-memory list
+        const res = await fetch(
+          `/api/users?search=${encodeURIComponent(query)}`,
+          { signal }
+        );
+        return res.json();
+        // Expected: { label: string; value: unknown; meta?: any }[]
+      },
+      debounceMs?: 250,  // Optional: delay before fetching (default: 250ms)
+      toStoredValue?: (candidate) => stored_value  // Optional: transform candidate
+    }
+  }
+}
+```
+
+**fetchCandidates Behavior:**
+- Called with `query` (user input text), `rowId`, `colKey`, and `signal` (AbortSignal)
+- Should return array of `{ label: string; value: unknown; meta?: any }`
+- **Important**: When `query` is empty, return all candidates (for initial dropdown display)
+- When user types, filter/fetch based on the query
+- Respects `debounceMs` to avoid excessive API calls
+
+**User Interaction:**
+- Click cell to open candidates dropdown (in selection mode or inline edit)
+- Type to filter candidates (with debounce delay)
+- Arrow keys to navigate; Enter to select; Escape to close
+- Auto-commits when candidates narrow from multiple to exactly one match
+
+**Auto-commit Logic:**
+- If user narrows results to exactly 1 candidate, it is automatically committed
+- Useful for fast data entry: user types enough to uniquely identify → auto-commits
+- Respects `debounceMs`: waits before checking candidate count
+
+### External Editor
+
+Delegate cell editing to a custom modal, form, or external interface. Useful for complex editing (rich text, multi-field forms, code editor, etc.). Can be applied to any column type.
+
+```typescript
+{
+  key: 'description',
+  header: 'Description',
+  type: 'string',
+  edit: {
+    externalEditor: {
+      open: async ({ rowId, colKey, currentValue, signal }) => {
+        // Open custom UI (modal, dialog, external window, etc.)
+        const newValue = await showCustomEditor({
+          title: 'Edit Description',
+          initialValue: currentValue,
+          signal
+        });
+        // Return result
+        return {
+          kind: 'commit',  // or 'cancel'
+          value: newValue
+        };
+      }
+    }
+  }
+}
+```
+
+**Behavior:**
+- Cell click does **not** open inline editor; instead triggers `open()` function
+- Function receives current value and should return `{ kind, value }`
+- `kind: 'commit'` → writes `value` to cell
+- `kind: 'cancel'` → discards changes, keeps original value
+- External UI remains in selection mode; user returns to normal navigation after
+
+**Use Cases:**
+- **Rich text editor**: Open WYSIWYG editor (e.g., Quill, TipTap) for HTML content
+- **Multi-field form**: Edit a complex object across multiple fields
+- **Code editor**: Edit JSON, SQL, or custom code
+- **File/image picker**: Upload or select media
+- **Custom workflow**: Date picker with additional options, address geocoding, etc.
 
 ## Complete Example
 

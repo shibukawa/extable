@@ -70,6 +70,7 @@ export default defineConfig({
               { text: "Filter/Sort", link: "/demos/filter-support" },
               { text: "Auto Fill", link: "/demos/auto-fill-sequence" },
               { text: "Async Data Loading", link: "/demos/async-data-loading" },
+              { text: "Rich Editing (Lookup/External Editor/Tooltip)", link: "/demos/rich-editing-remote" },
             ]},
             { text: "Modes", items: [
               { text: "Readonly Mode", link: "/demos/readonly-mode" },
@@ -153,6 +154,7 @@ export default defineConfig({
               { text: "フィルター/ソート", link: "/ja/demos/filter-support" },
               { text: "オートフィル", link: "/ja/demos/auto-fill-sequence" },
               { text: "非同期データ読み込み", link: "/ja/demos/async-data-loading" },
+              { text: "リッチ編集（Lookup/外部エディタ/ツールチップ）", link: "/ja/demos/rich-editing-remote" },
             ]},
             { text: "モード", items: [
               { text: "読み取り専用モード", link: "/ja/demos/readonly-mode" },

@@ -190,6 +190,15 @@ function resolveTagValues(value: unknown): string[] | null {
   return null;
 }
 
+function resolveLabeledText(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const obj = value as Record<string, unknown>;
+  // Avoid interfering with discriminated objects.
+  if (typeof obj.kind === "string") return null;
+  if (typeof obj.label === "string" && "value" in obj) return obj.label;
+  return null;
+}
+
 class FenwickTree {
   // 1-based BIT
   private tree: number[];
@@ -624,7 +633,7 @@ export class HTMLRenderer implements Renderer {
     }
     // variable row height based on measured content when wrap enabled
     const wrapAny = schema.columns.some((c) => view.wrapText?.[c.key] ?? c.wrapText);
-      if (wrapAny) {
+    if (wrapAny) {
       let maxHeight = this.defaultRowHeight;
       for (let idx = 0; idx < schema.columns.length; idx += 1) {
         const col = schema.columns[idx];
@@ -634,11 +643,7 @@ export class HTMLRenderer implements Renderer {
         const condRes = this.dataModel.resolveConditionalStyle(row.id, col);
         const textOverride =
           valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
-        const text = textOverride
-          ? "#ERROR"
-          : valueRes.value === null || valueRes.value === undefined
-            ? ""
-            : String(valueRes.value);
+        const text = textOverride ? "#ERROR" : this.formatValue(valueRes.value, col).text;
         const version = this.dataModel.getRowVersion(row.id);
         const key = `${row.id}|${col.key}|${version}|${width}|${text}`;
         const cached = this.measureCache.get(key);
@@ -748,6 +753,14 @@ export class HTMLRenderer implements Renderer {
 
   private formatValue(value: unknown, col: ColumnSchema): { text: string; color?: string } {
     if (value === null || value === undefined) return { text: "" };
+    if (typeof value === "object") {
+      const obj = value as Record<string, unknown>;
+      if (obj.kind === "lookup" && typeof obj.label === "string") {
+        return { text: obj.label };
+      }
+      const labeled = resolveLabeledText(value);
+      if (labeled !== null) return { text: labeled };
+    }
     if (col.type === "button") {
       const label = getButtonLabel(value);
       return { text: label || String(value) };
@@ -2190,6 +2203,14 @@ export class CanvasRenderer implements Renderer {
 
   private formatValue(value: unknown, col: ColumnSchema): { text: string; color?: string } {
     if (value === null || value === undefined) return { text: "" };
+    if (typeof value === "object") {
+      const obj = value as Record<string, unknown>;
+      if (obj.kind === "lookup" && typeof obj.label === "string") {
+        return { text: obj.label };
+      }
+      const labeled = resolveLabeledText(value);
+      if (labeled !== null) return { text: labeled };
+    }
     if (col.type === "button") {
       const label = getButtonLabel(value);
       return { text: label || String(value) };

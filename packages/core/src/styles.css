@@ -866,6 +866,42 @@
 
 /* Tooltip is defined at top-level to apply even when appended to <body>. */
 
+.extable-lookup-dropdown {
+  display: none;
+  max-width: 420px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 6px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(148, 163, 184, 0.55);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.22), 0 8px 12px rgba(0, 0, 0, 0.14);
+  backdrop-filter: blur(6px);
+}
+
+.extable-lookup-dropdown[data-visible="1"] {
+  display: block;
+}
+
+.extable-lookup-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.extable-lookup-option:hover,
+.extable-lookup-option:focus-visible,
+.extable-lookup-option[data-active="1"] {
+  outline: none;
+  background: rgba(59, 130, 246, 0.12);
+}
+
 .extable-root {
   /* Toasts */
   & .extable-toast {
