@@ -1,6 +1,6 @@
 {
   "name": "@extable/demo-react",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,7 @@
     "e2e": "playwright test -c ../../playwright.demo-react.config.ts"
   },
   "dependencies": {
-    "@extable/react": "0.3.4",
+    "@extable/react": "0.3.5",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },
