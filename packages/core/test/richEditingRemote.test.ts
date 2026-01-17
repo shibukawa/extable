@@ -527,4 +527,149 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
     core.destroy();
     root.remove();
   });
+
+  test("lookup with recentLookup shows [recent] badge in dropdown", async () => {
+    vi.useFakeTimers();
+    try {
+      const root = document.createElement("div");
+      document.body.appendChild(root);
+
+      const candidates = [
+        { label: "Alice", value: "u1" },
+        { label: "Bob", value: "u2" },
+      ];
+
+      const fetchCandidates = vi.fn(async ({ query }: any) => {
+        return candidates.filter((c) => !query || c.label.toLowerCase().includes(query.toLowerCase()));
+      });
+
+      const core = createTablePlaceholder(
+        {
+          data: [{ assignee: { label: "Alice", value: "u1" } }],
+          schema: {
+            columns: [
+              {
+                key: "assignee",
+                type: "labeled",
+                edit: {
+                  lookup: {
+                    fetchCandidates,
+                    recentLookup: true,  // enabled by default
+                  },
+                },
+              },
+            ],
+          },
+          view: {},
+        },
+        { renderMode: "html", editMode: "direct", lockMode: "none" },
+      );
+      mountTable(root, core);
+
+      const cell = root.querySelector('td[data-col-key="assignee"]') as HTMLTableCellElement | null;
+      expect(cell).toBeTruthy();
+      expect(cell!.textContent).toBe("Alice");
+
+      // Double-click to enter edit mode
+      cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+      cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+      await Promise.resolve();
+
+      const input = cell!.querySelector("input") as HTMLInputElement | null;
+      expect(input).toBeTruthy();
+
+      // Trigger fetch with empty query to get recent candidate
+      input!.value = "";
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(260);
+      await Promise.resolve();
+
+      let dropdown = root.querySelector(".extable-lookup-dropdown[data-visible='1']") as HTMLDivElement | null;
+      expect(dropdown).toBeTruthy();
+
+      let options = dropdown?.querySelectorAll("button.extable-lookup-option") || [];
+      expect(options.length).toBe(2);
+      
+      // When recentLookup is true, Alice (which was already selected) should appear first with [recent] badge
+      expect(options[0]?.textContent).toMatch(/Alice.*\[recent\]/);
+      expect(options[1]?.textContent).toBe("Bob");
+
+      core.destroy();
+      root.remove();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("lookup with recentLookup=false does not show [recent] badge", async () => {
+    vi.useFakeTimers();
+    try {
+      const root = document.createElement("div");
+      document.body.appendChild(root);
+
+      const candidates = [
+        { label: "Alice", value: "u1" },
+        { label: "Bob", value: "u2" },
+      ];
+
+      const fetchCandidates = vi.fn(async ({ query }: any) => {
+        return candidates.filter((c) => !query || c.label.toLowerCase().includes(query.toLowerCase()));
+      });
+
+      const core = createTablePlaceholder(
+        {
+          data: [{ assignee: { label: "Alice", value: "u1" } }],
+          schema: {
+            columns: [
+              {
+                key: "assignee",
+                type: "labeled",
+                edit: {
+                  lookup: {
+                    fetchCandidates,
+                    recentLookup: false,  // disabled
+                  },
+                },
+              },
+            ],
+          },
+          view: {},
+        },
+        { renderMode: "html", editMode: "direct", lockMode: "none" },
+      );
+      mountTable(root, core);
+
+      const cell = root.querySelector('td[data-col-key="assignee"]') as HTMLTableCellElement | null;
+      expect(cell).toBeTruthy();
+
+      // Double-click to enter edit mode
+      cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+      cell!.dispatchEvent(new MouseEvent("click", { bubbles: true, button: 0 }));
+      await Promise.resolve();
+
+      const input = cell!.querySelector("input") as HTMLInputElement | null;
+      expect(input).toBeTruthy();
+
+      input!.value = "";
+      input!.dispatchEvent(new Event("input", { bubbles: true }));
+      await vi.advanceTimersByTimeAsync(260);
+      await Promise.resolve();
+
+      const dropdown = root.querySelector(".extable-lookup-dropdown[data-visible='1']") as HTMLDivElement | null;
+      expect(dropdown).toBeTruthy();
+
+      const options = dropdown?.querySelectorAll("button.extable-lookup-option") || [];
+
+      // When recentLookup is false, Alice should NOT have [recent] badge
+      expect(options[0]?.textContent).toBe("Alice");
+      expect(options[0]?.textContent).not.toMatch(/\[recent\]/);
+      expect(options[1]?.textContent).toBe("Bob");
+
+      core.destroy();
+      root.remove();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+

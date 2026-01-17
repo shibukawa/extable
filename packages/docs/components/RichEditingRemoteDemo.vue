@@ -14,6 +14,7 @@ interface DemoRow {
   id: string;
   color: string;
   assignee: { label: string; value: string } | "";
+  tags: string;
   details: { label: string; value: string } | "";
 }
 
@@ -23,9 +24,9 @@ const user: UserInfo = { id: "demo-user", name: "Demo User" };
 const options = computed<CoreOptions>(() => ({ renderMode: "auto", editMode: "direct", user }));
 
 const rows: DemoRow[] = [
-  { id: "row-1", color: "", assignee: "", details: "" },
-  { id: "row-2", color: "", assignee: "", details: "" },
-  { id: "row-3", color: "", assignee: "", details: "" },
+  { id: "row-1", color: "", assignee: "", tags: "", details: "" },
+  { id: "row-2", color: "", assignee: "", tags: "", details: "" },
+  { id: "row-3", color: "", assignee: "", tags: "", details: "" },
 ];
 
 const allUsers: Array<{ id: string; name: string }> = [
@@ -75,6 +76,21 @@ async function fetchColorCandidates({ query, signal }: { query: string; signal?:
     .filter((c) => !q || c.includes(q))
     .slice(0, 8)
     .map((c) => ({ label: c, value: c }));
+}
+
+// Suggested tags for the free-input demo
+const suggestedTags = ["bug", "feature", "documentation", "refactor", "performance"] as const;
+
+async function fetchTagCandidates({ query, signal }: { query: string; signal?: AbortSignal }): Promise<
+  LookupCandidate[]
+> {
+  const ok = await delayOrAbort(100, signal);
+  if (!ok) return [];
+  const q = query.trim().toLowerCase();
+  return suggestedTags
+    .filter((t) => !q || t.includes(q))
+    .slice(0, 5)
+    .map((t) => ({ label: t, value: t }));
 }
 
 const externalEditorVisible = ref(false);
@@ -193,6 +209,27 @@ const schema = defineSchema<DemoRow>({
       },
     },
     {
+      key: "tags",
+      header: "Tags (Free Input)",
+      type: "string",
+      width: 200,
+      edit: {
+        lookup: {
+          fetchCandidates: fetchTagCandidates,
+          allowFreeInput: true,  // Allow free text input
+          toStoredValue: (c) => c.value,  // Store the value directly
+        },
+      },
+      tooltip: {
+        getText: async ({ value, signal }) => {
+          const ok = await delayOrAbort(100, signal);
+          if (!ok) return null;
+          if (!value) return "Type any tag (or select from suggestions)";
+          return `Stored: ${String(value)}`;
+        },
+      },
+    },
+    {
       key: "details",
       header: "Details (External Editor)",
       type: "labeled",
@@ -216,20 +253,21 @@ const view = { hiddenColumns: [], filters: [], sorts: [] };
       <strong>Try it:</strong>
       <ul>
         <li>Click the <strong>Assignee</strong> cell and type <code>al</code>, <code>bo</code>, etc.</li>
+        <li>Click the <strong>Tags</strong> cell and type any text (or select from suggestions).</li>
         <li>Use <code>↑/↓</code> and <code>Enter</code> to select from the dropdown.</li>
         <li>Double-click <strong>Details</strong> to open the external editor modal.</li>
         <li>Hover cells to see async tooltips.</li>
       </ul>
     </div>
 
-    <div class="demo-table" style="height: 260px; border: 1px solid #d0d7de; overflow: visible">
+    <div class="demo-table" style="height: 260px; border: 1px solid #d0d7de; overflow: auto">
       <Extable
         ref="tableRef"
         :schema="schema"
         :defaultData="rows"
         :defaultView="view"
         :options="options"
-        style="height: 100%; width: 100%"
+        style="height: 100%"
       />
     </div>
 

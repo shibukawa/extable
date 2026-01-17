@@ -14,6 +14,7 @@ export type LookupCandidate = {
   label: string;
   value: string;
   meta?: unknown;
+  isRecent?: boolean;  // Internal flag: candidate is from recentLookup history
 };
 
 export type LabeledValue = {
@@ -51,6 +52,8 @@ export type ColumnEditHooks = {
     fetchCandidates(ctx: LookupQueryContext): Promise<readonly LookupCandidate[]>;
     toStoredValue?(candidate: LookupCandidate): unknown;
     debounceMs?: number;
+    recentLookup?: boolean;  // Default: true. Show recently selected items first.
+    allowFreeInput?: boolean;  // Default: false. Allow freetext input even without matching candidate.
   };
 
   externalEditor?: {

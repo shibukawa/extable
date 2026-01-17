@@ -500,24 +500,48 @@ Enable dynamic candidate selection from asynchronously fetched options. Powers a
         return res.json();
         // Expected: { label: string; value: unknown; meta?: any }[]
       },
-      debounceMs?: 250,  // Optional: delay before fetching (default: 250ms)
-      toStoredValue?: (candidate) => stored_value  // Optional: transform candidate
+      debounceMs?: 250,           // Delay before fetching (default: 250ms)
+      recentLookup?: true,         // Show recently selected items first (default: true)
+      allowFreeInput?: false,      // Allow freetext input without matching candidate (default: false)
+      toStoredValue?: (candidate) => stored_value  // Transform candidate before storing
     }
   }
 }
 ```
 
-**fetchCandidates Behavior:**
-- Called with `query` (user input text), `rowId`, `colKey`, and `signal` (AbortSignal)
-- Should return array of `{ label: string; value: unknown; meta?: any }`
-- **Important**: When `query` is empty, return all candidates (for initial dropdown display)
-- When user types, filter/fetch based on the query
-- Respects `debounceMs` to avoid excessive API calls
+**Options:**
+
+- `fetchCandidates(ctx)` - **Required**. Async function to fetch candidates for the user query.
+  - `ctx.query` - Current input text (empty string for initial display)
+  - `ctx.rowId`, `ctx.colKey` - Current cell coordinates
+  - `ctx.signal` - AbortSignal for cancellation
+  - Should return `{ label: string; value: unknown; meta?: any }[]`
+  - **Important**: When `query` is empty, return all candidates (for initial dropdown display)
+
+- `debounceMs` - Delay in milliseconds before fetching after user stops typing (default: `250`)
+  - Helps prevent excessive API calls during rapid input
+
+- `recentLookup` - Boolean flag (default: `true`)
+  - When enabled, the most recently selected candidate for this column is moved to the top of the list and labeled with `[recent]` in the dropdown
+  - If the candidate appears multiple times, the most recent is prioritized
+  - The `[recent]` label is display-only and does not affect the stored value
+
+- `allowFreeInput` - Boolean flag (default: `false`)
+  - When enabled, users can enter values that don't match any candidate
+  - Disables auto-commit behavior (candidates narrowed to 1 won't auto-select)
+  - Useful for flexible input scenarios (tags, custom values)
+
+- `toStoredValue` - Optional transform function to convert candidate to stored value
+  - Receives the selected `LookupCandidate`
+  - If not provided, uses default storage format based on column type
 
 **User Interaction:**
 - Click cell to open candidates dropdown (in selection mode or inline edit)
 - Type to filter candidates (with debounce delay)
 - Arrow keys to navigate; Enter to select; Escape to close
+- If `allowFreeInput` is enabled:
+  - Can press Enter without selecting a candidate to commit free text
+  - No auto-commit when narrowed to 1 candidate
 - Auto-commits when candidates narrow from multiple to exactly one match
 
 **Auto-commit Logic:**

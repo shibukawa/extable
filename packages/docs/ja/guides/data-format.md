@@ -499,30 +499,47 @@ JavaScript関数で計算列を定義します。詳細は[数式ガイド](/ja/
         return res.json();
         // 想定: { label: string; value: unknown; meta?: any }[]
       },
-      debounceMs?: 250,  // 任意: 取得までの遅延（デフォルト: 250ms）
-      toStoredValue?: (candidate) => stored_value  // 任意: 候補を変換
+      debounceMs: 250,                    // オプション: 取得までの遅延（デフォルト: 250ms）
+      recentLookup: true,                 // オプション: 最近選択した値を先頭に表示（デフォルト: true）
+      allowFreeInput: false,              // オプション: 候補以外の自由入力を許可（デフォルト: false）
+      toStoredValue: (candidate) => candidate.value  // オプション: 候補を保存値に変換
     }
   }
 }
 ```
 
-**fetchCandidates 動作:**
-- `query`（ユーザー入力）、`rowId`、`colKey`、`signal`（AbortSignal）で呼び出し
-- `{ label: string; value: unknown; meta?: any }[]` 配列を返す
-- **重要**: `query`が空のとき、すべての候補を返す（初期ドロップダウン表示用）
-- ユーザーが入力したら、クエリに基づいてフィルタ/取得
-- `debounceMs`で過度なAPI呼び出しを避ける
+**オプション:**
 
-**操作:**
+- **fetchCandidates** （必須）
+  - `query`（ユーザー入力）、`rowId`、`colKey`、`signal`（AbortSignal）で呼び出し
+  - `{ label: string; value: unknown; meta?: any }[]` 配列を返す
+  - **重要**: `query`が空のとき、すべての候補を返す（初期ドロップダウン表示用）
+  - ユーザーが入力したら、クエリに基づいてフィルタ/取得
+
+- **debounceMs** （オプション、デフォルト: 250）
+  - ユーザー入力後、`fetchCandidates`を呼び出すまでの遅延（ミリ秒）
+  - 過度なAPI呼び出しを避けるのに有用
+
+- **recentLookup** （オプション、デフォルト: true）
+  - `true`の場合、セル行で最後に選択した候補を候補リストの先頭に表示し、ドロップダウンで `[recent]` ラベルが付く
+  - 列ごとに履歴が管理され、同じ値を繰り返し選択する場合に効率的
+  - `[recent]` ラベルは表示のみで、保存される値には影響しない
+
+- **allowFreeInput** （オプション、デフォルト: false）
+  - `true`の場合、候補に完全一致しない値も入力・コミット可能
+  - `false`（デフォルト）の場合、候補リストから必ず選択
+  - 自動コミット: `allowFreeInput`が`false`で候補が1つに絞られると自動確定。`allowFreeInput`が`true`の場合は自動確定は無効化
+
+- **toStoredValue** （オプション）
+  - `fetchCandidates`が返す候補オブジェクトを実際に保存する値に変換
+  - 例: `candidate => candidate.id` で `id` フィールドを保存
+
+**ユーザー操作:**
 - セルをクリックして候補ドロップダウン表示（選択モードまたはインライン編集）
 - 入力してフィルタ（デバウンス遅延付き）
 - 矢印キーで移動、Enterで選択、Escapeで閉じる
-- 候補が複数から1つに絞られた時に自動コミット
-
-**自動コミット ロジック:**
-- ユーザーが結果を1つまで絞り込むと、自動的にコミット
-- 高速データ入力に有用: ユーザーが十分入力 → 自動コミット
-- `debounceMs`を考慮: チェック前に待機
+- **自動コミット** （`allowFreeInput === false`のみ）: 候補が複数から1つに絞られると自動的に確定
+- **自由入力** （`allowFreeInput === true`のみ）: 候補を選択せずにEnterキーを押すと、入力されたテキストをそのままコミット
 
 ### 外部エディタ
 

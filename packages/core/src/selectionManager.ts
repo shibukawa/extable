@@ -75,6 +75,8 @@ export class SelectionManager {
   private lookupAbort: AbortController | null = null;
   private lookupDebounceTimer: number | null = null;
   private lookupInputCleanup: (() => void) | null = null;
+  private lookupRecentHistory: Map<string, LookupCandidate> = new Map();  // colKey -> last selected candidate
+  private lastCommittedLookupCell: { rowId: string; colKey: string } | null = null;  // Track last committed lookup to prevent immediate re-popup
 
   private hoverTooltipEl: HTMLDivElement | null = null;
   private hoverTooltipTarget: { rowId: string; colKey: string } | null = null;
@@ -113,7 +115,15 @@ export class SelectionManager {
     this.composing = false;
     this.lastCompositionEnd = Date.now();
   };
-  private readonly handleSelectionBlur = () => this.teardownSelectionInput();
+  private readonly handleSelectionBlur = (ev?: FocusEvent) => {
+    // If focus is moving to the lookup dropdown, don't teardown
+    if (ev?.relatedTarget instanceof HTMLElement) {
+      if (this.lookupDropdownEl?.contains(ev.relatedTarget)) {
+        return;
+      }
+    }
+    this.teardownSelectionInput();
+  };
   private readonly handleRootKeydown = async (ev: KeyboardEvent) => {
     if (ev.defaultPrevented) return;
     if (!this.selectionMode) return;
@@ -279,6 +289,8 @@ export class SelectionManager {
     const rowIndex = this.dataModel.getRowIndex(rowId);
     const colIndex = schema.columns.findIndex((c) => String(c.key) === String(colKey));
     if (rowIndex < 0 || colIndex < 0) return;
+    // Clear lastCommittedLookupCell when navigating to a cell
+    this.lastCommittedLookupCell = null;
     this.selectionAnchor = null;
     this.lastBooleanCell = null;
     this.teardownInput(false);
@@ -709,7 +721,9 @@ export class SelectionManager {
       btn.className = "extable-lookup-option";
       btn.dataset.index = String(index);
       btn.dataset.active = index === this.lookupHighlightIndex ? "1" : "0";
-      btn.textContent = c.label;
+      // Add [recent] badge for recently selected candidates
+      const displayLabel = c.isRecent ? `${c.label} [recent]` : c.label;
+      btn.textContent = displayLabel;
       btn.style.pointerEvents = "auto";
       btn.addEventListener("click", (ev) => {
         ev.preventDefault();
@@ -739,11 +753,19 @@ export class SelectionManager {
     if (!candidate) {
       return;
     }
+    // Store original candidate (without isRecent flag) for history and commit
+    const originalCandidate = { label: candidate.label, value: candidate.value, meta: candidate.meta };
     const stored = hook.toStoredValue
-      ? hook.toStoredValue(candidate)
+      ? hook.toStoredValue(originalCandidate)
       : col?.type === "labeled"
-        ? { label: candidate.label, value: candidate.value }
-        : { kind: "lookup", label: candidate.label, value: candidate.value, meta: candidate.meta };
+        ? { label: originalCandidate.label, value: originalCandidate.value }
+        : { kind: "lookup", label: originalCandidate.label, value: originalCandidate.value, meta: originalCandidate.meta };
+    // Store in recent history if recentLookup is enabled
+    if (hook.recentLookup !== false) {  // Default: true
+      this.lookupRecentHistory.set(target.colKey, originalCandidate);
+    }
+    // Record committed cell to prevent immediate re-popup
+    this.lastCommittedLookupCell = { rowId: target.rowId, colKey: target.colKey };
     // Hide lookup dropdown before teardown to prevent input event interference
     this.hideLookupDropdown();
     // Teardown current input editor
@@ -757,7 +779,7 @@ export class SelectionManager {
       // Verify we're still on the same cell
       if (this.activeCell?.rowId === target.rowId && this.activeCell?.colKey === target.colKey) {
         // Show the committed label, not the partial input text
-        this.focusSelectionInput(candidate.label);
+        this.focusSelectionInput(originalCandidate.label);
       } else {
       }
     });
@@ -779,6 +801,52 @@ export class SelectionManager {
     }
 
     this.lookupDropdownTarget = { rowId, colKey };
+
+    // If using selectionInput in edit mode, make it visible and editable
+    // In selection mode, keep input hidden but show dropdown
+    if (input === this.selectionInput && !this.selectionMode) {
+      input.readOnly = false;
+      input.inputMode = "text";
+      // Position input inside the cell for visual feedback
+      const rect = this.getCellRect(rowId, colKey);
+      if (rect) {
+        const rootRect = this.root.getBoundingClientRect();
+        input.style.transform = "none";
+        input.style.left = `${rect.left - rootRect.left}px`;
+        input.style.top = `${rect.top - rootRect.top}px`;
+        input.style.width = `${rect.width}px`;
+        input.style.height = `${rect.height}px`;
+        input.style.opacity = "1";
+        input.style.pointerEvents = "auto";
+        input.style.padding = "2px 4px";
+        input.style.border = "none";
+        input.style.background = "#fff";
+        input.style.color = "#000";
+        input.style.fontSize = "14px";
+        input.style.fontFamily = "inherit";
+        input.style.boxSizing = "border-box";
+        input.style.zIndex = "100";
+        // Safari-specific fixes
+        (input.style as any).WebkitAppearance = "none";
+        (input.style as any).WebkitUserSelect = "text";
+        (input.style as any).WebkitUserModify = "read-write";
+      }
+    }
+
+    // Initialize recent history from current cell value if it's a labeled value
+    if (hook.recentLookup !== false) {
+      const currentValue = this.dataModel.getCell(rowId, colKey);
+      if (typeof currentValue === "object" && currentValue !== null) {
+        const obj = currentValue as Record<string, unknown>;
+        if (typeof obj.label === "string" && "value" in obj && !obj.kind) {
+          // This is a labeled value
+          this.lookupRecentHistory.set(colKey, {
+            label: obj.label as string,
+            value: obj.value as string,
+          });
+        }
+      }
+    }
 
     let lastFetchedCandidateCount = -1;
     const debounceMs = hook.debounceMs ?? 250;
@@ -806,16 +874,33 @@ export class SelectionManager {
             if (controller.signal.aborted) return;
             if (!this.activeCell || this.activeCell.rowId !== rowId || this.activeCell.colKey !== colKey)
               return;
-            lastFetchedCandidateCount = candidates.length;
-            // Auto-commit if narrowed down from multiple to exactly one
-            if (prevCandidateCount > 1 && candidates.length === 1) {
-              this.lookupCandidates = candidates;
-              this.lookupHighlightIndex = 0;
-              this.commitLookupCandidate(0);
+
+            // Apply recentLookup: add recently selected candidate to the beginning if not already present
+            let finalCandidates = Array.from(candidates);
+            if (hook.recentLookup !== false) {  // Default: true
+              const recentCandidate = this.lookupRecentHistory.get(colKey);
+              if (recentCandidate) {
+                // Remove if duplicate exists
+                finalCandidates = finalCandidates.filter(c => !(c.label === recentCandidate.label && c.value === recentCandidate.value));
+                // Add to front with isRecent flag for UI display
+                const recentWithBadge = { ...recentCandidate, isRecent: true };
+                finalCandidates.unshift(recentWithBadge);
+              }
+            }
+
+            lastFetchedCandidateCount = finalCandidates.length;
+            // Auto-commit if narrowed down from multiple to exactly one (only if allowFreeInput is false/disabled)
+            // Recent candidates should not trigger auto-selection
+            const nonRecentCandidates = finalCandidates.filter(c => !c.isRecent);
+            if (!hook.allowFreeInput && prevCandidateCount > 1 && nonRecentCandidates.length === 1) {
+              const autoSelectIndex = finalCandidates.indexOf(nonRecentCandidates[0]);
+              this.lookupCandidates = finalCandidates;
+              this.lookupHighlightIndex = autoSelectIndex;
+              this.commitLookupCandidate(autoSelectIndex);
               return;
             }
-            this.lookupCandidates = candidates;
-            this.lookupHighlightIndex = candidates.length ? 0 : -1;
+            this.lookupCandidates = finalCandidates;
+            this.lookupHighlightIndex = finalCandidates.length ? 0 : -1;
             this.renderLookupDropdown();
           })
           .catch((err) => {
@@ -830,7 +915,7 @@ export class SelectionManager {
 
     input.addEventListener("input", schedule);
     this.lookupInputCleanup = () => input.removeEventListener("input", schedule);
-    // Kick off the initial fetch for the existing text.
+    // Kick off the initial fetch for the existing text
     schedule();
   }
 
@@ -846,6 +931,20 @@ export class SelectionManager {
     this.lookupInputCleanup = null;
     this.lookupDropdownTarget = null;
     this.hideLookupDropdown();
+    // Reset selectionInput to hidden state if it was used for lookup
+    if (this.selectionInput) {
+      const input = this.selectionInput;
+      input.readOnly = true;
+      input.inputMode = "none";
+      input.style.transform = "translate(-10000px, 0)";
+      input.style.width = "1px";
+      input.style.height = "1px";
+      input.style.opacity = "0";
+      input.style.pointerEvents = "none";
+      input.style.padding = "0";
+      input.style.border = "none";
+      input.style.background = "transparent";
+    }
   }
 
   private handleLookupKeydown(e: KeyboardEvent): boolean {
@@ -868,6 +967,30 @@ export class SelectionManager {
       return true;
     }
     if (e.key === "Enter") {
+      const target = this.lookupDropdownTarget;
+      const col = target ? this.findColumn(target.colKey) : null;
+      const hook = col?.edit?.lookup;
+
+      // If allowFreeInput is enabled, commit the free text input instead of selected candidate
+      if (hook?.allowFreeInput) {
+        e.preventDefault();
+        const inputEl = this.selectionInput || this.inputEl;
+        if (inputEl && target) {
+          const freeText = inputEl.value;
+          this.hideLookupDropdown();
+          this.teardownInput(false);
+          this.commitEdit(target.rowId, target.colKey, freeText);
+          this.onMove(target.rowId);
+          requestAnimationFrame(() => {
+            if (this.activeCell?.rowId === target.rowId && this.activeCell?.colKey === target.colKey) {
+              this.focusSelectionInput(freeText);
+            }
+          });
+        }
+        return true;
+      }
+
+      // For non-allowFreeInput, commit the highlighted candidate
       if (this.lookupHighlightIndex >= 0) {
         e.preventDefault();
         this.commitLookupCandidate(this.lookupHighlightIndex);
@@ -973,7 +1096,7 @@ export class SelectionManager {
     input.addEventListener("cut", this.handleSelectionCut);
     input.addEventListener("paste", this.handleSelectionPaste);
     input.addEventListener("blur", (e) => {
-      this.handleSelectionBlur();
+      this.handleSelectionBlur(e);
     });
     input.addEventListener("focus", (e) => {
     });
@@ -989,6 +1112,21 @@ export class SelectionManager {
     this.selectionMode = true;
     input.focus({ preventScroll: true });
     input.select();
+    
+    // If active cell has lookup, setup lookup editor to show dropdown on selection
+    // Skip if this is the cell where we just committed a lookup candidate (prevent immediate re-popup)
+    if (this.activeCell && this.activeCell.colKey) {
+      const isJustCommitted = this.lastCommittedLookupCell && 
+        this.lastCommittedLookupCell.rowId === this.activeCell.rowId && 
+        this.lastCommittedLookupCell.colKey === this.activeCell.colKey;
+      
+      if (!isJustCommitted) {
+        const col = this.findColumn(this.activeCell.colKey);
+        if (col?.edit?.lookup) {
+          this.setupLookupEditor(this.activeCell.rowId, this.activeCell.colKey, input);
+        }
+      }
+    }
   }
 
   private openEditorAtActiveCell(options?: {
@@ -1002,6 +1140,52 @@ export class SelectionManager {
     if (this.tryStartExternalEditor(rowId, colKey)) {
       return;
     }
+
+    // Use the existing selectionInput to preserve IME state
+    if (this.selectionInput) {
+      // Make selectionInput visible and editable
+      const input = this.selectionInput;
+      input.readOnly = false;
+      input.inputMode = "text";
+
+      // Position input inside the cell
+      const rect = this.getCellRect(rowId, colKey);
+      if (rect) {
+        const rootRect = this.root.getBoundingClientRect();
+        input.style.transform = "none";
+        input.style.left = `${rect.left - rootRect.left}px`;
+        input.style.top = `${rect.top - rootRect.top}px`;
+        input.style.width = `${rect.width}px`;
+        input.style.height = `${rect.height}px`;
+        input.style.opacity = "1";
+        input.style.pointerEvents = "auto";
+        input.style.padding = "2px 4px";
+        input.style.border = "none";
+        input.style.background = "#fff";
+        input.style.color = "#000";
+        input.style.fontSize = "14px";
+        input.style.fontFamily = "inherit";
+        input.style.boxSizing = "border-box";
+        input.style.zIndex = "100";
+        // Safari-specific fixes
+        (input.style as any).WebkitAppearance = "none";
+        (input.style as any).WebkitUserSelect = "text";
+        (input.style as any).WebkitUserModify = "read-write";
+      }
+
+      // Store input as inputEl for edit mode operations
+      this.inputEl = input;
+      this.activeOriginalValue = { rowId, colKey, value: this.dataModel.getCell(rowId, colKey) };
+
+      // Setup lookup editor if column has lookup
+      const col = this.findColumn(colKey);
+      if (col?.edit?.lookup) {
+        this.setupLookupEditor(rowId, colKey, input);
+      }
+      return;
+    }
+
+    // Fallback to original behavior if no selectionInput exists
     const cell = this.findHtmlCellElement(rowId, colKey);
     if (cell) {
       this.activateCellElement(cell, rowId, colKey, options);
@@ -1162,6 +1346,8 @@ export class SelectionManager {
     const rows = this.dataModel.listRows();
     if (!rows.length || !schema.columns.length) return;
     const { rowIndex, colIndex } = this.getActiveIndices();
+    // Clear lastCommittedLookupCell when moving to a different cell
+    this.lastCommittedLookupCell = null;
     if (!extendSelection) this.selectionAnchor = null;
     const anchor =
       extendSelection && this.selectionAnchor
@@ -1334,6 +1520,8 @@ export class SelectionManager {
     this.suppressNextClick = false;
     this.selectionMode = true;
     this.selectionAnchor = null;
+    // Clear lastCommittedLookupCell when clicking on a cell (starting drag/select)
+    this.lastCommittedLookupCell = null;
     this.lastPointerClient = { x: ev.clientX, y: ev.clientY };
 
     try {
@@ -1717,7 +1905,7 @@ export class SelectionManager {
     }
 
     this.selectionMode = false;
-    this.teardownSelectionInput();
+    // Don't teardown selectionInput - keep it to preserve IME state
     this.openEditorAtActiveCell();
   };
 
@@ -1800,9 +1988,17 @@ export class SelectionManager {
   }
 
   private handleSelectionKeydown = async (ev: KeyboardEvent) => {
-    if (!this.selectionMode) return;
     if (!this.activeCell) return;
     if (ev.isComposing || this.composing) return;
+
+    // In edit mode, delegate to handleKey if inputEl is set
+    if (!this.selectionMode && this.inputEl) {
+      this.handleKey(ev, document.createElement('div')); // dummy cell element
+      return;
+    }
+
+    // Selection mode logic
+    if (!this.selectionMode) return;
 
     // Ignore modifier-only keys in selection mode (do not enter edit mode).
     if (
@@ -1909,7 +2105,7 @@ export class SelectionManager {
 
     this.selectionMode = false;
     this.selectionAnchor = null;
-    this.teardownSelectionInput();
+    // Don't teardown selectionInput - keep it to preserve IME state
     // Let the original keydown insert the character into the now-focused editor naturally.
     this.openEditorAtActiveCell();
   };
@@ -2478,20 +2674,12 @@ export class SelectionManager {
     const current = this.dataModel.getCell(hit.rowId, hit.colKey);
     const currentText = this.cellToClipboardString(current);
 
-    // Setup Lookup in selection mode if column has lookup
-    const colForLookup = this.findColumn(hit.colKey);
-    if (colForLookup?.edit?.lookup) {
-      this.focusSelectionInput(currentText);
-      if (this.selectionInput) {
-        this.setupLookupEditor(hit.rowId, hit.colKey, this.selectionInput);
-      }
-    } else {
-      this.focusSelectionInput(currentText);
-    }
+    // Focus selection input with current value (hidden, no cursor visible)
+    this.focusSelectionInput(currentText);
 
     if (wasSameCell) {
       this.selectionMode = false;
-      this.teardownSelectionInput();
+      // Don't teardown selectionInput - keep it to preserve IME state
       this.openEditorAtActiveCell();
     }
   };
@@ -3040,7 +3228,10 @@ export class SelectionManager {
 
   private teardownInput(clearActive = false) {
     this.teardownLookupEditor();
-    removeFromParent(this.inputEl);
+    // Don't remove selectionInput from DOM - it's reused across edits
+    if (this.inputEl && this.inputEl !== this.selectionInput) {
+      removeFromParent(this.inputEl);
+    }
     removeFromParent(this.floatingInputWrapper);
     if (this.activeHost && this.activeHostOriginalText !== null) {
       this.activeHost.textContent = this.activeHostOriginalText;
