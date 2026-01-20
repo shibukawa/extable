@@ -398,9 +398,28 @@ Prevent user edits. Commonly used for ID columns and computed fields:
   key: 'employeeId',
   header: 'Employee ID',
   type: 'string',
+  // Static boolean or dynamic predicate:
+  // - `true` prevents edits for all rows
+  // - `(row) => boolean` evaluates per-row to decide readonly state
   readonly: true  // Users cannot edit
 }
 ```
+
+You may supply a predicate function to compute `readonly` per-row. The predicate receives the row object and should return a boolean. Example: make `notes` readonly when a `locked` boolean field is true:
+
+```typescript
+{
+  key: 'notes',
+  header: 'Notes',
+  type: 'string',
+  readonly: (row) => !!row.locked
+}
+```
+
+Semantics and runtime notes:
+- The predicate is evaluated with the current row object; implementations may cache results keyed by row version to avoid repeated evaluation.
+- If a predicate throws an error, implementations SHOULD record a diagnostic/warning and treat the result as `false` (editable) to avoid blocking users.
+- Predicates are evaluated at interaction time (editing, focus) and when row data changes; ensure your data updates increment the row version to invalidate caches.
 
 ### nullable
 

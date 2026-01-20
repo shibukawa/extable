@@ -75,6 +75,15 @@ export class DataModel {
   >();
   private formulaDiagnostics = new Map<string, CellDiagnostic>();
   private conditionalDiagnostics = new Map<string, CellDiagnostic>();
+  private columnReadonlyCache = new Map<
+    string,
+    {
+      version: number;
+      fnRef: unknown;
+      value: boolean;
+      diagnostic: CellDiagnostic | null;
+    }
+  >();
   private baseValidationErrors = new Map<
     string,
     { rowId: string; colKey: string; message: string }
@@ -127,13 +136,17 @@ export class DataModel {
     this.cellConditionalStyles.clear();
     this.computedCache.clear();
     this.conditionalCache.clear();
+    this.columnReadonlyCache.clear();
     this.rowConditionalCache.clear();
     this.formulaDiagnostics.clear();
     this.conditionalDiagnostics.clear();
     this.baseValidationErrors.clear();
     this.uniqueValidationErrors.clear();
     this.rows = (dataset ?? []).map((row, idx) => {
-      const id = generateId();
+      // If external data provides an `id` string, use it as the internal row id.
+      // Otherwise generate a new id as before.
+      const externalId = (row as any)?.id;
+      const id = typeof externalId === "string" && externalId ? externalId : generateId();
       this.rowVersion.set(id, 0);
       return {
         id,
@@ -151,6 +164,7 @@ export class DataModel {
     this.schema = schema;
     this.computedCache.clear();
     this.conditionalCache.clear();
+    this.columnReadonlyCache.clear();
     this.rowConditionalCache.clear();
     this.formulaDiagnostics.clear();
     this.conditionalDiagnostics.clear();
@@ -287,13 +301,55 @@ export class DataModel {
   public isColumnReadonly(colKey: string) {
     const col = this.schema.columns.find((c) => c.key === colKey);
     if (this.isActionType(col?.type)) return true;
-    return Boolean(col?.readonly || col?.formula);
+    // Static true or formula makes whole-column readonly; predicates handled per-row.
+    return Boolean(col?.readonly === true || col?.formula);
+  }
+
+  private evalReadonlyFn(
+    fn: (data: Record<string, unknown>) => boolean | Error,
+    data: Record<string, unknown>,
+  ): { value: boolean; diagnostic: CellDiagnostic | null } {
+    try {
+      const out = fn(data);
+      if (out instanceof Error) {
+        return { value: false, diagnostic: { level: "warning", message: out.message, source: "conditionalStyle" } };
+      }
+      return { value: Boolean(out), diagnostic: null };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err ?? "error");
+      return { value: false, diagnostic: { level: "warning", message: msg, source: "conditionalStyle" } };
+    }
+  }
+
+  public resolveColumnReadonly(
+    rowId: string,
+    col: ColumnSchema,
+  ): { value: boolean; diagnostic: CellDiagnostic | null } {
+    // Only handle predicate case here; static `true` handled by isColumnReadonly
+    const fn = col.readonly as unknown;
+    if (!fn || typeof fn !== "function") return { value: false, diagnostic: null };
+    const version = this.getRowVersion(rowId);
+    const key = `${rowId}::${String(col.key)}::ro`;
+    const cached = this.columnReadonlyCache.get(key);
+    if (cached && cached.version === version && cached.fnRef === fn) {
+      return { value: cached.value, diagnostic: cached.diagnostic };
+    }
+    const data = this.getRowObjectEffective(rowId);
+    if (!data) {
+      const next = { version, fnRef: fn, value: false, diagnostic: null };
+      this.columnReadonlyCache.set(key, next);
+      return { value: false, diagnostic: null };
+    }
+    const res = this.evalReadonlyFn(fn as any, data);
+    this.columnReadonlyCache.set(key, { version, fnRef: fn, value: res.value, diagnostic: res.diagnostic });
+    return { value: res.value, diagnostic: res.diagnostic };
   }
 
   public getCellInteraction(rowId: string, colKey: string) {
     const col = this.schema.columns.find((c) => String(c.key) === String(colKey));
     if (!col) return { readonly: false, disabled: false, muted: false };
-    const baseReadonly = this.isRowReadonly(rowId) || this.isColumnReadonly(colKey);
+    const colReadonlyRes = this.resolveColumnReadonly(rowId, col);
+    const baseReadonly = this.isRowReadonly(rowId) || this.isColumnReadonly(colKey) || Boolean(colReadonlyRes.value);
     const delta = this.resolveConditionalStyle(rowId, col).delta;
     const cellStyle = this.getCellStyle(rowId, colKey);
     const readonlyAllowed = this.supportsConditionalReadonly(col.type);

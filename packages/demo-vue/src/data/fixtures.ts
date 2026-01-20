@@ -305,6 +305,8 @@ export interface ConditionalStyleRow {
   attendance: number;
   projects: number;
   status: string;
+  locked?: boolean;
+  notes?: string;
 }
 
 function makeConditionalStyleRows(): ConditionalStyleRow[] {
@@ -338,6 +340,7 @@ export const conditionalStyleSchema = {
     { key: 'id', header: 'Employee ID', type: 'string', readonly: true, width: 120 },
     { key: 'employee', header: 'Employee Name', type: 'string', width: 150 },
     { key: 'department', header: 'Department', type: 'string', width: 140 },
+    { key: 'locked', header: 'Locked', type: 'boolean', format: 'checkbox', width: 90 },
     {
       key: 'score',
       header: 'Performance Score',
@@ -390,6 +393,13 @@ export const conditionalStyleSchema = {
         if (row.status === 'Inactive') return { backgroundColor: '#f3f4f6', textColor: '#374151' };
         return null;
       }
+    },
+    {
+      key: 'notes',
+      header: 'Notes',
+      type: 'string',
+      width: 240,
+      readonly: (row: ConditionalStyleRow) => !!row.locked
     }
   ]
 };
