@@ -393,7 +393,7 @@ export const conditionalStyleSchema = {
         if (row.status === 'Inactive') return { backgroundColor: '#f3f4f6', textColor: '#374151' };
         return null;
       }
-    }
+    },
     {
       key: 'notes',
       header: 'Notes',
