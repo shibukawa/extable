@@ -196,7 +196,12 @@ export interface ColumnSchema<
   key: K;
   type: TType;
   header?: string;
-  readonly?: boolean;
+  /**
+   * `readonly` may be a static boolean or a predicate evaluated per-row.
+   * - `true` prevents edits for all rows
+   * - `(row) => boolean` returns per-row readonly state
+   */
+  readonly?: boolean | ((row: RData) => boolean);
   edit?: ColumnEditHooks;
   tooltip?: ColumnTooltipHook;
   /**
@@ -250,6 +255,8 @@ export const defineSchema = <TData extends object, RData extends object = TData>
 
 export type RowObject<T extends object = Record<string, unknown>> = {
   _readonly?: boolean;
+  /** Optional externally-provided row id. If present and a string, it will be used as the internal row id. */
+  id?: string;
 } & T &
   Record<string, unknown>;
 
