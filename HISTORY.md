@@ -1,5 +1,11 @@
 # History
 
+## Unreleased
+
+### Added
+
+- dynamic readonly function: support `ColumnSchema.readonly` as a per-row predicate `(row) => boolean` to compute readonly state dynamically (cached per-row version; exceptions produce a warning and default to editable).
+
 ## 0.3.5
 
 ### Added
