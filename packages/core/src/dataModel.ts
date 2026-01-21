@@ -1112,6 +1112,9 @@ export class DataModel {
 
   private recomputeUniqueValidationForColumn(colKey: string) {
     const colKeyStr = String(colKey);
+    const col = this.schema.columns.find((c) => String(c.key) === colKeyStr);
+    // Skip unique validation for boolean columns (radio semantics)
+    if (col?.type === "boolean") return;
     for (const k of Array.from(this.uniqueValidationErrors.keys())) {
       const sep = k.indexOf("::");
       const existingCol = sep >= 0 ? k.slice(sep + 2) : "";

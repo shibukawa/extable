@@ -29,6 +29,9 @@ import {
   uniqueCheckRows,
   uniqueCheckSchema,
   uniqueCheckView,
+  uniqueBoolRows,
+  uniqueBoolSchema,
+  uniqueBoolView,
   filterSortRows,
   filterSortSchema,
   filterSortView,
@@ -45,6 +48,7 @@ type DataMode =
   | "formula"
   | "conditional-style"
   | "unique-check"
+  | "unique-bool"
   | "filter-sort"
   | "loading-async"
   | "performance-10k";
@@ -108,6 +112,7 @@ function renderShell() {
       <label><input type="radio" name="data-mode" value="formula" /> Formula</label>
       <label><input type="radio" name="data-mode" value="conditional-style" /> Conditional Style</label>
       <label><input type="radio" name="data-mode" value="unique-check" /> Unique Check</label>
+      <label><input type="radio" name="data-mode" value="unique-bool" /> Unique Bool (radio)</label>
       <label><input type="radio" name="data-mode" value="filter-sort" /> Filter / Sort</label>
       <label><input type="radio" name="data-mode" value="loading-async" /> Loading async data</label>
       <label><input type="radio" name="data-mode" value="performance-10k" /> Performance (10k rows)</label>
@@ -192,6 +197,13 @@ function cloneConfig(dataMode: DataMode) {
       data: uniqueCheckRows.map((r) => ({ ...r })),
       schema: uniqueCheckSchema,
       view: { ...uniqueCheckView },
+    };
+  }
+  if (dataMode === "unique-bool") {
+    return {
+      data: uniqueBoolRows.map((r) => ({ ...r })),
+      schema: uniqueBoolSchema,
+      view: { ...uniqueBoolView },
     };
   }
   if (dataMode === "filter-sort") {

@@ -35,6 +35,7 @@ Extableを最小構成で試せるデモです。**10,000行**を読み込み、
 - **[Button & Link Cells →](/ja/demos/button-link)** - ボタン/リンクセル
 - **[Conditional Readonly/Disabled →](/ja/demos/conditional-access)** - 編集可否の切り替え
 - **[Unique Constraint →](/ja/demos/unique-constraint)** - 一意制約と検証
+- **[Unique Boolean (Radio) →](/ja/demos/unique-bool)** - ブール列をラジオグループとして表示（1行のみ true）
 - **[Auto-fill Sequences →](/ja/demos/auto-fill-sequence)** - 連番やリストのドラッグ入力
 
 ### 使い方のサンプル

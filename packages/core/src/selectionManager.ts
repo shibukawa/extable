@@ -864,7 +864,7 @@ export class SelectionManager {
 
       const requestId = this.lookupRequestId;
       const prevCandidateCount = lastFetchedCandidateCount;
-      
+
       const executeFetch = () => {
         this.lookupDebounceTimer = null;
         const controller = new AbortController();
@@ -913,7 +913,7 @@ export class SelectionManager {
             this.showCopyToast("Lookup failed", "error", 1800);
           });
       };
-      
+
       if (immediate) {
         executeFetch();
       } else {
@@ -1120,14 +1120,14 @@ export class SelectionManager {
     this.selectionMode = true;
     input.focus({ preventScroll: true });
     input.select();
-    
+
     // If active cell has lookup, setup lookup editor to show dropdown on selection
     // Skip if this is the cell where we just committed a lookup candidate (prevent immediate re-popup)
     if (this.activeCell && this.activeCell.colKey) {
-      const isJustCommitted = this.lastCommittedLookupCell && 
-        this.lastCommittedLookupCell.rowId === this.activeCell.rowId && 
+      const isJustCommitted = this.lastCommittedLookupCell &&
+        this.lastCommittedLookupCell.rowId === this.activeCell.rowId &&
         this.lastCommittedLookupCell.colKey === this.activeCell.colKey;
-      
+
       if (!isJustCommitted) {
         const col = this.findColumn(this.activeCell.colKey);
         if (col?.edit?.lookup) {
@@ -1200,7 +1200,7 @@ export class SelectionManager {
       if (col?.edit?.lookup) {
         this.setupLookupEditor(rowId, colKey, input);
       }
-      
+
       input.focus({ preventScroll: true });
       if (options?.placeCursorAtEnd) {
         const end = input.value.length;
@@ -2585,6 +2585,17 @@ export class SelectionManager {
       if (!this.tryCommitActiveEditor()) return;
     }
     const hit = this.getHitAtClientPoint(ev.clientX, ev.clientY, ev.target);
+    // If the click target is a unique-radio input, perform immediate unique toggle.
+    const radioInput = (ev.target as HTMLElement | null)?.closest("input.extable-unique-radio") as HTMLInputElement | null;
+    if (radioInput && hit) {
+      if (hit.colKey === null) return;
+      const col = this.findColumn(hit.colKey);
+      if (col && col.type === "boolean" && col.unique) {
+        this.toggleBoolean(hit.rowId, hit.colKey);
+        ev.preventDefault();
+        return;
+      }
+    }
     if (!hit) return;
     const actionHit = this.hitAction ? this.hitAction(ev) : null;
     if (actionHit) {
@@ -2805,9 +2816,36 @@ export class SelectionManager {
   private toggleBoolean(rowId: string, colKey: string) {
     const current = this.dataModel.getCell(rowId, colKey);
     const currentBool = current === true || current === "true" || current === "1" || current === 1;
+    const col = this.findColumn(colKey);
+    const commitNow = this.editMode === "direct";
+    if (col && col.unique) {
+      // If already selected, no-op (radio cannot be deselected)
+      if (currentBool) {
+        return;
+      }
+      const batchId = `unique-bool:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+      // Set this row true
+      const cmds: Command[] = [
+        { kind: "edit", rowId, colKey, next: true, payload: { batchId } },
+      ];
+      // Clear other rows that are currently true for this column
+      const rows = this.dataModel.listRows();
+      for (const r of rows) {
+        if (!r) continue;
+        if (r.id === rowId) continue;
+        const val = this.dataModel.getCell(r.id, colKey);
+        const isTrue = val === true || val === "true" || val === "1" || val === 1;
+        if (isTrue) {
+          cmds.push({ kind: "edit", rowId: r.id, colKey, next: false, payload: { batchId } });
+        }
+      }
+      for (const c of cmds) this.onEdit(c, commitNow);
+      this.onMove(rowId);
+      return;
+    }
+
     const next = !currentBool;
     const cmd: Command = { kind: "edit", rowId, colKey, next };
-    const commitNow = this.editMode === "direct";
     this.onEdit(cmd, commitNow);
     this.onMove(rowId);
   }

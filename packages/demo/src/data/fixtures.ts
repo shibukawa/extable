@@ -430,6 +430,33 @@ export const uniqueCheckView = {
   sorts: []
 };
 
+export interface UniqueBoolRow {
+  id: number;
+  name: string;
+  primary: boolean;
+}
+
+export const uniqueBoolRows: UniqueBoolRow[] = [
+  { id: 1, name: 'Alpha', primary: false },
+  { id: 2, name: 'Bravo', primary: true },
+  { id: 3, name: 'Charlie', primary: false },
+  { id: 4, name: 'Delta', primary: false },
+];
+
+export const uniqueBoolSchema = {
+  columns: [
+    { key: 'id', header: '#', type: 'number', readonly: true, width: 60 },
+    { key: 'name', header: 'Name', type: 'string', width: 200 },
+    { key: 'primary', header: 'Primary', type: 'boolean', unique: true, width: 100 },
+  ]
+};
+
+export const uniqueBoolView = {
+  hiddenColumns: [],
+  filters: [],
+  sorts: []
+};
+
 export interface FilterSortRow {
   id: number;
   group: 'A' | 'B' | 'C';

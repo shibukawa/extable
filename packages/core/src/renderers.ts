@@ -35,8 +35,9 @@ import { formatIntegerWithPrefix, formatNumberForEdit } from "./numberIO";
 
 const CANVAS_FONT_FAMILY = '"Inter","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif';
 // Canvas text tends to render slightly larger than HTML with the same nominal size.
-// Use a slightly smaller size to visually match HTML's 14px.
+// Use a smaller size to reduce visual weight on canvas; set approximately half of prior size.
 const CANVAS_FONT_SIZE_PX = 13.5;
+const UNIQUE_BOOL_FONT_SIZE_PX = 10;
 
 function getColumnSortDir(view: View, colKey: string): "asc" | "desc" | null {
   const s = view.sorts?.[0];
@@ -501,6 +502,9 @@ export class HTMLRenderer implements Renderer {
     const tr = document.createElement("tr");
     tr.dataset.rowId = row.id;
     tr.style.height = `${this.defaultRowHeight}px`;
+    // Highlight rows where any unique-boolean column is true
+    const anyUniqueTrue = schema.columns.some((c) => c && c.type === "boolean" && c.unique && this.dataModel.getCell(row.id, c.key) === true);
+    if (anyUniqueTrue) tr.classList.add("extable-row--unique-true");
     const view = this.dataModel.getView();
     const rowHeader = document.createElement("th");
     rowHeader.scope = "row";
@@ -590,8 +594,24 @@ export class HTMLRenderer implements Renderer {
         actionEl.textContent = actionLabel;
         td.replaceChildren(actionEl);
       } else {
-        td.textContent = actionLabel || formatted.text;
-        if (formatted.color) td.style.color = formatted.color;
+        if (col.type === "boolean" && !textOverride) {
+          if (col.unique) {
+            const input = document.createElement("input");
+            input.type = "radio";
+            input.name = `extable-unique-${String(col.key)}`;
+            input.checked = Boolean(valueRes.value);
+            if (interaction.readonly || interaction.disabled) input.disabled = true;
+            input.className = "extable-unique-radio";
+            input.setAttribute("aria-label", col.header ?? String(col.key));
+            td.replaceChildren(input);
+          } else {
+            td.textContent = formatted.text;
+            if (formatted.color) td.style.color = formatted.color;
+          }
+        } else {
+          td.textContent = actionLabel || formatted.text;
+          if (formatted.color) td.style.color = formatted.color;
+        }
       }
       const marker = this.dataModel.getCellMarker(row.id, col.key);
       if (marker) {
@@ -1094,13 +1114,14 @@ export class CanvasRenderer implements Renderer {
           const baseStyle = colBaseStyles[idx] ?? {};
           const withCond = condRes.delta ? mergeStyle(baseStyle, condRes.delta) : baseStyle;
           const mergedStyle = cellStyle ? mergeStyle(withCond, cellStyle) : withCond;
-          const bg = muted ? "#f3f4f6" : (mergedStyle.backgroundColor ?? "#ffffff");
+          // Row highlight when a unique-boolean in this row is true
+          const anyUniqueTrueRow = schema.columns.some((cc) => cc && cc.type === "boolean" && cc.unique && this.dataModel.getCell(row.id, cc.key) === true);
+          const bg = anyUniqueTrueRow ? "rgba(59,130,246,0.06)" : (muted ? "#f3f4f6" : (mergedStyle.backgroundColor ?? "#ffffff"));
           ctx.fillStyle = bg;
           ctx.fillRect(x, yCursor, w, rowH);
           ctx.strokeRect(x, yCursor, w, rowH);
           const valueRes = this.dataModel.resolveCellValue(row.id, c);
-          const textOverride =
-            valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
+          const textOverride = valueRes.textOverride ?? (condRes.forceErrorText ? "#ERROR" : undefined);
           const formatted = textOverride ? { text: "#ERROR" } : this.formatValue(valueRes.value, c);
           const isActionType = c.type === "button" || c.type === "link";
           const actionValue = isActionType
@@ -1109,11 +1130,16 @@ export class CanvasRenderer implements Renderer {
               : resolveLinkAction(valueRes.value)
             : null;
           const actionLabel = isActionType
-            ? actionValue?.label ??
-              (c.type === "button" ? getButtonLabel(valueRes.value) : getLinkLabel(valueRes.value))
+            ? actionValue?.label ?? (c.type === "button" ? getButtonLabel(valueRes.value) : getLinkLabel(valueRes.value))
             : "";
           const renderAction = Boolean(isActionType && actionValue && actionLabel && !textOverride);
-          const text = actionLabel || formatted.text;
+          // Render unique boolean as radio glyphs in Canvas mode
+          let text = actionLabel || formatted.text;
+          if (c.type === "boolean" && c.unique) {
+            const val = valueRes.value === true || valueRes.value === "true" || valueRes.value === "1" || valueRes.value === 1;
+            // Use blue circle for ON; render nothing for OFF to keep canvas clean.
+            text = val ? "🔵" : "";
+          }
           const align = c.style?.align ?? (c.type === "number" ? "right" : "left");
           const isActiveCell =
             this.activeRowId === row.id &&
@@ -1249,6 +1275,7 @@ export class CanvasRenderer implements Renderer {
             align,
             isBoolean,
             isCustomBoolean,
+            Boolean(c.unique),
             decorations,
           );
           const marker = this.dataModel.getCellMarker(row.id, c.key);
@@ -2135,6 +2162,7 @@ export class CanvasRenderer implements Renderer {
     align: "left" | "right" | "center" = "left",
     isBoolean = false,
     isCustomBoolean = false,
+    isUniqueBoolean = false,
     decorations?: { underline?: boolean; strike?: boolean },
   ) {
     ctx.save();
@@ -2143,7 +2171,11 @@ export class CanvasRenderer implements Renderer {
     ctx.clip();
     const fontBackup = ctx.font;
     if (isBoolean) {
-      ctx.font = "28px sans-serif";
+      if (isUniqueBoolean) {
+        ctx.font = `${UNIQUE_BOOL_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`;
+      } else {
+        ctx.font = "28px sans-serif";
+      }
     } else if (isCustomBoolean) {
       ctx.font = `${CANVAS_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`;
     }
