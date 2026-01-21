@@ -396,6 +396,20 @@
     }
   }
 
+  /* Unique-boolean (radio) styling and row highlight */
+  & tr.extable-row--unique-true > td {
+    background: rgba(59,130,246,0.06) !important;
+  }
+
+  & input.extable-unique-radio {
+    width: auto;
+    margin: 0;
+    display: inline-block;
+    vertical-align: middle;
+    transform: scale(1);
+    cursor: pointer;
+  }
+
   /* Selection highlight must remain visible even on readonly cells. */
   & td.extable-selected.extable-readonly-muted {
     background: rgba(59, 130, 246, 0.12) !important;

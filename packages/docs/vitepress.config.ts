@@ -55,6 +55,7 @@ export default defineConfig({
         { text: "Auto-fill Sequences", link: "/demos/auto-fill-sequence" },
         { text: "Button & Link Cells", link: "/demos/button-link" },
         { text: "Conditional Readonly/Disabled", link: "/demos/conditional-access" },
+        { text: "Unique Boolean (Radio)", link: "/demos/unique-bool" },
         { text: "Vanilla Demo", link: "/demos/vanilla" },
         { text: "React Demo", link: "/demos/react" },
         { text: "Vue Demo", link: "/demos/vue" },

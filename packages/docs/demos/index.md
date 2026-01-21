@@ -35,6 +35,7 @@ Explore individual features with focused demos:
 - **[Button & Link Cells →](/demos/button-link)** - Action buttons and link navigation
 - **[Conditional Readonly/Disabled →](/demos/conditional-access)** - Toggle editing access and actions
 - **[Unique Constraint →](/demos/unique-constraint)** - Enforce unique values and validation
+- **[Unique Boolean (Radio) →](/demos/unique-bool)** - Boolean column rendered as a radio group (one true row)
 - **[Auto-fill Sequences →](/demos/auto-fill-sequence)** - Drag-fill numbers, strings, and list sequences
 
 ### Usage Sample Features

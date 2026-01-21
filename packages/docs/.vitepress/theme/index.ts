@@ -11,6 +11,7 @@ import StyleDemo from "../../components/StyleDemo.vue";
 import FormulasDemo from "../../components/FormulasDemo.vue";
 import ConditionalStyleDemo from "../../components/ConditionalStyleDemo.vue";
 import UniqueConstraintDemo from "../../components/UniqueConstraintDemo.vue";
+import UniqueBoolDemo from "../../components/UniqueBoolDemo.vue";
 import FilterSupportDemo from "../../components/FilterSupportDemo.vue";
 import NumberFormatsDemo from "../../components/NumberFormatsDemo.vue";
 import SsrCompareDemo from "../../components/SsrCompareDemo.vue";
@@ -23,7 +24,7 @@ export default {
   layouts: {
     home: HomeLayout,
   },
-  enhanceApp({ app }) {
+  enhanceApp({ app }: { app: any }) {
     enhanceAppWithTabs(app);
     app.component("BasicUsageDemo", BasicUsageDemo);
     app.component("AutoFillSequenceDemo", AutoFillSequenceDemo);
@@ -36,6 +37,7 @@ export default {
     app.component("FormulasDemo", FormulasDemo);
     app.component("ConditionalStyleDemo", ConditionalStyleDemo);
     app.component("UniqueConstraintDemo", UniqueConstraintDemo);
+    app.component("UniqueBoolDemo", UniqueBoolDemo);
     app.component("FilterSupportDemo", FilterSupportDemo);
     app.component("NumberFormatsDemo", NumberFormatsDemo);
     app.component("SsrCompareDemo", SsrCompareDemo);
@@ -50,4 +52,4 @@ export default {
       document.head.appendChild(s);
     }
   },
-} satisfies Theme;
+} as unknown as Theme;
