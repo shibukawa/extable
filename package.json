@@ -1,7 +1,7 @@
 {
   "name": "extable",
   "private": true,
-  "version": "0.3.6",
+  "version": "0.3.7",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -33,8 +33,8 @@
     "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium firefox webkit"
   },
   "overrides": {
-    "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
   },
   "resolutions": {
     "@types/react": "19.2.9",
