@@ -1,5 +1,11 @@
 # History
 
+## 0.3.7
+
+### Added
+
+- Column header resize by dragging the header edge (HTML and Canvas modes), with `View.columnWidths` persistence and `col-resize` cursor feedback.
+
 ## 0.3.6
 
 ### Added

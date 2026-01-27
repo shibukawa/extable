@@ -55,6 +55,12 @@ h2 {
   margin: 0 0 12px;
 }
 
+.hint {
+  margin: 0 0 12px;
+  color: #475569;
+  font-size: 12px;
+}
+
 .controls > div {
   display: flex;
   flex-direction: column;
