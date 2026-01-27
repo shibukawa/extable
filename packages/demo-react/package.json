@@ -1,6 +1,6 @@
 {
   "name": "@extable/demo-react",
-  "version": "0.3.6",
+  "version": "0.3.7",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,9 +13,9 @@
     "e2e": "playwright test -c ../../playwright.demo-react.config.ts"
   },
   "dependencies": {
-    "@extable/react": "0.3.6",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "@extable/react": "0.3.7",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.18",
