@@ -1,4 +1,4 @@
-import type { CellAction, Command, EditMode, LookupCandidate, SelectionRange } from "./types";
+import type { CellAction, Command, EditMode, LookupCandidate, SelectionRange, View } from "./types";
 import type { DataModel } from "./dataModel";
 import {
   coerceNumericForColumn,
@@ -23,7 +23,9 @@ import {
   CELL_PADDING_X_PX,
   CELL_PADDING_TOP_PX,
   CELL_PADDING_BOTTOM_PX,
+  COLUMN_RESIZE_HANDLE_PX,
   getColumnWidths,
+  clampColumnWidth,
 } from "./geometry";
 import { resolveButtonAction, resolveLinkAction } from "./actionValue";
 
@@ -59,6 +61,7 @@ export class SelectionManager {
   private hitTest: HitTest;
   private hitAction: ActionHitTest | null = null;
   private onContextMenu: ContextMenuHandler;
+  private onViewChange: (view: View) => void;
   private handleDocumentContextMenu: ((ev: MouseEvent) => void) | null = null;
   private selectionRanges: SelectionRange[] = [];
   private inputEl: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null = null;
@@ -98,7 +101,16 @@ export class SelectionManager {
   private fillDragging = false;
   private fillSource: import("./fillHandle").FillHandleSource | null = null;
   private fillEndRowIndex: number | null = null;
+  private columnResizing = false;
+  private columnResizeState: {
+    colKey: string;
+    startX: number;
+    startWidth: number;
+    minWidth: number;
+    lastWidth: number;
+  } | null = null;
   private rootCursorBackup: string | null = null;
+  private resizeCursorBackup: string | null = null;
   private lastPointerClient: { x: number; y: number } | null = null;
   private autoScrollRaf: number | null = null;
   private autoScrollActive = false;
@@ -158,6 +170,7 @@ export class SelectionManager {
     sequenceLangs: readonly string[] | undefined,
     isCellReadonly: (rowId: string, colKey: string) => boolean,
     onCellAction: ActionHandler,
+    onViewChange: (view: View) => void,
     private onActiveChange: ActiveChange,
     onContextMenu: ContextMenuHandler,
     private onSelectionChange: SelectionChange,
@@ -174,6 +187,7 @@ export class SelectionManager {
     this.sequenceLangs = sequenceLangs;
     this.isCellReadonly = isCellReadonly;
     this.onCellAction = onCellAction;
+    this.onViewChange = onViewChange;
     this.onContextMenu = onContextMenu;
     this.bind();
   }
@@ -334,6 +348,7 @@ export class SelectionManager {
     this.hideHoverTooltip();
     this.teardownHoverTooltip();
     this.stopAutoScroll();
+    this.endColumnResize();
   }
 
   onScroll(scrollTop: number, scrollLeft: number) {
@@ -654,6 +669,76 @@ export class SelectionManager {
       this.hideHoverTooltip();
       this.showCopyToast("Tooltip failed", "error", 1800);
     }
+  }
+
+  private getColumnResizeHit(clientX: number, clientY: number, target?: EventTarget | null) {
+    const hit = this.getHitAtClientPoint(clientX, clientY, target);
+    if (!hit || hit.rowId !== "__header__" || !hit.colKey || hit.colKey === "__all__") return null;
+    if (Math.abs(clientX - hit.rect.right) > COLUMN_RESIZE_HANDLE_PX) return null;
+    if (!hit.element) {
+      const iconSize = 18;
+      const pad = 4;
+      const iconLeft = hit.rect.right - iconSize - pad;
+      const iconTop = hit.rect.top + Math.floor((HEADER_HEIGHT_PX - iconSize) / 2);
+      const inIcon =
+        clientX >= iconLeft &&
+        clientX <= iconLeft + iconSize &&
+        clientY >= iconTop &&
+        clientY <= iconTop + iconSize;
+      if (inIcon) return null;
+    }
+    const schema = this.dataModel.getSchema();
+    const colIndex = schema.columns.findIndex((c) => String(c.key) === String(hit.colKey));
+    if (colIndex < 0) return null;
+    return { colKey: String(hit.colKey), colIndex };
+  }
+
+  private beginColumnResize(colKey: string, colIndex: number, clientX: number) {
+    const schema = this.dataModel.getSchema();
+    const view = this.dataModel.getView();
+    const col = schema.columns[colIndex];
+    if (!col) return;
+    const key = String(colKey);
+    const baseWidth = view.columnWidths?.[key] ?? col.width ?? 100;
+    const colWidths = getColumnWidths(schema, view);
+    const visibleWidth = colWidths[colIndex] ?? baseWidth;
+    const extraWidth = Math.max(0, visibleWidth - baseWidth);
+    const minWidth = clampColumnWidth(0, extraWidth);
+    this.columnResizing = true;
+    this.columnResizeState = {
+      colKey: key,
+      startX: clientX,
+      startWidth: baseWidth,
+      minWidth,
+      lastWidth: baseWidth,
+    };
+    if (this.resizeCursorBackup === null) this.resizeCursorBackup = this.root.style.cursor || "";
+    this.root.style.cursor = "col-resize";
+    this.root.dataset.extableColumnResize = "1";
+  }
+
+  private updateColumnResize(clientX: number) {
+    if (!this.columnResizeState) return;
+    const delta = clientX - this.columnResizeState.startX;
+    const nextRaw = this.columnResizeState.startWidth + delta;
+    const nextWidth = Math.round(Math.max(this.columnResizeState.minWidth, nextRaw));
+    if (nextWidth === this.columnResizeState.lastWidth) return;
+    this.columnResizeState.lastWidth = nextWidth;
+    const view = this.dataModel.getView();
+    const nextWidths = { ...(view.columnWidths ?? {}) };
+    nextWidths[this.columnResizeState.colKey] = nextWidth;
+    this.onViewChange({ ...view, columnWidths: nextWidths });
+  }
+
+  private endColumnResize() {
+    if (!this.columnResizing) return;
+    this.columnResizing = false;
+    this.columnResizeState = null;
+    if (this.resizeCursorBackup !== null) {
+      this.root.style.cursor = this.resizeCursorBackup;
+      this.resizeCursorBackup = null;
+    }
+    this.root.dataset.extableColumnResize = "";
   }
 
   private ensureLookupDropdown() {
@@ -1450,6 +1535,18 @@ export class SelectionManager {
       if (!this.tryCommitActiveEditor()) return;
     }
     if (this.fillDragging) return;
+    const resizeHit = this.getColumnResizeHit(ev.clientX, ev.clientY, ev.target);
+    if (resizeHit) {
+      ev.preventDefault();
+      this.beginColumnResize(resizeHit.colKey, resizeHit.colIndex, ev.clientX);
+      this.suppressNextClick = true;
+      try {
+        (ev.target as Element | null)?.setPointerCapture?.(ev.pointerId);
+      } catch {
+        // ignore
+      }
+      return;
+    }
     const hit = this.hitTest(ev as unknown as MouseEvent);
     if (!hit) return;
     if (hit.rowId === "__all__" && hit.colKey === "__all__") return;
@@ -1763,6 +1860,10 @@ export class SelectionManager {
 
   private handlePointerMove = (ev: PointerEvent) => {
     this.lastPointerClient = { x: ev.clientX, y: ev.clientY };
+    if (this.columnResizing) {
+      this.updateColumnResize(ev.clientX);
+      return;
+    }
     if (this.fillDragging && this.fillSource) {
       this.updateFillDragFromClientPoint(ev.clientX, ev.clientY);
       return;
@@ -1782,6 +1883,16 @@ export class SelectionManager {
   };
 
   private handlePointerUp = (ev: PointerEvent) => {
+    if (this.columnResizing) {
+      this.endColumnResize();
+      try {
+        (ev.target as Element | null)?.releasePointerCapture?.(ev.pointerId);
+      } catch {
+        // ignore
+      }
+      this.suppressNextClick = true;
+      return;
+    }
     if (this.fillDragging && this.fillSource) {
       const src = this.fillSource;
       const endRowIndex = this.fillEndRowIndex ?? src.endRowIndex;

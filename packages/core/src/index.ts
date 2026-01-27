@@ -278,6 +278,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
       this.sequenceLangs,
       (rowId, colKey) => this.isCellReadonly(rowId, colKey),
       (action) => this.emitAction(action),
+      (view) => this.setView(view),
       (rowId, colKey) => {
         const target: CellTarget | null = rowId && colKey !== null ? { rowId, colKey } : null;
         if (target) this.renderer.setActiveCell(target.rowId, target.colKey);

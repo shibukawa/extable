@@ -128,6 +128,7 @@ function renderShell() {
       <section class="layout">
         <div class="table-panel">
           <h2>Table</h2>
+          <p class="hint">Tip: Drag a column header edge to resize its width.</p>
           <div class="table-container">
             <div id="${tableRootId}" class="table-root"></div>
           </div>

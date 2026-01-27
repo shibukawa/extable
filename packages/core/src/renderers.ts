@@ -19,6 +19,7 @@ import {
   CELL_PADDING_X_PX,
   CELL_PADDING_TOP_PX,
   CELL_PADDING_BOTTOM_PX,
+  COLUMN_RESIZE_HANDLE_PX,
   getColumnWidths,
 } from "./geometry";
 import {
@@ -392,6 +393,15 @@ export class HTMLRenderer implements Renderer {
           rect: rowHeader.getBoundingClientRect(),
         };
       }
+    }
+    const colHeader = target.closest<HTMLElement>("th[data-col-key]:not(.extable-row-header)");
+    if (colHeader) {
+      return {
+        rowId: "__header__",
+        colKey: colHeader.dataset.colKey ?? "",
+        element: colHeader,
+        rect: colHeader.getBoundingClientRect(),
+      };
     }
     const cell = target.closest<HTMLElement>("td[data-col-key]");
     const row = cell?.closest<HTMLElement>("tr[data-row-id]");
@@ -1875,6 +1885,10 @@ export class CanvasRenderer implements Renderer {
       this.canvas.style.cursor = "crosshair";
       return;
     }
+    if (this.root.dataset.extableColumnResize === "1") {
+      this.canvas.style.cursor = "col-resize";
+      return;
+    }
     // Header hover (filter/sort icon affordance)
     {
       const rect = this.canvas.getBoundingClientRect();
@@ -1910,6 +1924,20 @@ export class CanvasRenderer implements Renderer {
           const iconTop = Math.floor((this.headerHeight - iconSize) / 2);
           nextIcon =
             x >= iconLeft && x <= iconLeft + iconSize && y >= iconTop && y <= iconTop + iconSize;
+          const inResize =
+            x >= xCursor + w - COLUMN_RESIZE_HANDLE_PX && x <= xCursor + w + COLUMN_RESIZE_HANDLE_PX;
+          if (inResize && !nextIcon) {
+            const changed =
+              String(prevKey ?? "") !== String(nextKey ?? "") || Boolean(prevIcon) !== Boolean(nextIcon);
+            this.hoverHeaderColKey = nextKey;
+            this.hoverHeaderIcon = nextIcon;
+            this.canvas.style.cursor = "col-resize";
+            if (this.tooltip) this.tooltip.dataset.visible = "0";
+            this.tooltipTarget = null;
+            this.tooltipMessage = null;
+            if (changed) this.render();
+            return;
+          }
         }
       }
       const changed =
