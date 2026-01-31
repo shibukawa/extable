@@ -47,7 +47,7 @@ export * from "./types";
 export interface CoreInit<T extends object = Record<string, unknown>> {
   root: HTMLElement;
   defaultData: NullableData<T>;
-  defaultView: View;
+  defaultView?: View;
   schema: Schema<any>;
   options?: CoreOptions;
 }
@@ -160,7 +160,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
     this.dataModel = new DataModel(
       initialData as unknown as RowObject[],
       init.schema,
-      init.defaultView,
+      init.defaultView ?? {},
     );
     this.commandQueue = new CommandQueue();
     this.lockManager = new LockManager(this.lockMode, this.server, this.user);

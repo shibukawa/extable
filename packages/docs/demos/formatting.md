@@ -86,7 +86,7 @@ const tableSchema = defineSchema<Product>({
       key: "status",
       header: "Status",
       type: "enum",
-      enum: { options: ["available", "discontinued", "low-stock"] },
+      enum: ["available", "discontinued", "low-stock"],
       width: 130,
       style: {
         backgroundColor: "#fffbcc",

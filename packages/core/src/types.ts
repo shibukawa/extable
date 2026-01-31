@@ -49,16 +49,13 @@ export type TooltipContext = {
 
 export type ColumnEditHooks = {
   lookup?: {
-    fetchCandidates(ctx: LookupQueryContext): Promise<readonly LookupCandidate[]>;
+    candidates(ctx: LookupQueryContext): Promise<readonly LookupCandidate[]>;
     toStoredValue?(candidate: LookupCandidate): unknown;
     debounceMs?: number;
     recentLookup?: boolean;  // Default: true. Show recently selected items first.
     allowFreeInput?: boolean;  // Default: false. Allow freetext input even without matching candidate.
   };
-
-  externalEditor?: {
-    open(ctx: ExternalEditorContext): Promise<ExternalEditResult>;
-  };
+  externalEditor?: (ctx: ExternalEditorContext) => Promise<ExternalEditResult>;
 };
 
 export type ColumnTooltipHook = {
@@ -211,8 +208,18 @@ export interface ColumnSchema<
   unique?: boolean;
   nullable?: boolean;
   format?: ColumnFormat<TType>;
-  enum?: { options: string[]; allowCustom?: boolean };
-  tags?: { options: string[]; allowCustom?: boolean };
+  /**
+   * Enum options. Can be an array of strings (stored/display values)
+   * or an array of labeled options { label, value } for richer display.
+   */
+  enum?: string[] | { label: string; value: unknown }[];
+  /** When false, values not present in `enum` are considered invalid. */
+  enumAllowCustom?: boolean;
+
+  /** Tags options as a simple array of strings. */
+  tags?: string[];
+  /** When false, tags not present in `tags` are considered invalid. */
+  tagsAllowCustom?: boolean;
   width?: number; // px
   wrapText?: boolean; // allow per-column wrapping
   style?: {

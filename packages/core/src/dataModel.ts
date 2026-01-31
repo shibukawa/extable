@@ -96,6 +96,7 @@ export class DataModel {
   private notifyDirty = false;
 
   constructor(dataset: RowObject[] | undefined, schema: Schema<any>, view: View) {
+    this.validateSchema(schema);
     this.schema = schema;
     this.view = view;
     this.setData(dataset ?? []);
@@ -161,6 +162,7 @@ export class DataModel {
 
   public setSchema(schema: Schema<any>) {
     this.dataVersion += 1;
+    this.validateSchema(schema);
     this.schema = schema;
     this.computedCache.clear();
     this.conditionalCache.clear();
@@ -170,6 +172,61 @@ export class DataModel {
     this.conditionalDiagnostics.clear();
     this.recomputeValidationErrors();
     this.notify();
+  }
+
+  private validateSchema(schema: Schema<any>) {
+    if (!schema || !Array.isArray(schema.columns)) return;
+    for (const col of schema.columns) {
+      if (!col || typeof col !== "object") continue;
+      const hasLookup = col.edit && col.edit.lookup && typeof (col.edit.lookup as any).candidates === "function";
+      if (col.type === "enum") {
+        // Support both flattened `enum: [...]` and legacy `enum: { options: [...] }`
+        const optionsArr: unknown[] | null = Array.isArray(col.enum)
+          ? (col.enum as unknown[])
+          : col.enum && typeof col.enum === "object" && Array.isArray((col.enum as any).options)
+          ? (col.enum as any).options
+          : null;
+        const hasOptions = optionsArr !== null && optionsArr.length > 0;
+        if (!hasOptions && !hasLookup) {
+          throw new Error(`Column '${col.key}' of type 'enum' must provide either 'enum' options or 'edit.lookup.candidates'.`);
+        }
+        if (hasOptions) {
+          // If options contain objects, only allow when column is `labeled` type.
+          const hasObject = optionsArr.some((o: unknown) => o && typeof o === "object");
+          if (hasObject && String(col.type) !== "labeled") {
+            throw new Error(`Column '${col.key}' of type 'enum' may not contain labeled option objects; use type 'labeled' instead.`);
+          }
+          if (String(col.type) === "labeled") {
+            // For labeled columns, options must be objects with {label,value}.
+            for (const o of optionsArr) {
+              if (!(o && typeof o === "object")) {
+                throw new Error(`Column '${col.key}' labeled options must be objects with 'label' and 'value'.`);
+              }
+              const obj = o as Record<string, unknown>;
+              if (!Object.prototype.hasOwnProperty.call(obj, "label") || !Object.prototype.hasOwnProperty.call(obj, "value")) {
+                throw new Error(`Column '${col.key}' labeled options must include 'label' and 'value' properties.`);
+              }
+            }
+          }
+        }
+      }
+      if (col.type === "tags") {
+        // Support both flattened `tags: [...]` and legacy `tags: { options: [...] }`
+        const tagsArr: unknown[] | null = Array.isArray(col.tags) ? (col.tags as unknown[]) : null;
+        const hasOptions = tagsArr !== null && tagsArr.length > 0;
+        if (!hasOptions && !hasLookup) {
+          throw new Error(`Column '${col.key}' of type 'tags' must provide either 'tags' options or 'edit.lookup.candidates'.`);
+        }
+        if (hasOptions) {
+          // tags options must be strings
+          for (const t of tagsArr!) {
+            if (typeof t !== "string") {
+              throw new Error(`Column '${col.key}' tags options must be an array of strings.`);
+            }
+          }
+        }
+      }
+    }
   }
 
   public setView(view: View) {

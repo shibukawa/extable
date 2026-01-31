@@ -186,7 +186,7 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
       const root = document.createElement("div");
       document.body.appendChild(root);
 
-      const fetchCandidates = vi.fn(async ({ query }: { query: string }) => {
+      const candidates = vi.fn(async ({ query }: { query: string }) => {
         if (query !== "al") return [];
         return [{ label: "Alice", value: "u1" }];
       });
@@ -200,8 +200,8 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
                 key: "a",
                 type: "string",
                 edit: {
-                  lookup: {
-                    fetchCandidates: fetchCandidates as any,
+                    lookup: {
+                    candidates: candidates as any,
                   },
                 },
               },
@@ -254,7 +254,7 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
       const root = document.createElement("div");
       document.body.appendChild(root);
 
-      const fetchCandidates = vi.fn(async ({ query }: { query: string }) => {
+      const candidates = vi.fn(async ({ query }: { query: string }) => {
         if (query !== "al") return [];
         return [{ label: "Alice", value: "u1" }];
       });
@@ -268,8 +268,8 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
                 key: "a",
                 type: "labeled",
                 edit: {
-                  lookup: {
-                    fetchCandidates: fetchCandidates as any,
+                    lookup: {
+                    candidates: candidates as any,
                   },
                 },
               },
@@ -322,7 +322,7 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
       document.body.appendChild(root);
 
       let resolve1: ((v: any) => void) | null = null;
-      const fetchCandidates = vi.fn(
+      const candidates = vi.fn(
         () =>
           new Promise<any>((r) => {
             resolve1 = r;
@@ -338,8 +338,8 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
                 key: "a",
                 type: "string",
                 edit: {
-                  lookup: {
-                    fetchCandidates: fetchCandidates as any,
+                    lookup: {
+                    candidates: candidates as any,
                   },
                 },
               },
@@ -405,7 +405,7 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
             {
               key: "a",
               type: "string",
-              edit: { externalEditor: { open } },
+              edit: { externalEditor: open },
             },
           ],
         },
@@ -461,7 +461,7 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
             {
               key: "a",
               type: "labeled",
-              edit: { externalEditor: { open } },
+              edit: { externalEditor: open },
             },
           ],
         },
@@ -545,7 +545,7 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
         { label: "Bob", value: "u2" },
       ];
 
-      const fetchCandidates = vi.fn(async ({ query }: any) => {
+      const candidatesFn = vi.fn(async ({ query }: any) => {
         return candidates.filter((c) => !query || c.label.toLowerCase().includes(query.toLowerCase()));
       });
 
@@ -558,8 +558,8 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
                 key: "assignee",
                 type: "labeled",
                 edit: {
-                  lookup: {
-                    fetchCandidates,
+                    lookup: {
+                    candidates: candidatesFn,
                     recentLookup: true,  // enabled by default
                   },
                 },
@@ -620,7 +620,7 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
         { label: "Bob", value: "u2" },
       ];
 
-      const fetchCandidates = vi.fn(async ({ query }: any) => {
+      const candidatesFn = vi.fn(async ({ query }: any) => {
         return candidates.filter((c) => !query || c.label.toLowerCase().includes(query.toLowerCase()));
       });
 
@@ -633,8 +633,8 @@ describe("rich editing (remote lookup / external editor / tooltip)", () => {
                 key: "assignee",
                 type: "labeled",
                 edit: {
-                  lookup: {
-                    fetchCandidates,
+                    lookup: {
+                    candidates: candidatesFn,
                     recentLookup: false,  // disabled
                   },
                 },

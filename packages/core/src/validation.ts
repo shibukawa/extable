@@ -72,16 +72,33 @@ export function validateCellValue(value: unknown, col: ColumnSchema): string | n
     case "enum": {
       const v = asEnumValue(value);
       if (!v) return "Expected an enum value";
-      const allowCustom = col.enum?.allowCustom ?? false;
-      const options = col.enum?.options ?? [];
+      const allowCustom = col.enumAllowCustom ?? false;
+      const options = Array.isArray(col.enum) ? (col.enum as string[]) : [];
       if (!allowCustom && options.length && !options.includes(v)) return "Not in allowed options";
+      return null;
+    }
+    case "labeled": {
+      // Labeled columns expect an object with { label, value } shape.
+      if (!value || typeof value !== "object") return "Expected a labeled value";
+      const obj = value as Record<string, unknown>;
+      if (typeof obj.label !== "string" || !Object.prototype.hasOwnProperty.call(obj, "value")) {
+        return "Expected a labeled value";
+      }
+      const allowCustom = col.enumAllowCustom ?? false;
+      const options = Array.isArray(col.enum) ? (col.enum as unknown[]) : [];
+      if (!allowCustom && options.length) {
+        // options must be objects with value fields
+        const allowed = options.map((o) => (typeof o === "object" && o !== null ? String((o as any).value) : null)).filter((x) => x !== null) as string[];
+        const valueStr = String(obj.value ?? "");
+        if (!allowed.includes(valueStr)) return "Not in allowed options";
+      }
       return null;
     }
     case "tags": {
       const values = asTagsValues(value);
       if (!values) return "Expected a list of tags";
-      const allowCustom = col.tags?.allowCustom ?? false;
-      const options = col.tags?.options ?? [];
+      const allowCustom = col.tagsAllowCustom ?? false;
+      const options = Array.isArray(col.tags) ? col.tags : [];
       if (!allowCustom && options.length) {
         for (const v of values) {
           if (!options.includes(v)) return "Contains an unknown tag";

@@ -74,7 +74,8 @@ export const Extable = defineComponent({
     },
     defaultView: {
       type: Object as PropType<View>,
-      required: true,
+      required: false,
+      default: () => ({} as View),
     },
     options: {
       type: Object as PropType<CoreOptions>,

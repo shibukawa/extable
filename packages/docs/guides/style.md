@@ -88,7 +88,7 @@ Center-aligned status badges with backgroundColor:
   key: 'status',
   header: 'Status',
   type: 'enum',
-  enum: { options: ['Active', 'Inactive', 'Pending'] },
+  enum: ['Active', 'Inactive', 'Pending'],
   style: {
     align: 'center',
     backgroundColor: '#f0f4c3',
