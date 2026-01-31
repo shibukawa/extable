@@ -179,7 +179,7 @@ Compute status from multiple conditions with error checking:
   header: 'Status',
   type: 'enum',
   readonly: true,
-  enum: { options: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Error'] },
+  enum: ['Pending', 'Processing', 'Shipped', 'Delivered', 'Error'],
   formula: (row) => {
     if (!row.orderId) {
       return ['Error', new Error('Missing order ID')] as const;

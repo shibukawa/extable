@@ -15,12 +15,12 @@ describe("ssr integration", () => {
           link: { label: "Site", href: "https://example.com" },
         },
       ],
-      schema: {
+        schema: {
         columns: [
           { key: "name", type: "string" },
           { key: "active", type: "boolean", format: ["Yes", "No"] },
-          { key: "status", type: "enum", enum: { options: ["Open", "Closed"] } },
-          { key: "tags", type: "tags", tags: { options: ["x", "y"] } },
+          { key: "status", type: "enum", enum: ["Open", "Closed"] },
+          { key: "tags", type: "tags", tags: ["x", "y"] },
           { key: "action", type: "button" },
           { key: "link", type: "link" },
         ],

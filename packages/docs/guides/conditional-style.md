@@ -79,7 +79,7 @@ Map enumerated risk levels to color schemes:
   key: 'riskLevel',
   header: 'Risk Level',
   type: 'enum',
-  enum: { options: ['Low', 'Medium', 'High', 'Critical'] },
+  enum: ['Low', 'Medium', 'High', 'Critical'],
   conditionalStyle: (row) => {
     const colors = {
       'Low': '#c8e6c9',

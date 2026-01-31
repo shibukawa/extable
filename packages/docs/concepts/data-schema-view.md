@@ -101,7 +101,7 @@ const schema = {
       key: 'department',
       type: 'enum',
       header: 'Department',
-      enum: { options: ['Engineering', 'Sales', 'Marketing', 'HR'] },
+      enum: ['Engineering', 'Sales', 'Marketing', 'HR'],
     },
     {
       key: 'salary',

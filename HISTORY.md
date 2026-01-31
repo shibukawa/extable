@@ -1,5 +1,25 @@
 # History
 
+## Unreleased
+
+### Changed (Breaking)
+
+- Vue wrapper: `defaultView` prop is now optional; core accepts an optional `defaultView` and falls back to an empty view when not provided.
+- Schema shape: flattened `enum` and `tags` to top-level arrays (`enum: [...]`, `tags: [...]`). Legacy nested `{ options: [...] }` shape has been removed.
+- Labeled options: option objects of the form `{ label, value }` are only permitted when the column `type` is `labeled`. Using labeled option objects with other column types now triggers schema validation errors.
+- Lookup API rename: `edit.lookup.fetchCandidates(ctx)` was renamed to `edit.lookup.candidates(ctx)` (async candidate fetcher).
+- External editor API simplified: `edit.externalEditor.open(ctx)` was replaced by a function `edit.externalEditor(ctx)` that directly returns a Promise result.
+- DataModel schema validation: `DataModel` now validates the schema on construction and `setSchema()`; `enum`/`tags` columns must provide either a local options array or a `edit.lookup.candidates` hook.
+- Core runtime changes: selection/editor creation, validation, and rendering logic updated to match the new schema/API shapes (notably `selectionManager`, `validation`, and `dataModel`).
+- Docs/demos/tests: updated demo fixtures, documentation, and unit tests to reflect the API and schema changes.
+- Migration notes (breaking changes):
+  - Update any `edit.lookup.fetchCandidates` usages to `edit.lookup.candidates`.
+  - Replace `edit.externalEditor.open` usages with `edit.externalEditor` (callable function).
+  - Replace legacy `enum: { options: [...] }` / `tags: { options: [...] }` shapes with top-level arrays `enum: [...]` / `tags: [...]`.
+  - If you relied on labeled option objects (`{ label, value }`), set the column `type` to `labeled`.
+
+- Tests: unit tests and rich-editing tests were updated; `@extable/core` tests run green after these changes.
+
 ## 0.3.7
 
 ### Added

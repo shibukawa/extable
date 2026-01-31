@@ -646,7 +646,7 @@ const schema = {
       key: 'department',
       header: 'Department',
       type: 'enum',
-      enum: { options: ['Engineering', 'Sales', 'Marketing', 'HR'] },
+      enum: ['Engineering', 'Sales', 'Marketing', 'HR'],
       width: 140
     },
     // Salary - formatted number
@@ -679,7 +679,7 @@ const schema = {
       key: 'skills',
       header: 'Skills',
       type: 'tags',
-      tags: { options: ['JavaScript', 'TypeScript', 'React', 'Python', 'SQL'] },
+      tags: ['JavaScript', 'TypeScript', 'React', 'Python', 'SQL'],
       width: 160
     },
     // Annual Compensation - computed readonly

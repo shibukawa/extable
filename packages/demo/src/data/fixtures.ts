@@ -77,8 +77,8 @@ export const demoSchema = {
     { key: 'date', header: 'Date', type: 'date', width: 120 },
     { key: 'time', header: 'Time', type: 'time', width: 100 },
     { key: 'datetime', header: 'DateTime', type: 'datetime', width: 180 },
-    { key: 'role', header: 'Role', type: 'string', edit: { lookup: { async fetchCandidates({ query }) { const options = ['viewer', 'editor', 'owner']; const filtered = options.filter(o => o.toLowerCase().includes(query.toLowerCase())); return filtered.map(value => ({ label: value, value })); } } }, width: 120 },
-    { key: 'tags', header: 'Tags', type: 'tags', tags: { options: ['alpha', 'beta', 'priority'] }, width: 140 },
+    { key: 'role', header: 'Role', type: 'string', edit: { lookup: { async candidates({ query }) { const options = ['viewer', 'editor', 'owner']; const filtered = options.filter(o => o.toLowerCase().includes(query.toLowerCase())); return filtered.map(value => ({ label: value, value })); } } }, width: 120 },
+    { key: 'tags', header: 'Tags', type: 'tags', tags: ['alpha', 'beta', 'priority'], width: 140 },
     { key: 'score', header: 'Score', type: 'number', format: { precision: 6, scale: 2 }, style: { align: 'right' }, width: 100 },
     { key: 'description', header: 'Description', type: 'string', width: 260, wrapText: true },
     { key: 'longNote', header: 'Long Note (wrap)', type: 'string', width: 260, wrapText: true },
@@ -478,7 +478,7 @@ export const filterSortRows: FilterSortRow[] = [
 export const filterSortSchema = {
   columns: [
     { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
-    { key: 'group', header: 'Group', type: 'enum', enum: { options: ['A', 'B', 'C'] }, width: 100 },
+    { key: 'group', header: 'Group', type: 'enum', enum: ['A', 'B', 'C'], width: 100 },
     { key: 'amount', header: 'Amount', type: 'number', style: { align: 'right' }, width: 110 },
     {
       key: 'status',

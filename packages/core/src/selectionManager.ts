@@ -955,7 +955,7 @@ export class SelectionManager {
         const controller = new AbortController();
         this.lookupAbort = controller;
         void hook
-          .fetchCandidates({ query, rowId, colKey, signal: controller.signal })
+            .candidates({ query, rowId, colKey, signal: controller.signal })
           .then((candidates) => {
             if (requestId !== this.lookupRequestId) return;
             if (controller.signal.aborted) return;
@@ -1100,7 +1100,7 @@ export class SelectionManager {
 
   private tryStartExternalEditor(rowId: string, colKey: string): boolean {
     const col = this.findColumn(colKey);
-    const open = col?.edit?.externalEditor?.open;
+    const open = col?.edit?.externalEditor;
     if (!open) return false;
     if (this.editMode === "readonly") return true;
     if (this.isCellReadonly(rowId, colKey)) return true;
@@ -2534,9 +2534,24 @@ export class SelectionManager {
       input.value = normalized;
       return { control: input, value: normalized };
     }
-    if (col?.type === "enum" || col?.type === "tags") {
-      const allowCustom = col.enum?.allowCustom ?? col.tags?.allowCustom;
-      const options = col.enum?.options ?? col.tags?.options ?? [];
+    if (col?.type === "enum" || col?.type === "tags" || col?.type === "labeled") {
+      const allowCustom = col.type === "enum" ? (col.enumAllowCustom ?? false) : col.type === "tags" ? (col.tagsAllowCustom ?? false) : (col.enumAllowCustom ?? false);
+      // Gather raw options for each type
+      let rawOptions: unknown[] = [];
+      if (col.type === "enum" && Array.isArray(col.enum)) rawOptions = col.enum as unknown[];
+      if (col.type === "tags" && Array.isArray(col.tags)) rawOptions = col.tags as unknown[];
+      if (col.type === "labeled" && Array.isArray(col.enum)) rawOptions = col.enum as unknown[];
+      const options = rawOptions.map((o) => {
+        if (typeof o === "string") return o;
+        if (o && typeof o === "object") {
+          const obj = o as any;
+          // For labeled options, prefer label for display
+          if (col.type === "labeled") return String(obj.label ?? obj.value ?? "");
+          if ("value" in obj) return String(obj.value ?? obj.label ?? "");
+          if ("label" in obj) return String(obj.label ?? "");
+        }
+        return String(o ?? "");
+      });
       if (allowCustom === false) {
         const select = document.createElement("select");
         const empty = document.createElement("option");

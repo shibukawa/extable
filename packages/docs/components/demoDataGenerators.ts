@@ -35,10 +35,10 @@ export const employeeSchema = defineSchema<DemoEmployee>({
     },
     {
       key: "role",
-      header: "Role",
-      type: "enum",
-      enum: { options: ["manager", "engineer", "designer", "analyst"] },
-      width: 130,
+        header: "Role",
+        type: "enum",
+        enum: ["manager", "engineer", "designer", "analyst"],
+        width: 130,
     },
     {
       key: "active",
@@ -95,10 +95,10 @@ export const commitEmployeeSchema = defineSchema<DemoEmployee>({
     { key: "department", header: "Department", type: "string", width: 140 },
     {
       key: "role",
-      header: "Role",
-      type: "enum",
-      enum: { options: ["manager", "engineer", "designer", "analyst"] },
-      width: 140,
+        header: "Role",
+        type: "enum",
+        enum: ["manager", "engineer", "designer", "analyst"],
+        width: 140,
     },
     {
       key: "salary",
@@ -110,11 +110,11 @@ export const commitEmployeeSchema = defineSchema<DemoEmployee>({
     },
     {
       key: "status",
-      header: "Status",
-      type: "enum",
-      enum: { options: ["pending", "approved", "rejected"] },
-      readonly: true,
-      width: 120,
+        header: "Status",
+        type: "enum",
+        enum: ["pending", "approved", "rejected"],
+        readonly: true,
+        width: 120,
     },
   ],
 });
