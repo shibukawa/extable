@@ -33,6 +33,7 @@ import { removeFromParent } from "./utils";
 import { columnFormatToStyle, mergeStyle, styleToCssText } from "./styleResolver";
 import { getButtonLabel, getLinkLabel, resolveButtonAction, resolveLinkAction } from "./actionValue";
 import { formatIntegerWithPrefix, formatNumberForEdit } from "./numberIO";
+import { resolveUniqueBooleanCommitState } from "./uniqueBooleanCommit";
 
 const CANVAS_FONT_FAMILY = '"Inter","Segoe UI",system-ui,-apple-system,"Helvetica Neue",sans-serif';
 // Canvas text tends to render slightly larger than HTML with the same nominal size.
@@ -345,9 +346,16 @@ export class HTMLRenderer implements Renderer {
     const totalWidth = this.rowHeaderWidth + colWidths.reduce((acc, w) => acc + (w ?? 0), 0);
     this.tableEl.style.width = `${totalWidth}px`;
     this.tableEl.appendChild(this.renderHeader(schema, colWidths));
+    const uniqueCommitState = resolveUniqueBooleanCommitState(
+      schema,
+      this.dataModel.getPending(),
+      (rowId, colKey) => this.dataModel.getRawCell(rowId, colKey),
+    );
     const body = document.createElement("tbody");
     for (const row of rows) {
-      body.appendChild(this.renderRow(row, schema, colWidths, colBaseStyles, colBaseCss));
+      body.appendChild(
+        this.renderRow(row, schema, colWidths, colBaseStyles, colBaseCss, uniqueCommitState),
+      );
     }
     this.tableEl.appendChild(body);
     this.updateActiveClasses();
@@ -508,6 +516,7 @@ export class HTMLRenderer implements Renderer {
     colWidths: number[],
     colBaseStyles: ReturnType<typeof columnFormatToStyle>[],
     colBaseCss: string[],
+    uniqueCommitState: ReturnType<typeof resolveUniqueBooleanCommitState>,
   ) {
     const tr = document.createElement("tr");
     tr.dataset.rowId = row.id;
@@ -604,16 +613,27 @@ export class HTMLRenderer implements Renderer {
         actionEl.textContent = actionLabel;
         td.replaceChildren(actionEl);
       } else {
-        if (col.type === "boolean" && !textOverride) {
+          if (col.type === "boolean" && !textOverride) {
           if (col.unique) {
-            const input = document.createElement("input");
-            input.type = "radio";
-            input.name = `extable-unique-${String(col.key)}`;
-            input.checked = Boolean(valueRes.value);
-            if (interaction.readonly || interaction.disabled) input.disabled = true;
-            input.className = "extable-unique-radio";
-            input.setAttribute("aria-label", col.header ?? String(col.key));
-            td.replaceChildren(input);
+            const indicator = document.createElement("span");
+            indicator.className = "extable-unique-radio";
+            indicator.setAttribute("role", "radio");
+            const checked = Boolean(valueRes.value);
+            indicator.setAttribute("aria-checked", checked ? "true" : "false");
+            if (interaction.readonly || interaction.disabled) {
+              indicator.setAttribute("aria-disabled", "true");
+              indicator.classList.add("extable-unique-radio--disabled");
+            }
+            const commitState = uniqueCommitState.get(String(col.key));
+            if (commitState?.currentRowId === row.id) {
+              indicator.classList.add("extable-unique-dot-current");
+            } else if (commitState?.previousRowId === row.id) {
+              indicator.classList.add("extable-unique-dot-previous");
+            } else if (checked) {
+              indicator.classList.add("extable-unique-dot-default");
+            }
+            indicator.setAttribute("aria-label", col.header ?? String(col.key));
+            td.replaceChildren(indicator);
           } else {
             td.textContent = formatted.text;
             if (formatted.color) td.style.color = formatted.color;
@@ -986,6 +1006,12 @@ export class CanvasRenderer implements Renderer {
       const rows = this.dataModel.listRows();
       const colWidths = getColumnWidths(schema, view);
       const colBaseStyles = schema.columns.map((c) => columnFormatToStyle(c));
+      const uniqueCommitState = resolveUniqueBooleanCommitState(
+        schema,
+        this.dataModel.getPending(),
+        (rowId, colKey) => this.dataModel.getRawCell(rowId, colKey),
+      );
+      const uniqueDotColors = this.getUniqueDotColors();
       const fontCache = new Map<string, string>();
       const wrapAny = schema.columns.some((c) => view.wrapText?.[c.key] ?? c.wrapText);
       const cacheKey = wrapAny ? this.getRowHeightCacheKey(schema, view, colWidths) : null;
@@ -1143,12 +1169,20 @@ export class CanvasRenderer implements Renderer {
             ? actionValue?.label ?? (c.type === "button" ? getButtonLabel(valueRes.value) : getLinkLabel(valueRes.value))
             : "";
           const renderAction = Boolean(isActionType && actionValue && actionLabel && !textOverride);
-          // Render unique boolean as radio glyphs in Canvas mode
           let text = actionLabel || formatted.text;
-          if (c.type === "boolean" && c.unique) {
-            const val = valueRes.value === true || valueRes.value === "true" || valueRes.value === "1" || valueRes.value === 1;
-            // Use blue circle for ON; render nothing for OFF to keep canvas clean.
-            text = val ? "🔵" : "";
+          const isUniqueBoolean = c.type === "boolean" && c.unique;
+          let uniqueDotState: "current" | "previous" | "default" | null = null;
+          if (isUniqueBoolean) {
+            const commitState = uniqueCommitState.get(String(c.key));
+            if (commitState?.currentRowId === row.id) {
+              uniqueDotState = "current";
+            } else if (commitState?.previousRowId === row.id) {
+              uniqueDotState = "previous";
+            } else {
+              const val = valueRes.value === true || valueRes.value === "true" || valueRes.value === "1" || valueRes.value === 1;
+              uniqueDotState = val ? "default" : null;
+            }
+            text = "";
           }
           const align = c.style?.align ?? (c.type === "number" ? "right" : "left");
           const isActiveCell =
@@ -1273,6 +1307,15 @@ export class CanvasRenderer implements Renderer {
             ctx.fill();
             ctx.stroke();
             ctx.restore();
+          }
+          if (isUniqueBoolean && uniqueDotState) {
+            const color =
+              uniqueDotState === "current"
+                ? uniqueDotColors.current
+                : uniqueDotState === "previous"
+                  ? uniqueDotColors.previous
+                  : uniqueDotColors.default;
+            this.drawUniqueRadio(ctx, textAreaX, textAreaY, textAreaW, textAreaH, align, color);
           }
           this.drawCellText(
             ctx,
@@ -2258,6 +2301,54 @@ export class CanvasRenderer implements Renderer {
     }
     ctx.textAlign = "left";
     ctx.font = fontBackup;
+    ctx.restore();
+  }
+
+  private getUniqueDotColors() {
+    const fallback = {
+      current: "#ff3b30",
+      previous: "#b0b0b0",
+      default: "#3b82f6",
+    };
+    if (!this.root || typeof getComputedStyle !== "function") return fallback;
+    const styles = getComputedStyle(this.root);
+    const pick = (name: string, fb: string) => {
+      const value = styles.getPropertyValue(name).trim();
+      return value || fb;
+    };
+    return {
+      current: pick("--extable-unique-dot-current", fallback.current),
+      previous: pick("--extable-unique-dot-previous", fallback.previous),
+      default: pick("--extable-unique-dot-default", fallback.default),
+    };
+  }
+
+  private drawUniqueRadio(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    align: "left" | "right" | "center",
+    color: string,
+  ) {
+    const size = Math.max(8, Math.min(12, Math.min(width, height) - 4));
+    const ringRadius = size / 2;
+    const dotRadius = ringRadius / 2.2;
+    const centerY = y + height / 2;
+    let centerX = x + ringRadius;
+    if (align === "right") centerX = x + width - ringRadius;
+    else if (align === "center") centerX = x + width / 2;
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, ringRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, dotRadius, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 

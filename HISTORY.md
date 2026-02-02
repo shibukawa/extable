@@ -6,6 +6,10 @@
 
 - Column header resize by dragging the header edge (HTML and Canvas modes), with `View.columnWidths` persistence and `col-resize` cursor feedback.
 
+### Changed
+
+- Commit mode now renders unique-boolean radios with red (current) and gray (previous) indicators in HTML and Canvas modes.
+
 ## 0.3.6
 
 ### Added
