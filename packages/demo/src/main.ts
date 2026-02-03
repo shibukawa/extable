@@ -309,18 +309,21 @@ function main() {
   const updateDataNote = () => {
     if (!dataNoteEl) return;
     const cfg = currentConfig;
-    const header = [
+    const headerLines = [
       `dataMode: ${dataMode}`,
       "",
       "Notes:",
       "- formula: (row) => value | [value, Error] (warning) | throw (error)",
       "- conditionalStyle: (row) => StyleDelta | null | Error (warning) | throw (error)",
       "- Warning/Error is shown as a corner marker with hover message.",
-      "",
-      "Sources:",
-      "",
-    ].join("\n");
-    dataNoteEl.textContent = header + dataNoteForSchema(cfg.schema);
+    ];
+    if (dataMode === "unique-bool") {
+      headerLines.push(
+        "- commit mode: unique-boolean changes show red (current) and gray (previous) dots.",
+      );
+    }
+    headerLines.push("", "Sources:", "");
+    dataNoteEl.textContent = headerLines.join("\n") + dataNoteForSchema(cfg.schema);
   };
 
   const updateState = () => {

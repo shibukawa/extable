@@ -5,6 +5,9 @@
   --extable-invalid: #ef4444;
   --extable-header-bg: #e5e7eb;
   --extable-formula-readonly-fg: #99aaff;
+  --extable-unique-dot-default: var(--extable-accent);
+  --extable-unique-dot-current: #ff3b30;
+  --extable-unique-dot-previous: #b0b0b0;
 
   border: 1px solid #d0d7de;
   box-sizing: border-box;
@@ -164,6 +167,12 @@
     &.invalid {
       outline: 1px solid var(--extable-invalid);
     }
+  }
+
+  & .extable-editor-input {
+    background: #ffffff;
+    color: #0f172a;
+    opacity: 1;
   }
 
   & .extable-diag-warning::before,
@@ -401,13 +410,37 @@
     background: rgba(59,130,246,0.06) !important;
   }
 
-  & input.extable-unique-radio {
-    width: auto;
+  & .extable-unique-radio {
+    width: 14px;
+    height: 14px;
     margin: 0;
     display: inline-block;
     vertical-align: middle;
-    transform: scale(1);
+    border-radius: 999px;
+    border: 1.5px solid #94a3b8;
+    background-color: transparent;
     cursor: pointer;
+    box-sizing: border-box;
+  }
+
+  & .extable-unique-radio.extable-unique-dot-default {
+    border-color: var(--extable-unique-dot-default);
+    background: radial-gradient(circle at center, var(--extable-unique-dot-default) 0 45%, transparent 50%);
+  }
+
+  & .extable-unique-radio.extable-unique-dot-current {
+    border-color: var(--extable-unique-dot-current);
+    background: radial-gradient(circle at center, var(--extable-unique-dot-current) 0 45%, transparent 50%);
+  }
+
+  & .extable-unique-radio.extable-unique-dot-previous {
+    border-color: var(--extable-unique-dot-previous);
+    background: radial-gradient(circle at center, var(--extable-unique-dot-previous) 0 45%, transparent 50%);
+  }
+
+  & .extable-unique-radio.extable-unique-radio--disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 
   /* Selection highlight must remain visible even on readonly cells. */

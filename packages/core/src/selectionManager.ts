@@ -911,6 +911,7 @@ export class SelectionManager {
         input.style.fontFamily = "inherit";
         input.style.boxSizing = "border-box";
         input.style.zIndex = "100";
+        input.classList.add("extable-editor-input");
         // Safari-specific fixes
         (input.style as any).WebkitAppearance = "none";
         (input.style as any).WebkitUserSelect = "text";
@@ -2711,12 +2712,14 @@ export class SelectionManager {
       if (!this.tryCommitActiveEditor()) return;
     }
     const hit = this.getHitAtClientPoint(ev.clientX, ev.clientY, ev.target);
-    // If the click target is a unique-radio input, perform immediate unique toggle.
-    const radioInput = (ev.target as HTMLElement | null)?.closest("input.extable-unique-radio") as HTMLInputElement | null;
-    if (radioInput && hit) {
+    // If the click target is a unique-radio indicator, perform immediate unique toggle.
+    const radioIndicator = (ev.target as HTMLElement | null)?.closest(".extable-unique-radio") as HTMLElement | null;
+    if (radioIndicator && hit) {
       if (hit.colKey === null) return;
       const col = this.findColumn(hit.colKey);
       if (col && col.type === "boolean" && col.unique) {
+        if (this.isCellReadonly(hit.rowId, hit.colKey)) return;
+        if (radioIndicator.getAttribute("aria-disabled") === "true") return;
         this.toggleBoolean(hit.rowId, hit.colKey);
         ev.preventDefault();
         return;
@@ -3137,6 +3140,7 @@ export class SelectionManager {
     input.style.fontFamily = "inherit";
     input.style.lineHeight = "16px";
     input.style.fontWeight = "inherit";
+    input.classList.add("extable-editor-input");
     // Safari-specific fixes
     (input.style as any).WebkitAppearance = "none";
     (input.style as any).WebkitBorderRadius = "0";
@@ -3224,6 +3228,7 @@ export class SelectionManager {
     input.style.fontFamily = "inherit";
     input.style.lineHeight = "16px";
     input.style.fontWeight = "inherit";
+    input.classList.add("extable-editor-input");
     // Safari-specific fixes
     (input.style as any).WebkitAppearance = "none";
     (input.style as any).WebkitBorderRadius = "0";
@@ -3431,6 +3436,9 @@ export class SelectionManager {
 
   private teardownInput(clearActive = false) {
     this.teardownLookupEditor();
+    if (this.inputEl === this.selectionInput && this.selectionInput) {
+      this.selectionInput.classList.remove("extable-editor-input");
+    }
     // Don't remove selectionInput from DOM - it's reused across edits
     if (this.inputEl && this.inputEl !== this.selectionInput) {
       removeFromParent(this.inputEl);
