@@ -1,6 +1,6 @@
 # History
 
-## Unreleased
+## 0.3.8
 
 ### Changed (Breaking)
 
@@ -19,6 +19,10 @@
   - If you relied on labeled option objects (`{ label, value }`), set the column `type` to `labeled`.
 
 - Tests: unit tests and rich-editing tests were updated; `@extable/core` tests run green after these changes.
+
+### Changed
+
+- Appearance of unique and boolean field in commit mode.
 
 ## 0.3.7
 
