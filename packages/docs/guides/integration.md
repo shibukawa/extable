@@ -379,6 +379,34 @@ Both `class` and `style` are supported:
 - Table responds automatically to container size changes
 :::
 
+### Horizontal Scroll Troubleshooting
+
+If horizontal scrolling does not appear even when total column width is larger than the viewport, check the layout chain first.
+
+Common failure signatures:
+- The page or outer panel scrolls horizontally, but `.extable-viewport` does not.
+- The table area expands wider than expected inside a `flex` or `grid` pane.
+- Only specific routes/panels fail while others work with the same table config.
+
+Checklist:
+1. Ensure the Extable mount element has explicit size (`width`/`height`, usually `100%`).
+2. In every flex/grid item from the app shell down to the table pane, set `min-width: 0` and `min-height: 0`.
+3. Keep `.extable-viewport` as the scroll host; avoid forcing ancestor containers to absorb overflow unexpectedly.
+
+Typical fix:
+
+```css
+.main-pane {
+  min-width: 0;
+  min-height: 0;
+}
+
+.table-pane {
+  min-width: 0;
+  min-height: 0;
+}
+```
+
 ### Customization
 
 - [Validation](./validation.md) - Schema-based constraints

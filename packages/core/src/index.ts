@@ -79,6 +79,8 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
   private toast: HTMLDivElement | null = null;
   private toastTimer: number | null = null;
   private sequenceLangs?: readonly string[];
+  private layoutDiagnosticsEnabled = false;
+  private layoutDiagnosticWarnings = new Set<string>();
 
   private mounted = false;
 
@@ -153,6 +155,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
     this.server = init.options?.server;
     this.user = init.options?.user;
     this.sequenceLangs = init.options?.langs;
+    this.layoutDiagnosticsEnabled = Boolean(init.options?.layoutDiagnostics);
 
     const defaultData = init.defaultData ?? null;
     const initialData = defaultData ?? [];
@@ -256,6 +259,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
     this.ensureContextMenu();
     this.ensureToast();
     this.initViewportState();
+    this.runLayoutDiagnostics();
 
     this.root.classList.toggle("extable-loading", !this.dataLoaded);
     if (!this.dataLoaded) {
@@ -1830,6 +1834,7 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
       deltaY: 0,
       timestamp: performance.now(),
     };
+    this.runLayoutDiagnostics();
   }
 
   private updateViewportFromRoot() {
@@ -1854,9 +1859,41 @@ export class ExtableCore<T extends object = Record<string, unknown>, R extends o
       timestamp: performance.now(),
     };
     this.viewportState = next;
+    if (next.clientWidth !== prev.clientWidth || next.clientHeight !== prev.clientHeight) {
+      this.runLayoutDiagnostics();
+    }
     if (this.rafId === null) {
       this.rafId = requestAnimationFrame(() => this.flushRender());
     }
+  }
+
+  private warnLayoutDiagnostic(key: string, message: string) {
+    if (this.layoutDiagnosticWarnings.has(key)) return;
+    this.layoutDiagnosticWarnings.add(key);
+    // eslint-disable-next-line no-console
+    console.warn(`[extable:layout] ${message}`);
+  }
+
+  private runLayoutDiagnostics() {
+    if (!this.layoutDiagnosticsEnabled) return;
+    if (typeof window === "undefined") return;
+    const host = this.getScrollHost();
+    if (host.clientWidth <= 0 || host.clientHeight <= 0) {
+      this.warnLayoutDiagnostic(
+        "non-positive-host-size",
+        "Viewport size is 0. Ensure the mount container and its parent chain have explicit size.",
+      );
+    }
+    const parent = this.root.parentElement;
+    if (!parent || parent.clientWidth <= 0) return;
+    if (this.root.clientWidth <= parent.clientWidth + 1) return;
+    const parentStyle = window.getComputedStyle(parent);
+    if (parentStyle.display !== "flex" && parentStyle.display !== "grid") return;
+    if (parentStyle.minWidth === "0px") return;
+    this.warnLayoutDiagnostic(
+      "parent-shrink-constraint",
+      "Parent flex/grid item may block shrinking. Set `min-width: 0` and `min-height: 0` on the layout container chain.",
+    );
   }
 
   private flushRender() {

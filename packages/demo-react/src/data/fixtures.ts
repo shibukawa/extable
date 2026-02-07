@@ -451,7 +451,7 @@ export const filterSortRows: FilterSortRow[] = [
 export const filterSortSchema = {
   columns: [
     { key: 'id', header: '#', type: 'number', readonly: true, width: 50 },
-    { key: 'group', header: 'Group', type: 'enum', enum: { options: ['A', 'B', 'C'] }, width: 100 },
+    { key: 'group', header: 'Group', type: 'enum', enum: ['A', 'B', 'C'], width: 100 },
     { key: 'amount', header: 'Amount', type: 'number', style: { align: 'right' }, width: 110 },
     {
       key: 'status',
