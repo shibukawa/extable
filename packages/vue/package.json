@@ -1,6 +1,6 @@
 {
   "name": "@extable/vue",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "private": false,
   "type": "module",
   "main": "./dist/index.js",
@@ -27,7 +27,7 @@
     "dev": "vite dev"
   },
   "dependencies": {
-    "@extable/core": "0.3.8",
+    "@extable/core": "0.3.9",
     "vue": "^3.5.26"
   },
   "peerDependencies": {
