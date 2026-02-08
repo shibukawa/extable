@@ -539,11 +539,11 @@ export function App() {
           </div>
         </section>
 
-        <section className="min-h-0 flex-1 overflow-visible">
-          <div className="grid h-full min-h-0 grid-cols-1 gap-4 overflow-visible lg:grid-cols-[minmax(0,1fr)_380px]">
-            <div className="min-h-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col overflow-visible">
+        <section className="min-h-0 min-w-0 flex-1 overflow-visible">
+          <div className="grid h-full min-h-0 min-w-0 grid-cols-1 gap-4 overflow-visible lg:grid-cols-[minmax(0,1fr)_380px]">
+            <div className="min-h-0 min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col overflow-visible">
               <h2 className="mb-3 text-sm font-semibold text-slate-700">Table</h2>
-              <div className="min-h-0 flex-1 overflow-visible p-5">
+              <div className="min-h-0 min-w-0 flex-1 overflow-visible p-5">
                 <Extable
                   key={tableInstanceKey}
                   ref={tableRef}
@@ -556,7 +556,7 @@ export function App() {
                     const handle = tableRef.current;
                     if (handle) (window as unknown as Record<string, unknown>).__extableCore = handle;
                   }}
-                  className="min-h-0 h-full w-full"
+                  className="min-h-0 min-w-0 h-full w-full"
                 />
               </div>
             </div>

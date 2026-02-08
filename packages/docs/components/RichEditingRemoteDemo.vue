@@ -169,7 +169,7 @@ const schema = defineSchema<DemoRow>({
       width: 180,
       edit: {
         lookup: {
-          fetchCandidates: fetchColorCandidates,
+          candidates: fetchColorCandidates,
           // value-only lookup: store the primitive value directly
           toStoredValue: (c) => c.value,
         },
@@ -190,7 +190,7 @@ const schema = defineSchema<DemoRow>({
       width: 220,
       edit: {
         lookup: {
-          fetchCandidates,
+          candidates: fetchCandidates,
         },
       },
       tooltip: {
@@ -211,11 +211,12 @@ const schema = defineSchema<DemoRow>({
     {
       key: "tags",
       header: "Tags (Free Input)",
-      type: "string",
+      type: "tags",
+      tags: [...suggestedTags],
       width: 200,
       edit: {
         lookup: {
-          fetchCandidates: fetchTagCandidates,
+          candidates: fetchTagCandidates,
           allowFreeInput: true,  // Allow free text input
           toStoredValue: (c) => c.value,  // Store the value directly
         },
@@ -236,9 +237,7 @@ const schema = defineSchema<DemoRow>({
       width: 340,
       wrapText: false,
       edit: {
-        externalEditor: {
-          open: openExternalEditor,
-        },
+        externalEditor: openExternalEditor,
       },
     },
   ],

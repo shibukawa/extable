@@ -23,6 +23,8 @@
 ### Changed
 
 - Appearance of unique and boolean field in commit mode.
+- Layout compatibility: improved flex/grid stretch behavior with safer `.extable-root` sizing defaults (`width/height/min-width/min-height`) and added optional `layoutDiagnostics` warnings for common parent shrink constraints.
+- Docs/demos: added horizontal-scroll troubleshooting guidance and aligned demo layouts with explicit `min-width: 0` constraints.
 
 ## 0.3.7
 

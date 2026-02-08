@@ -106,11 +106,11 @@
         <!-- Style controls removed (user-applied styling API removed) -->
       </section>
 
-      <section class="min-h-0 flex-1 overflow-hidden">
-        <div class="grid h-full min-h-0 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_380px]">
-          <div class="min-h-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col overflow-hidden">
+      <section class="min-h-0 min-w-0 flex-1 overflow-hidden">
+        <div class="grid h-full min-h-0 min-w-0 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_380px]">
+          <div class="min-h-0 min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col overflow-hidden">
             <h2 class="mb-3 text-sm font-semibold text-slate-700">Table</h2>
-            <div class="min-h-0 flex-1 overflow-visible p-5">
+            <div class="min-h-0 min-w-0 flex-1 overflow-visible p-5">
               <Extable
                 ref="tableRef"
                 :key="tableInstanceKey"
@@ -118,7 +118,7 @@
                 :defaultData="defaultData"
                 :defaultView="currentConfig.view"
                 :options="options"
-                class="min-h-0 h-full w-full"
+                class="min-h-0 min-w-0 h-full w-full"
                 @tableState="handleTableState"
               />
             </div>

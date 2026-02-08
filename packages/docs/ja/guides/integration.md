@@ -332,6 +332,34 @@ const tableRef = ref<InstanceType<typeof Extable> | null>(null);
 - コンテナのサイズ変更に自動追従
 :::
 
+### 横スクロールのトラブルシュート
+
+列の合計幅がビューポートより大きいのに横スクロールが出ない場合は、まずレイアウト階層を確認してください。
+
+よくある症状:
+- `.extable-viewport` ではなく、ページ全体や外側のパネルが横スクロールする
+- `flex`/`grid` ペイン内で、テーブル領域が想定より横に広がる
+- テーブル設定は同じなのに、特定画面や特定パネルでのみ再現する
+
+チェックリスト:
+1. Extableのマウント要素に明示的なサイズ（通常は `width: 100%`, `height: 100%`）を与える
+2. アプリシェルからテーブル領域までのすべての flex/grid item に `min-width: 0` と `min-height: 0` を設定する
+3. スクロールホストは `.extable-viewport` のままにし、祖先コンテナ側で不要にオーバーフローを吸収しない
+
+典型的な修正:
+
+```css
+.main-pane {
+  min-width: 0;
+  min-height: 0;
+}
+
+.table-pane {
+  min-width: 0;
+  min-height: 0;
+}
+```
+
 ### カスタマイズ
 
 - [バリデーション](/ja/guides/validation) - スキーマ制約

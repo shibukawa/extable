@@ -360,6 +360,8 @@ export interface CoreOptions {
   renderMode?: RenderMode;
   editMode?: EditMode;
   lockMode?: LockMode;
+  /** When true, logs non-blocking layout warnings for common flex/grid sizing issues. */
+  layoutDiagnostics?: boolean;
   /** Preferred languages for auto-fill sequence matching (e.g. ["ja", "en"]). */
   langs?: string[];
   defaultClass?: string | string[];

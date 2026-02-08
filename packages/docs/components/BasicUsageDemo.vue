@@ -35,14 +35,14 @@ const schema = defineSchema<DemoRow>({
       key: "role",
       header: "Role",
       type: "enum",
-      enum: { options: ["viewer", "editor", "owner"] },
+      enum: ["viewer", "editor", "owner"],
       width: 130,
     },
     {
       key: "tags",
       header: "Tags",
       type: "tags",
-      tags: { options: ["alpha", "beta", "priority"] },
+      tags: ["alpha", "beta", "priority"],
       width: 140,
     },
     {
