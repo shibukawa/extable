@@ -1,5 +1,12 @@
 # History
 
+## 0.3.9
+
+### Changed
+
+- Synchronized workspace package versions from `0.3.8` to `0.3.9` across root, core, wrappers, sequence, server, docs, and demos.
+- Updated inter-package dependency references to `0.3.9` for cross-package compatibility (`core`->`sequence`, `react`/`vue`->`core`, `docs`/demos->core or wrappers).
+
 ## 0.3.8
 
 ### Changed (Breaking)
