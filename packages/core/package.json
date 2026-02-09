@@ -15,23 +15,28 @@
       "types": "./dist/ssr/index.d.ts"
     },
     "./style.css": "./style.css",
-    "./index.css": "./dist/index.css"
+    "./index.css": "./dist/core.css"
   },
   "files": [
     "dist",
     "style.css",
-    "src/styles.css"
+    "src/styles.css",
+    "src/styles-overlays.css",
+    "!dist/**/*.map",
+    "!dist/**/*.js.map",
+    "!dist/**/*.css.map"
   ],
   "publishConfig": {
     "access": "public"
   },
   "sideEffects": [
-    "./dist/index.css"
+    "./dist/core.css"
   ],
   "scripts": {
     "prebuild": "npm run build --workspace @extable/sequence",
     "pretest": "npm run build --workspace @extable/sequence",
-    "build": "tsc -p tsconfig.build.json --emitDeclarationOnly && vite build",
+    "build": "vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "build:release": "EXTABLE_RELEASE=1 vite build && tsc -p tsconfig.build.json --emitDeclarationOnly",
     "test": "vitest run",
     "lint": "biome lint .",
     "format": "biome format --write ."

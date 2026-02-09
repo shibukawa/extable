@@ -6,6 +6,17 @@
 
 - Synchronized workspace package versions from `0.3.8` to `0.3.9` across root, core, wrappers, sequence, server, docs, and demos.
 - Updated inter-package dependency references to `0.3.9` for cross-package compatibility (`core`->`sequence`, `react`/`vue`->`core`, `docs`/demos->core or wrappers).
+- Size-first refactor:
+  - split renderer internals into focused modules (`rendererTypes`, `rendererShared`, `htmlRenderer`, `canvasRenderer`) and kept `renderers` as a re-export surface.
+  - extracted shared formatter and selection helper modules (`valueFormatter`, `selectionClipboard`, `selectionCoercion`, `selectionEditorFactory`, `selectionInitialValue`) to reduce duplication.
+  - extracted index auxiliary UI definitions (`indexUi`) for context-menu/filter-sort template constants.
+  - reorganized overlay-related styles into `src/styles-overlays.css` and imported from `src/styles.css`.
+  - reduced React/Vue wrapper proxy duplication by introducing shared core helper utilities (`wrapperHandleUtils`) and using them in both wrappers.
+  - packaging/build policy updates:
+    - clean `dist` output on build (`emptyOutDir: true`),
+    - release-aware sourcemap policy (`EXTABLE_RELEASE=1` disables maps),
+    - map files excluded from publish artifacts,
+    - added size scripts (`size:core:gzip`, `size:core:pack`, `size:core`) and core release build script.
 
 ## 0.3.8
 
