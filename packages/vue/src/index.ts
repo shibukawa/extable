@@ -1,3 +1,9 @@
+import {
+  callCore,
+  callCoreOr,
+  callCorePromiseOr,
+  ExtableCore,
+} from "@extable/core";
 import type {
   CommitHandler,
   CoreOptions,
@@ -10,7 +16,6 @@ import type {
   TableState,
   View,
 } from "@extable/core";
-import { ExtableCore } from "@extable/core";
 import type { PropType } from "vue";
 import { defineComponent, getCurrentInstance, h, onBeforeUnmount, onMounted, watch } from "vue";
 
@@ -156,42 +161,64 @@ export const Extable = defineComponent({
         core?.destroy();
         core = null;
       },
-      setData: (data) => core?.setData(data),
-      setView: (view) => core?.setView(view),
-      showFilterSortPanel: (colKey: string) => core?.showFilterSortPanel(colKey),
-      hideFilterSortPanel: () => core?.hideFilterSortPanel(),
-      toggleFilterSortPanel: (colKey: string) => core?.toggleFilterSortPanel(colKey),
-      getData: () => core?.getData() ?? [],
-      getRawData: () => core?.getRawData() ?? [],
-      getSchema: () => core?.getSchema() ?? initialSchema,
-      getView: () => core?.getView() ?? initialView,
-      getCell: (rowId: string, colKey: any) => core?.getCell(rowId, colKey) ?? null,
-      getDisplayValue: (row: any, colKey: any) => core?.getDisplayValue(row, colKey) ?? "",
-      getCellPending: (row: any, colKey: any) => core?.getCellPending(row, colKey) ?? false,
-      getRow: (row: any) => core?.getRow(row) ?? null,
-      getTableData: () => core?.getTableData() ?? [],
-      getColumnData: (colKey: any) => core?.getColumnData(colKey) ?? [],
-      getPending: () => core?.getPending() ?? new Map(),
-      getPendingRowIds: () => core?.getPendingRowIds() ?? [],
-      hasPendingChanges: () => core?.hasPendingChanges() ?? false,
-      getPendingCellCount: () => core?.getPendingCellCount() ?? 0,
-      getRowIndex: (rowId: string) => core?.getRowIndex(rowId) ?? -1,
-      getColumnIndex: (colKey: string) => core?.getColumnIndex(colKey) ?? -1,
-      getAllRows: () => core?.getAllRows() ?? [],
-      listRows: () => core?.listRows() ?? [],
+      setData: (data) => {
+        callCore(core, (x) => x.setData(data));
+      },
+      setView: (view) => {
+        callCore(core, (x) => x.setView(view));
+      },
+      showFilterSortPanel: (colKey: string) => {
+        callCore(core, (x) => x.showFilterSortPanel(colKey));
+      },
+      hideFilterSortPanel: () => {
+        callCore(core, (x) => x.hideFilterSortPanel());
+      },
+      toggleFilterSortPanel: (colKey: string) => {
+        callCore(core, (x) => x.toggleFilterSortPanel(colKey));
+      },
+      getData: () => callCoreOr(core, (x) => x.getData(), []),
+      getRawData: () => callCoreOr(core, (x) => x.getRawData(), []),
+      getSchema: () => callCoreOr(core, (x) => x.getSchema(), initialSchema),
+      getView: () => callCoreOr(core, (x) => x.getView(), initialView),
+      getCell: (rowId: string, colKey: any) => callCoreOr(core, (x) => x.getCell(rowId, colKey), null),
+      getDisplayValue: (row: any, colKey: any) =>
+        callCoreOr(core, (x) => x.getDisplayValue(row, colKey), ""),
+      getCellPending: (row: any, colKey: any) =>
+        callCoreOr(core, (x) => x.getCellPending(row, colKey), false),
+      getRow: (row: any) => callCoreOr(core, (x) => x.getRow(row), null),
+      getTableData: () => callCoreOr(core, (x) => x.getTableData(), []),
+      getColumnData: (colKey: any) => callCoreOr(core, (x) => x.getColumnData(colKey), []),
+      getPending: () => callCoreOr(core, (x) => x.getPending(), new Map()),
+      getPendingRowIds: () => callCoreOr(core, (x) => x.getPendingRowIds(), []),
+      hasPendingChanges: () => callCoreOr(core, (x) => x.hasPendingChanges(), false),
+      getPendingCellCount: () => callCoreOr(core, (x) => x.getPendingCellCount(), 0),
+      getRowIndex: (rowId: string) => callCoreOr(core, (x) => x.getRowIndex(rowId), -1),
+      getColumnIndex: (colKey: string) => callCoreOr(core, (x) => x.getColumnIndex(colKey), -1),
+      getAllRows: () => callCoreOr(core, (x) => x.getAllRows(), []),
+      listRows: () => callCoreOr(core, (x) => x.listRows(), []),
       setCellValue: (row: any, colKey: any, next: any) =>
-        core?.setCellValue(row as never, colKey as never, next as never),
-      setValueToSelection: (next: any) => core?.setValueToSelection(next),
-      insertRow: (rowData: any, pos?: any) => core?.insertRow(rowData, pos) ?? null,
-      deleteRow: (row: any) => core?.deleteRow(row) ?? false,
-      undo: () => core?.undo(),
-      redo: () => core?.redo(),
-      getUndoRedoHistory: () => core?.getUndoRedoHistory() ?? { undo: [], redo: [] },
+        callCore(core, (x) => x.setCellValue(row as never, colKey as never, next as never)),
+      setValueToSelection: (next: any) => {
+        callCore(core, (x) => x.setValueToSelection(next));
+      },
+      insertRow: (rowData: any, pos?: any) => callCoreOr(core, (x) => x.insertRow(rowData, pos), null),
+      deleteRow: (row: any) => callCoreOr(core, (x) => x.deleteRow(row), false),
+      undo: () => {
+        callCore(core, (x) => x.undo());
+      },
+      redo: () => {
+        callCore(core, (x) => x.redo());
+      },
+      getUndoRedoHistory: () => callCoreOr(core, (x) => x.getUndoRedoHistory(), { undo: [], redo: [] }),
       commit: (handler?: CommitHandler) =>
-        handler ? core?.commit(handler) ?? Promise.resolve([]) : core?.commit() ?? Promise.resolve([]),
-      subscribeTableState: (listener: any) => core?.subscribeTableState(listener) ?? (() => false),
-      subscribeSelection: (listener: any) => core?.subscribeSelection(listener) ?? (() => false),
-      getSelectionSnapshot: () => core?.getSelectionSnapshot() ?? emptySelectionSnapshot,
+        handler
+          ? callCorePromiseOr(core, (x) => x.commit(handler), Promise.resolve([]))
+          : callCorePromiseOr(core, (x) => x.commit(), Promise.resolve([])),
+      subscribeTableState: (listener: any) =>
+        callCoreOr(core, (x) => x.subscribeTableState(listener), () => false),
+      subscribeSelection: (listener: any) =>
+        callCoreOr(core, (x) => x.subscribeSelection(listener), () => false),
+      getSelectionSnapshot: () => callCoreOr(core, (x) => x.getSelectionSnapshot(), emptySelectionSnapshot),
     };
 
     expose(handle);
