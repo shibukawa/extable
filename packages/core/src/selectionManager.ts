@@ -2,8 +2,6 @@ import type { CellAction, Command, EditMode, LookupCandidate, SelectionRange, Vi
 import type { DataModel } from "./dataModel";
 import {
   coerceNumericForColumn,
-  formatIntegerWithPrefix,
-  formatNumberForEdit,
   normalizeNumericInput,
   parseNumericText,
 } from "./numberIO";
@@ -28,6 +26,10 @@ import {
   clampColumnWidth,
 } from "./geometry";
 import { resolveButtonAction, resolveLinkAction } from "./actionValue";
+import { parseClipboardGrid } from "./selectionClipboard";
+import { coerceClipboardValue } from "./selectionCoercion";
+import { autosizeTextarea, createEditorControl } from "./selectionEditorFactory";
+import { getInitialEditValue as resolveInitialEditValue } from "./selectionInitialValue";
 
 type EditHandler = (cmd: Command, commit: boolean) => void;
 type RowSelectHandler = (rowId: string) => void;
@@ -389,57 +391,6 @@ export class SelectionManager {
   private findColumn(colKey: string) {
     const schema = this.dataModel.getSchema();
     return schema.columns.find((c) => c.key === colKey);
-  }
-
-  private pad2(n: number) {
-    return String(n).padStart(2, "0");
-  }
-
-  private formatLocalDateForInput(d: Date) {
-    return `${d.getFullYear()}-${this.pad2(d.getMonth() + 1)}-${this.pad2(d.getDate())}`;
-  }
-
-  private formatLocalTimeForInput(d: Date) {
-    return `${this.pad2(d.getHours())}:${this.pad2(d.getMinutes())}`;
-  }
-
-  private formatLocalDateTimeForInput(d: Date) {
-    return `${this.formatLocalDateForInput(d)}T${this.formatLocalTimeForInput(d)}`;
-  }
-
-  private normalizeTemporalInitialValue(colType: "date" | "time" | "datetime", initial: string) {
-    const value = initial.trim();
-    if (!value) return "";
-
-    if (colType === "date") {
-      const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
-      if (m) return m[1] ?? "";
-      const d = new Date(value);
-      if (!Number.isNaN(d.getTime())) return this.formatLocalDateForInput(d);
-      return "";
-    }
-
-    if (colType === "time") {
-      const m = value.match(/(\d{2}:\d{2})(?::\d{2})?/);
-      if (m) return m[1] ?? "";
-      const d = new Date(value);
-      if (!Number.isNaN(d.getTime())) return this.formatLocalTimeForInput(d);
-      return "";
-    }
-
-    // datetime => input[type="datetime-local"] expects "YYYY-MM-DDTHH:mm" (no timezone).
-    if (/Z$/.test(value) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
-      return value.replace(/Z$/, "").slice(0, 16);
-    }
-    if (
-      /^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}/.test(value) &&
-      !/[+-]\d{2}:\d{2}$/.test(value)
-    ) {
-      return value.slice(0, 16);
-    }
-    const d = new Date(value);
-    if (!Number.isNaN(d.getTime())) return this.formatLocalDateTimeForInput(d);
-    return "";
   }
 
   private ensureCopyToast() {
@@ -2032,7 +1983,7 @@ export class SelectionManager {
     const html = ev.clipboardData?.getData("text/html") ?? "";
     const tsv = ev.clipboardData?.getData("text/tab-separated-values") ?? "";
     const text = ev.clipboardData?.getData("text/plain") ?? "";
-    const grid = this.parseClipboardGrid({ html, tsv, text });
+    const grid = parseClipboardGrid({ html, tsv, text });
     if (!grid) return;
     this.applyClipboardGrid(grid);
   };
@@ -2130,7 +2081,7 @@ export class SelectionManager {
     try {
       const text = await navigator.clipboard.readText();
       if (!text) return;
-      const grid = this.parseClipboardGrid({ html: "", tsv: text, text });
+      const grid = parseClipboardGrid({ html: "", tsv: text, text });
       if (!grid) return;
       this.applyClipboardGrid(grid);
     } catch {
@@ -2404,69 +2355,6 @@ export class SelectionManager {
     }
   }
 
-  private parseClipboardGrid(payload: { html: string; tsv: string; text: string }):
-    | string[][]
-    | null {
-    const fromHtml = this.parseHtmlTable(payload.html);
-    if (fromHtml) return fromHtml;
-    const raw = payload.tsv || payload.text;
-    return this.parseTsv(raw);
-  }
-
-  private parseTsv(text: string): string[][] | null {
-    const trimmed = text.replace(/\r\n$/, "").replace(/\n$/, "");
-    if (!trimmed) return null;
-    const rows = trimmed.split(/\r\n|\n/);
-    return rows.map((r) => r.split("\t"));
-  }
-
-  private parseHtmlTable(html: string): string[][] | null {
-    if (!html) return null;
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, "text/html");
-      const table = doc.querySelector("table");
-      if (!table) return null;
-      const trs = Array.from(table.querySelectorAll("tr"));
-      if (trs.length === 0) return null;
-      const grid: string[][] = [];
-      for (const tr of trs) {
-        const cells = Array.from(tr.querySelectorAll("th,td"));
-        if (
-          cells.some(
-            (c) =>
-              (c as HTMLTableCellElement).rowSpan > 1 || (c as HTMLTableCellElement).colSpan > 1,
-          )
-        ) {
-          return null;
-        }
-        grid.push(cells.map((c) => (c.textContent ?? "").trim()));
-      }
-      return grid.length ? grid : null;
-    } catch {
-      return null;
-    }
-  }
-
-  private coerceCellValue(raw: string, colKey: string): unknown {
-    const col = this.findColumn(colKey);
-    if (!col) return raw;
-    if (raw === "") return "";
-    if (col.type === "number" || col.type === "int" || col.type === "uint") {
-      const parsed = parseNumericText(raw);
-      if (!parsed.ok) return raw;
-      const coerced = coerceNumericForColumn(parsed.value, col.type);
-      return coerced.ok ? coerced.value : raw;
-    }
-    if (col.type === "boolean") {
-      const v = raw.trim().toLowerCase();
-      if (v === "true" || v === "1" || v === "yes") return true;
-      if (v === "false" || v === "0" || v === "no") return false;
-      return raw;
-    }
-    return raw;
-  }
-
   private applyClipboardGrid(grid: string[][]) {
     const schema = this.dataModel.getSchema();
     const rows = this.dataModel.listRows();
@@ -2481,7 +2369,7 @@ export class SelectionManager {
         const col = schema.columns[startCol + c];
         if (!col) break;
         if (this.isCellReadonly(row.id, col.key)) continue;
-        const next = this.coerceCellValue(line[c] ?? "", col.key);
+        const next = coerceClipboardValue(line[c] ?? "", col);
         const cmd: Command = {
           kind: "edit",
           rowId: row.id,
@@ -2495,137 +2383,11 @@ export class SelectionManager {
   }
 
   private createEditor(colKey: string, initial: string) {
-    const col = this.findColumn(colKey);
-    if (col?.edit?.lookup) {
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = initial;
-      input.autocomplete = "off";
-      input.spellcheck = false;
-      return { control: input, value: initial };
-    }
-    const needsTextarea = col?.wrapText || initial.includes("\n");
-    if (needsTextarea) {
-      const ta = document.createElement("textarea");
-      ta.value = initial;
-      ta.style.resize = "none";
-      ta.style.whiteSpace = "pre-wrap";
-      ta.style.overflowWrap = "anywhere";
-      ta.style.overflow = "hidden";
-      this.autosize(ta);
-      ta.addEventListener("input", () => this.autosize(ta));
-      return { control: ta, value: initial };
-    }
-    if (col?.type === "boolean") {
-      const input = document.createElement("input");
-      input.type = "checkbox";
-      input.checked = initial === "true" || initial === "1" || initial === "on";
-      return { control: input, value: initial };
-    }
-    if (col?.type === "number" || col?.type === "int" || col?.type === "uint") {
-      const input = document.createElement("input");
-      input.type = "text";
-      input.value = initial;
-      return { control: input, value: initial };
-    }
-    if (col?.type === "date" || col?.type === "time" || col?.type === "datetime") {
-      const input = document.createElement("input");
-      input.type = col.type === "date" ? "date" : col.type === "time" ? "time" : "datetime-local";
-      const normalized = this.normalizeTemporalInitialValue(col.type, initial);
-      input.value = normalized;
-      return { control: input, value: normalized };
-    }
-    if (col?.type === "enum" || col?.type === "tags" || col?.type === "labeled") {
-      const allowCustom = col.type === "enum" ? (col.enumAllowCustom ?? false) : col.type === "tags" ? (col.tagsAllowCustom ?? false) : (col.enumAllowCustom ?? false);
-      // Gather raw options for each type
-      let rawOptions: unknown[] = [];
-      if (col.type === "enum" && Array.isArray(col.enum)) rawOptions = col.enum as unknown[];
-      if (col.type === "tags" && Array.isArray(col.tags)) rawOptions = col.tags as unknown[];
-      if (col.type === "labeled" && Array.isArray(col.enum)) rawOptions = col.enum as unknown[];
-      const options = rawOptions.map((o) => {
-        if (typeof o === "string") return o;
-        if (o && typeof o === "object") {
-          const obj = o as any;
-          // For labeled options, prefer label for display
-          if (col.type === "labeled") return String(obj.label ?? obj.value ?? "");
-          if ("value" in obj) return String(obj.value ?? obj.label ?? "");
-          if ("label" in obj) return String(obj.label ?? "");
-        }
-        return String(o ?? "");
-      });
-      if (allowCustom === false) {
-        const select = document.createElement("select");
-        const empty = document.createElement("option");
-        empty.value = "";
-        empty.textContent = "";
-        select.appendChild(empty);
-        for (const opt of options) {
-          const op = document.createElement("option");
-          op.value = opt;
-          op.textContent = opt;
-          if (initial === opt) op.selected = true;
-          select.appendChild(op);
-        }
-        return { control: select, value: initial };
-      }
-      const input = document.createElement("input");
-      input.type = "text";
-      const listId = `extable-datalist-${String(colKey)}`;
-      input.setAttribute("list", listId);
-      input.value = initial;
-      let datalist = document.getElementById(listId) as HTMLDataListElement | null;
-      if (!datalist) {
-        datalist = document.createElement("datalist");
-        datalist.id = listId;
-        for (const opt of options) {
-          const op = document.createElement("option");
-          op.value = opt;
-          datalist.appendChild(op);
-        }
-        this.root.appendChild(datalist);
-      }
-      return { control: input, value: initial, datalistId: listId };
-    }
-    const input = document.createElement("input");
-    input.type = "text";
-    input.value = initial;
-    return { control: input, value: initial };
+    return createEditorControl(this.findColumn(colKey), colKey, initial, this.root);
   }
 
   private getInitialEditValue(colKey: string, current: unknown): string {
-    if (current === null || current === undefined) return "";
-    const col = this.findColumn(colKey);
-    if (!col) return String(current);
-
-    if (typeof current === "object") {
-      const obj = current as Record<string, unknown>;
-      if (obj.kind === "lookup" && typeof obj.label === "string") {
-        return obj.label;
-      }
-      if (typeof obj.kind !== "string" && typeof obj.label === "string" && "value" in obj) {
-        return obj.label;
-      }
-    }
-
-    if ((col.type === "number" || col.type === "int" || col.type === "uint") && typeof current === "number") {
-      if (col.type === "number") {
-        const fmt = col.format as { format?: string; precision?: number; scale?: number } | undefined;
-        const token = fmt?.format ?? "decimal";
-        if (token === "scientific") {
-          return formatNumberForEdit(current, { format: "scientific", precision: fmt?.precision });
-        }
-        return formatNumberForEdit(current, { format: "decimal", scale: fmt?.scale });
-      }
-
-      const fmt = col.format as { format?: string } | undefined;
-      const token = fmt?.format ?? "decimal";
-      if (token === "binary" || token === "octal" || token === "hex") {
-        return formatIntegerWithPrefix(current, token);
-      }
-      return String(current);
-    }
-
-    return String(current);
+    return resolveInitialEditValue(current, this.findColumn(colKey));
   }
 
   private readActiveValueForCommit(): { ok: true; value: unknown } | { ok: false } {
@@ -2667,13 +2429,7 @@ export class SelectionManager {
   }
 
   private autosize(ta: HTMLTextAreaElement) {
-    const style = window.getComputedStyle(ta);
-    let lineHeight = Number.parseFloat(style.lineHeight);
-    if (!Number.isFinite(lineHeight) || lineHeight <= 0) lineHeight = 16;
-    ta.rows = 1; // shrink to measure
-    const lines = Math.ceil(ta.scrollHeight / lineHeight);
-    ta.rows = Math.max(1, lines);
-    ta.style.minHeight = `${lineHeight}px`;
+    autosizeTextarea(ta);
   }
 
   private positionFloatingContentBox(

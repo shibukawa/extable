@@ -1,5 +1,11 @@
 import type { CSSProperties, HTMLAttributes } from "react";
 import { forwardRef, useEffect, useImperativeHandle, useRef, type ForwardedRef } from "react";
+import {
+  callCore,
+  callCoreOr,
+  callCorePromiseOr,
+  ExtableCore,
+} from "@extable/core";
 import type {
   CommitHandler,
   CoreOptions,
@@ -12,7 +18,6 @@ import type {
   TableState,
   View,
 } from "@extable/core";
-import { ExtableCore } from "@extable/core";
 
 type CoreApi<T extends object, R extends object = T> = Pick<
   ExtableCore<T, R>,
@@ -155,49 +160,65 @@ export const Extable = forwardRef(function ExtableInner<
   useImperativeHandle(
     ref,
     () => {
+      const getCore = () => coreRef.current;
       const proxy: ExtableHandle<T> = {
         destroy: () => {
           coreRef.current?.destroy();
           coreRef.current = null;
         },
-        setData: (data) => coreRef.current?.setData(data),
-        setView: (view) => coreRef.current?.setView(view),
-        getData: () => coreRef.current?.getData() ?? [],
-        getRawData: () => coreRef.current?.getRawData() ?? [],
-        getSchema: () => coreRef.current?.getSchema() ?? initialSchemaRef.current,
-        getView: () => coreRef.current?.getView() ?? initialViewRef.current,
-        getCell: (rowId: string, colKey: any) => coreRef.current?.getCell(rowId, colKey),
+        setData: (data) => {
+          callCore(getCore(), (core) => core.setData(data));
+        },
+        setView: (view) => {
+          callCore(getCore(), (core) => core.setView(view));
+        },
+        getData: () => callCoreOr(getCore(), (core) => core.getData(), []),
+        getRawData: () => callCoreOr(getCore(), (core) => core.getRawData(), []),
+        getSchema: () => callCoreOr(getCore(), (core) => core.getSchema(), initialSchemaRef.current),
+        getView: () => callCoreOr(getCore(), (core) => core.getView(), initialViewRef.current),
+        getCell: (rowId: string, colKey: any) => callCore(getCore(), (core) => core.getCell(rowId, colKey)),
         getDisplayValue: (row: any, colKey: any) =>
-          coreRef.current?.getDisplayValue(row, colKey) ?? "",
-        getCellPending: (row: any, colKey: any) => coreRef.current?.getCellPending(row, colKey) ?? false,
-        getRow: (row: any) => coreRef.current?.getRow(row) ?? null,
-        getTableData: () => coreRef.current?.getTableData() ?? [],
-        getColumnData: (colKey: any) => coreRef.current?.getColumnData(colKey) ?? [],
-        getPending: () => coreRef.current?.getPending() ?? new Map(),
-        getPendingRowIds: () => coreRef.current?.getPendingRowIds() ?? [],
-        hasPendingChanges: () => coreRef.current?.hasPendingChanges() ?? false,
-        getPendingCellCount: () => coreRef.current?.getPendingCellCount() ?? 0,
-        getRowIndex: (rowId: string) => coreRef.current?.getRowIndex(rowId) ?? -1,
-        getColumnIndex: (colKey: string) => coreRef.current?.getColumnIndex(colKey) ?? -1,
-        getAllRows: () => coreRef.current?.getAllRows() ?? [],
-        listRows: () => coreRef.current?.listRows() ?? [],
+          callCoreOr(getCore(), (core) => core.getDisplayValue(row, colKey), ""),
+        getCellPending: (row: any, colKey: any) =>
+          callCoreOr(getCore(), (core) => core.getCellPending(row, colKey), false),
+        getRow: (row: any) => callCoreOr(getCore(), (core) => core.getRow(row), null),
+        getTableData: () => callCoreOr(getCore(), (core) => core.getTableData(), []),
+        getColumnData: (colKey: any) => callCoreOr(getCore(), (core) => core.getColumnData(colKey), []),
+        getPending: () => callCoreOr(getCore(), (core) => core.getPending(), new Map()),
+        getPendingRowIds: () => callCoreOr(getCore(), (core) => core.getPendingRowIds(), []),
+        hasPendingChanges: () => callCoreOr(getCore(), (core) => core.hasPendingChanges(), false),
+        getPendingCellCount: () => callCoreOr(getCore(), (core) => core.getPendingCellCount(), 0),
+        getRowIndex: (rowId: string) => callCoreOr(getCore(), (core) => core.getRowIndex(rowId), -1),
+        getColumnIndex: (colKey: string) =>
+          callCoreOr(getCore(), (core) => core.getColumnIndex(colKey), -1),
+        getAllRows: () => callCoreOr(getCore(), (core) => core.getAllRows(), []),
+        listRows: () => callCoreOr(getCore(), (core) => core.listRows(), []),
         setCellValue: (row: any, colKey: any, next: any) =>
-          coreRef.current?.setCellValue(row as never, colKey as never, next as never),
-        setValueToSelection: (next: any) => coreRef.current?.setValueToSelection(next),
-        insertRow: (rowData: any, pos?: any) => coreRef.current?.insertRow(rowData, pos) ?? null,
-        deleteRow: (row: any) => coreRef.current?.deleteRow(row) ?? false,
-        undo: () => coreRef.current?.undo(),
-        redo: () => coreRef.current?.redo(),
-        getUndoRedoHistory: () => coreRef.current?.getUndoRedoHistory() ?? { undo: [], redo: [] },
+          callCore(getCore(), (core) => core.setCellValue(row as never, colKey as never, next as never)),
+        setValueToSelection: (next: any) => {
+          callCore(getCore(), (core) => core.setValueToSelection(next));
+        },
+        insertRow: (rowData: any, pos?: any) =>
+          callCoreOr(getCore(), (core) => core.insertRow(rowData, pos), null),
+        deleteRow: (row: any) => callCoreOr(getCore(), (core) => core.deleteRow(row), false),
+        undo: () => {
+          callCore(getCore(), (core) => core.undo());
+        },
+        redo: () => {
+          callCore(getCore(), (core) => core.redo());
+        },
+        getUndoRedoHistory: () =>
+          callCoreOr(getCore(), (core) => core.getUndoRedoHistory(), { undo: [], redo: [] }),
         commit: (handler?: CommitHandler) =>
           handler
-            ? coreRef.current?.commit(handler) ?? Promise.resolve([])
-            : coreRef.current?.commit() ?? Promise.resolve([]),
+            ? callCorePromiseOr(getCore(), (core) => core.commit(handler), Promise.resolve([]))
+            : callCorePromiseOr(getCore(), (core) => core.commit(), Promise.resolve([])),
         subscribeTableState: (listener: any) =>
-          coreRef.current?.subscribeTableState(listener) ?? (() => false),
+          callCoreOr(getCore(), (core) => core.subscribeTableState(listener), () => false),
         subscribeSelection: (listener: any) =>
-          coreRef.current?.subscribeSelection(listener) ?? (() => false),
-        getSelectionSnapshot: () => coreRef.current?.getSelectionSnapshot() ?? emptySelectionSnapshot,
+          callCoreOr(getCore(), (core) => core.subscribeSelection(listener), () => false),
+        getSelectionSnapshot: () =>
+          callCoreOr(getCore(), (core) => core.getSelectionSnapshot(), emptySelectionSnapshot),
       };
       return proxy;
     },

@@ -12,9 +12,9 @@ export default defineConfig({
         entryName === 'ssr' ? 'ssr/index.js' : 'index.js',
       formats: ['es']
     },
-    sourcemap: true,
+    sourcemap: process.env.EXTABLE_RELEASE === '1' ? false : true,
     outDir: 'dist',
-    emptyOutDir: false
+    emptyOutDir: true
   },
   test: {
     environment: 'jsdom',

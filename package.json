@@ -12,6 +12,7 @@
   "scripts": {
     "build": "npm run build:core && npm run build:wrappers && npm run build:demos && npm run build:server",
     "build:core": "npm run build --workspace @extable/core",
+    "build:core:release": "npm run build:release --workspace @extable/core",
     "build:wrappers": "npm run build --workspace @extable/react && npm run build --workspace @extable/vue",
     "build:demos": "npm run build --workspace @extable/demo && npm run build --workspace @extable/demo-react && npm run build --workspace @extable/demo-vue",
     "build:server": "npm run build --workspace @extable/server-hono",
@@ -30,6 +31,9 @@
     "dev:sequence": "npm run dev --workspace @extable/sequence",
     "e2e": "npm run e2e --ws --if-present",
     "preview:docs": "npm run preview --workspace @extable/docs",
+    "size:core:gzip": "gzip -c packages/core/dist/index.js | wc -c && gzip -c packages/core/dist/core.css | wc -c",
+    "size:core:pack": "npm pack --dry-run --workspace @extable/core",
+    "size:core": "npm run size:core:gzip && npm run size:core:pack",
     "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium firefox webkit"
   },
   "overrides": {

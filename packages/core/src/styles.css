@@ -1,3 +1,5 @@
+@import "./styles-overlays.css";
+
 /* Component root */
 .extable-root {
   --extable-border: 1px solid #dadce0;
@@ -871,102 +873,6 @@
       box-shadow:
         0 2px 0 rgba(15, 23, 42, 0.3),
         inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    }
-  }
-}
-
-.extable-tooltip {
-  position: absolute;
-  pointer-events: none;
-  z-index: 9999;
-  display: none;
-  max-width: 360px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: #111827;
-  color: #f8fafc;
-  font-size: 12px;
-  line-height: 1.25;
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  white-space: pre-wrap;
-}
-
-.extable-tooltip[data-visible="1"] {
-  display: block;
-}
-
-.extable-tooltip::after {
-  content: "";
-  position: absolute;
-  top: 10px;
-  width: 0;
-  height: 0;
-  border: 7px solid transparent;
-}
-
-.extable-tooltip[data-side="right"]::after {
-  left: -14px;
-  border-right-color: #111827;
-}
-
-.extable-tooltip[data-side="left"]::after {
-  right: -14px;
-  border-left-color: #111827;
-}
-
-/* Tooltip is defined at top-level to apply even when appended to <body>. */
-
-.extable-lookup-dropdown {
-  display: none;
-  max-width: 420px;
-  max-height: 240px;
-  overflow: auto;
-  padding: 6px;
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.98);
-  border: 1px solid rgba(148, 163, 184, 0.55);
-  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.22), 0 8px 12px rgba(0, 0, 0, 0.14);
-  backdrop-filter: blur(6px);
-}
-
-.extable-lookup-dropdown[data-visible="1"] {
-  display: block;
-}
-
-.extable-lookup-option {
-  display: block;
-  width: 100%;
-  text-align: left;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-}
-
-.extable-lookup-option:hover,
-.extable-lookup-option:focus-visible,
-.extable-lookup-option[data-active="1"] {
-  outline: none;
-  background: rgba(59, 130, 246, 0.12);
-}
-
-.extable-root {
-  /* Toasts */
-  & .extable-toast {
-    border-radius: 8px;
-    padding: 10px 14px;
-    background: rgba(25, 25, 28, 0.92);
-    color: #f8fafc;
-    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.28), 0 6px 12px rgba(0, 0, 0, 0.18);
-    font-size: 13px;
-    max-width: 320px;
-    line-height: 1.4;
-
-    &[data-variant="error"] {
-      background: rgba(220, 38, 38, 0.92);
     }
   }
 }
