@@ -61,7 +61,7 @@ const user: UserInfo = { id: "demo-user", name: "Demo User" };
 let currentConfig: { data: NullableData; view: View; schema: Schema } = {
   data: demoRows.map((r) => ({ ...r })),
   view: { ...demoView },
-  schema: demoSchema,
+  schema: demoSchema as Schema,
 };
 
 const serverStub: ServerAdapter = {
@@ -148,12 +148,12 @@ function renderShell() {
   `;
 }
 
-function cloneConfig(dataMode: DataMode) {
+function cloneConfig(dataMode: DataMode): { data: NullableData; view: View; schema: Schema } {
   if (dataMode === "loading-async") {
     return {
       data: null,
-      schema: demoSchema,
-      view: { ...demoView },
+      schema: demoSchema as Schema,
+      view: { ...demoView } as View,
     };
   }
   if (dataMode === "performance-10k") {
@@ -161,63 +161,63 @@ function cloneConfig(dataMode: DataMode) {
       makePerformanceDemoRows(10000);
     return {
       data: (cloneConfig as unknown as Record<string, unknown>)._perfRows as any[],
-      schema: demoSchema,
-      view: { ...demoView },
+      schema: demoSchema as Schema,
+      view: { ...demoView } as View,
     };
   }
   if (dataMode === "data-format") {
     return {
       data: dataFormatRows.map((r) => ({ ...r })),
-      schema: dataFormatSchema,
-      view: { ...dataFormatView },
+      schema: dataFormatSchema as Schema,
+      view: { ...dataFormatView } as View,
     };
   }
   if (dataMode === "numbers") {
     return {
       data: numbersRows.map((r) => ({ ...r })),
-      schema: numbersSchema,
-      view: { ...numbersView },
+      schema: numbersSchema as Schema,
+      view: { ...numbersView } as View,
     };
   }
   if (dataMode === "formula") {
     return {
       data: formulaRows.map((r) => ({ ...r })),
-      schema: formulaSchema,
-      view: { ...formulaView },
+      schema: formulaSchema as Schema,
+      view: { ...formulaView } as View,
     };
   }
   if (dataMode === "conditional-style") {
     return {
       data: conditionalStyleRows.map((r) => ({ ...r })),
-      schema: conditionalStyleSchema,
-      view: { ...conditionalStyleView },
+      schema: conditionalStyleSchema as Schema,
+      view: { ...conditionalStyleView } as View,
     };
   }
   if (dataMode === "unique-check") {
     return {
       data: uniqueCheckRows.map((r) => ({ ...r })),
-      schema: uniqueCheckSchema,
-      view: { ...uniqueCheckView },
+      schema: uniqueCheckSchema as Schema,
+      view: { ...uniqueCheckView } as View,
     };
   }
   if (dataMode === "unique-bool") {
     return {
       data: uniqueBoolRows.map((r) => ({ ...r })),
-      schema: uniqueBoolSchema,
-      view: { ...uniqueBoolView },
+      schema: uniqueBoolSchema as Schema,
+      view: { ...uniqueBoolView } as View,
     };
   }
   if (dataMode === "filter-sort") {
     return {
       data: filterSortRows.map((r) => ({ ...r })),
-      schema: filterSortSchema,
-      view: { ...filterSortView },
+      schema: filterSortSchema as Schema,
+      view: { ...filterSortView } as View,
     };
   }
   return {
     data: demoRows.map((r) => ({ ...r })),
-    schema: demoSchema,
-    view: { ...demoView },
+    schema: demoSchema as Schema,
+    view: { ...demoView } as View,
   };
 }
 
@@ -234,7 +234,7 @@ function main() {
     user,
   };
 
-  let core: ExtableCore | null = null;
+  let core: ExtableCore<any, any> | null = null;
   let dataMode: DataMode = "standard";
   let unsubscribeTable: (() => void) | null = null;
   let loadGeneration = 0;
@@ -353,13 +353,14 @@ function main() {
     const config = cloneConfig(dataMode);
     currentConfig = config;
     updateDataNote();
-    core = new ExtableCore({
+    const nextCore = new ExtableCore({
       root: tableRoot,
       defaultData: config.data,
       defaultView: { ...config.view, wrapText: config.view.wrapText ?? {} },
       schema: config.schema,
       options: { ...options },
     });
+    core = nextCore;
     if (dataMode === "loading-async") {
       const gen = loadGeneration;
       loadTimer = window.setTimeout(() => {
@@ -376,7 +377,7 @@ function main() {
     }
 
     const commitState = document.getElementById("commit-state");
-    unsubscribeTable = core.subscribeTableState((next) => {
+    unsubscribeTable = nextCore.subscribeTableState((next) => {
       if (commitBtn) {
         commitBtn.toggleAttribute("disabled", !next.canCommit);
         if (options.editMode !== "commit") commitBtn.setAttribute("disabled", "true");
@@ -407,7 +408,7 @@ function main() {
         }
       };
 
-      const history = core?.getUndoRedoHistory();
+      const history = nextCore.getUndoRedoHistory();
       if (history) {
         renderHistoryList(undoHistoryEl, history.undo);
         renderHistoryList(redoHistoryEl, history.redo);
@@ -425,33 +426,33 @@ function main() {
   undoBtn?.addEventListener("click", () => core?.undo());
   redoBtn?.addEventListener("click", () => core?.redo());
 
-  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="render-mode"]')) {
+  document.querySelectorAll<HTMLInputElement>('input[name="render-mode"]').forEach((input) => {
     input.addEventListener("change", () => {
       options.renderMode = input.value as Mode;
       rebuildCore();
     });
-  }
+  });
 
-  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="edit-mode"]')) {
+  document.querySelectorAll<HTMLInputElement>('input[name="edit-mode"]').forEach((input) => {
     input.addEventListener("change", () => {
       options.editMode = input.value as EditMode;
       rebuildCore();
     });
-  }
+  });
 
-  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="lock-mode"]')) {
+  document.querySelectorAll<HTMLInputElement>('input[name="lock-mode"]').forEach((input) => {
     input.addEventListener("change", () => {
       options.lockMode = input.value as LockMode;
       rebuildCore();
     });
-  }
+  });
 
-  for (const input of document.querySelectorAll<HTMLInputElement>('input[name="data-mode"]')) {
+  document.querySelectorAll<HTMLInputElement>('input[name="data-mode"]').forEach((input) => {
     input.addEventListener("change", () => {
       dataMode = input.value as DataMode;
       rebuildCore();
     });
-  }
+  });
 
   const commitBtn = document.getElementById("commit-btn");
   commitBtn?.addEventListener("click", () => {

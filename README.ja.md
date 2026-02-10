@@ -1,6 +1,6 @@
 # Extable
 
-Excel-like HTML table component with a fixed column schema (similar to Google Sheets' table mode) and built-in multi-user editing.
+固定カラムスキーマを持つ、ExcelライクなHTMLテーブルコンポーネントです。Google Sheetsのテーブルモードに近い操作感で、マルチユーザー編集にも対応しています。
 
 [English](./README.md) | [日本語](./README.ja.md)
 
@@ -11,28 +11,26 @@ Excel-like HTML table component with a fixed column schema (similar to Google Sh
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-1f6feb)](https://shibukawa.github.io/extable/)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 
-![screenshot](https://github.com/shibukawa/extable/blob/main/packages/docs/public/assets/screenshot.webp?raw=true)
+## ドキュメント
 
-## Documentation
-
-The docs site is built with VitePress from `docs/pages` and deployed to GitHub Pages.
+ドキュメントサイトは `docs/pages` を元に VitePress で構築し、GitHub Pages に公開しています。
 
 - Docs URL: `https://shibukawa.github.io/extable/`
-- Local dev: `npm run docs:dev`
+- ローカル起動: `npm run docs:dev`
 
-## Demos
+## デモ
 
-- Vanilla demo (port `5173`): `npm run dev:demo`
-- React demo (port `5174`): `npm run dev:demo-react`
-- Vue demo (port `5175`): `npm run dev:demo-vue`
+- Vanilla デモ（ポート `5173`）: `npm run dev:demo`
+- React デモ（ポート `5174`）: `npm run dev:demo-react`
+- Vue デモ（ポート `5175`）: `npm run dev:demo-vue`
 
-## Development
+## 開発
 
 - Node: `>=22`
-- Install: `npm install --cache .npm-cache`
-- Build: `npm run build`
-- Test: `npm run test`
+- インストール: `npm install --cache .npm-cache`
+- ビルド: `npm run build`
+- テスト: `npm run test`
 
-## License
+## ライセンス
 
-Apache-2.0. See `LICENSE`.
+Apache-2.0。`LICENSE` を参照してください。
