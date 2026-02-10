@@ -11,6 +11,8 @@ export interface DemoRow {
   description: string;
   longNote: string;
   longNoWrap: string;
+  actionButton: { label: string; command: string; commandfor: string };
+  actionLink: { label: string; href: string; target?: string };
 }
 
 export const demoRows: DemoRow[] = [
@@ -39,7 +41,17 @@ for (let i = 1; i <= 100; i += 1) {
       'This is an extremely long single-line note intended to verify ellipsis when wrapping is disabled. ' +
       'It should exceed the column width significantly without containing newline characters.',
     longNoWrap:
-      'A very very long text that should stay single-line and demonstrate ellipsis behavior when wrap is off for this column.'
+      'A very very long text that should stay single-line and demonstrate ellipsis behavior when wrap is off for this column.',
+    actionButton: {
+      label: i % 2 === 0 ? 'Approve' : 'Review',
+      command: i % 2 === 0 ? 'approve' : 'review',
+      commandfor: String(i),
+    },
+    actionLink: {
+      label: 'Profile',
+      href: `https://example.com/users/${i}`,
+      target: '_blank',
+    }
   });
 }
 
@@ -63,7 +75,17 @@ export function makePerformanceDemoRows(count = 10000): DemoRow[] {
       score: Math.round((50 + (i % 50)) * 100) / 100,
       description: shortDescription,
       longNote,
-      longNoWrap
+      longNoWrap,
+      actionButton: {
+        label: i % 2 === 0 ? 'Approve' : 'Review',
+        command: i % 2 === 0 ? 'approve' : 'review',
+        commandfor: String(i),
+      },
+      actionLink: {
+        label: 'Profile',
+        href: `https://example.com/users/${i}`,
+        target: '_blank',
+      }
     });
   }
   return rows;
@@ -82,7 +104,9 @@ export const demoSchema = {
     { key: 'score', header: 'Score', type: 'number', format: { precision: 6, scale: 2 }, style: { align: 'right' }, width: 100 },
     { key: 'description', header: 'Description', type: 'string', width: 260, wrapText: true },
     { key: 'longNote', header: 'Long Note (wrap)', type: 'string', width: 260, wrapText: true },
-    { key: 'longNoWrap', header: 'Long Note (ellipsis)', type: 'string', width: 240 }
+    { key: 'longNoWrap', header: 'Long Note (ellipsis)', type: 'string', width: 240 },
+    { key: 'actionButton', header: 'Action', type: 'button', width: 120 },
+    { key: 'actionLink', header: 'Link', type: 'link', width: 140 }
   ]
 };
 

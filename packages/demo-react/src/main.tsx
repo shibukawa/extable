@@ -65,7 +65,7 @@ export function App() {
   const tableRef = useRef<ExtableHandle>(null);
   const [tableState, setTableState] = useState<TableState | null>(null);
   const [history, setHistory] = useState<UndoRedoHistory>({ undo: [], redo: [] });
-  const [asyncData, setAsyncData] = useState<NullableData<DemoRow[]>>(null);
+  const [asyncData, setAsyncData] = useState<NullableData<DemoRow>>(null);
   const loadGenerationRef = useRef(0);
   const loadTimerRef = useRef<number | null>(null);
   const renderModeFirstRef = useRef(true);
@@ -239,11 +239,6 @@ export function App() {
       "- conditionalStyle: (row) => StyleDelta | null | Error (warning) | throw (error)",
       "- Warning/Error is shown as a corner marker with hover message.",
     ];
-    if (dataMode === "unique-bool") {
-      headerLines.push(
-        "- commit mode: unique-boolean changes show red (current) and gray (previous) dots.",
-      );
-    }
     headerLines.push("", "Sources:", "");
     return headerLines.join("\n") + dataNoteForSchema(cfg.schema);
   })();

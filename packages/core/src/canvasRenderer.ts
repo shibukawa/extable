@@ -403,6 +403,13 @@ export class CanvasRenderer implements Renderer {
           const textAreaY = yCursor + CELL_PADDING_TOP_PX;
           const textAreaW = Math.max(0, w - CELL_PADDING_X_PX * 2);
           const textAreaH = Math.max(0, rowH - (CELL_PADDING_TOP_PX + CELL_PADDING_BOTTOM_PX));
+          const buttonTextPadX = 10;
+          const textDrawX =
+            renderAction && c.type === "button" ? textAreaX + buttonTextPadX : textAreaX;
+          const textDrawW =
+            renderAction && c.type === "button"
+              ? Math.max(0, textAreaW - buttonTextPadX * 2)
+              : textAreaW;
           const decorations = {
             underline: Boolean(mergedStyle.underline) || (renderAction && c.type === "link"),
             strike: Boolean(mergedStyle.strike),
@@ -412,9 +419,9 @@ export class CanvasRenderer implements Renderer {
               ? this.measureTextBounds(
                   ctx,
                   text,
-                  textAreaX,
+                  textDrawX,
                   textAreaY,
-                  textAreaW,
+                  textDrawW,
                   textAreaH,
                   wrap,
                   align,
@@ -469,9 +476,9 @@ export class CanvasRenderer implements Renderer {
           this.drawCellText(
             ctx,
             text,
-            textAreaX,
+            textDrawX,
             textAreaY,
-            textAreaW,
+            textDrawW,
             textAreaH,
             wrap,
             align,
@@ -916,12 +923,16 @@ export class CanvasRenderer implements Renderer {
       0,
       hit.rect.height - (CELL_PADDING_TOP_PX + CELL_PADDING_BOTTOM_PX),
     );
+    const buttonTextPadX = 10;
+    const textDrawX = col.type === "button" ? textAreaX + buttonTextPadX : textAreaX;
+    const textDrawW =
+      col.type === "button" ? Math.max(0, textAreaW - buttonTextPadX * 2) : textAreaW;
     const bounds = this.measureTextBounds(
       ctx,
       actionValue.label,
-      textAreaX,
+      textDrawX,
       textAreaY,
-      textAreaW,
+      textDrawW,
       textAreaH,
       wrap,
       align,
@@ -1350,6 +1361,8 @@ export class CanvasRenderer implements Renderer {
   ): DOMRect | null {
     const lines = this.getTextLinesForBounds(ctx, text, width, wrap, height);
     if (!lines.length) return null;
+    const totalTextHeight = lines.length * this.lineHeight;
+    const baseY = y + Math.max(0, Math.floor((height - totalTextHeight) / 2));
     let minX = Number.POSITIVE_INFINITY;
     let maxX = Number.NEGATIVE_INFINITY;
     let minY = Number.POSITIVE_INFINITY;
@@ -1360,7 +1373,7 @@ export class CanvasRenderer implements Renderer {
       let startX = x;
       if (align === "right") startX = x + width - lineWidth;
       else if (align === "center") startX = x + (width - lineWidth) / 2;
-      const lineTop = y + this.lineHeight * idx;
+      const lineTop = baseY + this.lineHeight * idx;
       const lineBottom = lineTop + this.lineHeight;
       minX = Math.min(minX, startX);
       maxX = Math.max(maxX, startX + lineWidth);
@@ -1390,6 +1403,8 @@ export class CanvasRenderer implements Renderer {
     ctx.rect(x - 4, y - 4, width + 8, height + 8);
     ctx.clip();
     const fontBackup = ctx.font;
+    const baselineBackup = ctx.textBaseline;
+    ctx.textBaseline = "top";
     if (isBoolean) {
       if (isUniqueBoolean) {
         ctx.font = `${UNIQUE_BOOL_FONT_SIZE_PX}px ${CANVAS_FONT_FAMILY}`;
@@ -1403,26 +1418,26 @@ export class CanvasRenderer implements Renderer {
     const totalTextHeight = lines.length * this.lineHeight;
     const baseY = y + Math.max(0, Math.floor((height - totalTextHeight) / 2));
     const renderLine = (ln: string, lineIdx: number) => {
-      const baseline = baseY + this.lineHeight * lineIdx;
+      const lineTop = baseY + this.lineHeight * lineIdx;
       let startX = x;
       let endX = x;
       if (align === "right") {
         ctx.textAlign = "right";
         endX = x + width;
         startX = endX - ctx.measureText(ln).width;
-        ctx.fillText(ln, endX, baseline);
+        ctx.fillText(ln, endX, lineTop);
       } else if (align === "center") {
         ctx.textAlign = "center";
         const center = x + width / 2;
         const w = ctx.measureText(ln).width;
         startX = center - w / 2;
         endX = center + w / 2;
-        ctx.fillText(ln, center, baseline);
+        ctx.fillText(ln, center, lineTop);
       } else {
         ctx.textAlign = "left";
         startX = x;
         endX = x + ctx.measureText(ln).width;
-        ctx.fillText(ln, x, baseline);
+        ctx.fillText(ln, x, lineTop);
       }
       if (decorations?.underline || decorations?.strike) {
         const strokeBackup = ctx.strokeStyle;
@@ -1431,12 +1446,12 @@ export class CanvasRenderer implements Renderer {
         ctx.lineWidth = 1;
         ctx.beginPath();
         if (decorations.underline) {
-          const yUnderline = baseline + 2;
+          const yUnderline = lineTop + this.lineHeight - 2;
           ctx.moveTo(startX, yUnderline);
           ctx.lineTo(endX, yUnderline);
         }
         if (decorations.strike) {
-          const yStrike = baseline - Math.floor(this.lineHeight / 2) + 2;
+          const yStrike = lineTop + Math.floor(this.lineHeight / 2);
           ctx.moveTo(startX, yStrike);
           ctx.lineTo(endX, yStrike);
         }
@@ -1446,9 +1461,10 @@ export class CanvasRenderer implements Renderer {
       }
     };
     for (let idx = 0; idx < lines.length; idx += 1) {
-      renderLine(lines[idx] ?? "", idx + 1);
+      renderLine(lines[idx] ?? "", idx);
     }
     ctx.textAlign = "left";
+    ctx.textBaseline = baselineBackup;
     ctx.font = fontBackup;
     ctx.restore();
   }
