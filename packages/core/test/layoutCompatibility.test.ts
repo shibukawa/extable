@@ -106,6 +106,57 @@ describe("layout compatibility", () => {
     }
   });
 
+  test("canvas renderer keeps spacer height at 1px on Safari when only horizontal overflow exists", () => {
+    const original = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function getContext(type: string) {
+      if (type !== "2d") return null;
+      return new Mock2DContext() as any;
+    };
+    const uaSpy = vi
+      .spyOn(window.navigator, "userAgent", "get")
+      .mockReturnValue(
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
+      );
+
+    try {
+      const root = document.createElement("div");
+      Object.defineProperty(root, "clientWidth", { get: () => 320, configurable: true });
+      Object.defineProperty(root, "clientHeight", { get: () => 240, configurable: true });
+      document.body.appendChild(root);
+
+      const core = createTablePlaceholder(
+        {
+          data: [{ a: "A", b: "B", c: "C" }],
+          schema: {
+            columns: [
+              { key: "a", type: "string", width: 220 },
+              { key: "b", type: "string", width: 220 },
+              { key: "c", type: "string", width: 220 },
+            ],
+          },
+          view: {},
+        },
+        { renderMode: "canvas", editMode: "direct", lockMode: "none" },
+      );
+
+      mountTable(root, core);
+
+      const viewport = root.querySelector(".extable-viewport") as HTMLDivElement | null;
+      expect(viewport).toBeTruthy();
+      const spacer = Array.from(viewport!.children).find(
+        (el) => el instanceof HTMLDivElement && el.style.width === "708px",
+      ) as HTMLDivElement | undefined;
+      expect(spacer).toBeTruthy();
+      expect(spacer!.style.height).toBe("1px");
+
+      core.destroy();
+      root.remove();
+    } finally {
+      uaSpy.mockRestore();
+      HTMLCanvasElement.prototype.getContext = original;
+    }
+  });
+
   test("layout diagnostics warns for flex parent shrink constraints", () => {
     const parent = document.createElement("div");
     parent.style.display = "flex";
