@@ -7,6 +7,7 @@
 - Synchronized workspace package versions from `0.3.8` to `0.3.9` across root, core, wrappers, sequence, server, docs, and demos.
 - Updated inter-package dependency references to `0.3.9` for cross-package compatibility (`core`->`sequence`, `react`/`vue`->`core`, `docs`/demos->core or wrappers).
 - Expanded `README.md` with repository badges (npm, license, CI, docs deploy, docs URL, Node requirement) and added `README.ja.md` for Japanese onboarding.
+- Canvas mode Safari compatibility: when only horizontal overflow exists (no vertical scroll range), the internal spacer now keeps a 1px height fallback so Safari can expose horizontal scrolling reliably.
 - Size-first refactor:
   - split renderer internals into focused modules (`rendererTypes`, `rendererShared`, `htmlRenderer`, `canvasRenderer`) and kept `renderers` as a re-export surface.
   - extracted shared formatter and selection helper modules (`valueFormatter`, `selectionClipboard`, `selectionCoercion`, `selectionEditorFactory`, `selectionInitialValue`) to reduce duplication.

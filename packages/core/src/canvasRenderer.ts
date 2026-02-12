@@ -44,6 +44,13 @@ const CANVAS_FONT_FAMILY = '"Inter","Segoe UI",system-ui,-apple-system,"Helvetic
 const CANVAS_FONT_SIZE_PX = 13.5;
 const UNIQUE_BOOL_FONT_SIZE_PX = 10;
 
+function isSafariBrowser() {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent ?? "";
+  // Exclude Chromium/Firefox family UAs that also include "Safari".
+  return /Safari/i.test(ua) && !/Chrome|Chromium|CriOS|Edg|OPR|FxiOS|Android/i.test(ua);
+}
+
 export class CanvasRenderer implements Renderer {
   private static readonly MAX_CANVAS_DIM_PX = 8192;
   private static readonly ROW_HEIGHT_MEASURE_CHUNK = 500;
@@ -78,6 +85,7 @@ export class CanvasRenderer implements Renderer {
   private rowHeightMeasuredVersion = new Map<string, number>();
   private rowHeightMeasureRaf: number | null = null;
   private rowHeightMeasureTask: { key: string; nextIndex: number } | null = null;
+  private readonly safariBrowser = isSafariBrowser();
   private heightIndex: {
     key: string | null;
     rowsRef: InternalRow[];
@@ -239,7 +247,10 @@ export class CanvasRenderer implements Renderer {
       }
 
       if (this.spacer) {
-        this.spacer.style.height = `${maxContentScrollTop}px`;
+        let spacerHeight = maxContentScrollTop;
+        // Safari can fail to expose horizontal overflow when spacer height is exactly 0px.
+        if (this.safariBrowser && spacerHeight <= 0 && totalWidth > nextWidth) spacerHeight = 1;
+        this.spacer.style.height = `${spacerHeight}px`;
         this.spacer.style.width = `${totalWidth}px`;
       }
       const dataXOffset = this.rowHeaderWidth - scrollLeft;
